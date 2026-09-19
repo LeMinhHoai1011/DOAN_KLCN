@@ -21,6 +21,33 @@ export interface MockDocument {
   ocrData: OcrData;
 }
 
+export const addMockDocument = (file: File): MockDocument => {
+  const nextId = mockDocuments.length + 1;
+  const document: MockDocument = {
+    id: `DOC-${String(nextId).padStart(3, '0')}`,
+    fileName: file.name,
+    type: 'Hóa đơn mua hàng',
+    supplier: 'Chưa xác định',
+    date: new Date().toISOString().split('T')[0],
+    amount: 0,
+    aiClassification: 'Khác',
+    aiConfidence: 0,
+    status: 'Đang xử lý',
+    ocrData: {
+      taxCode: '',
+      invoiceNo: '',
+      address: '',
+      phone: '',
+      subTotal: 0,
+      vatAmount: 0,
+      paymentMethod: '',
+    },
+  };
+
+  mockDocuments.push(document);
+  return document;
+};
+
 export const generateMockDocuments = (): MockDocument[] => {
   const types = ['Hóa đơn mua hàng', 'Hóa đơn bán hàng', 'Phiếu thu', 'Phiếu chi', 'Biên lai', 'Khác'];
   const statuses = ['Đã xử lý', 'Cần kiểm tra', 'Đang xử lý', 'Lỗi'];

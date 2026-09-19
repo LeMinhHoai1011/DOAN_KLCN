@@ -5,7 +5,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/invoice_db
     username: postgres
-    password: .. #cập nhật mật khẩu theo postgres của bạn
+    password: MinhHoai1011& #cập nhật mật khẩu theo postgres của bạn
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -30,7 +30,7 @@ app:
     endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
     access-key: ${MINIO_ACCESS_KEY:minioadmin}
     secret-key: ${MINIO_SECRET_KEY:minioadmin}
-    bucket: ${MINIO_BUCKET:invoice-files}
+    bucket: ${MINIO_BUCKET:invoices}
 
 springdoc:
   swagger-ui:

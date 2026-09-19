@@ -1,13 +1,23 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { UploadCloud, FileType, CheckCircle2, Loader2, Play } from 'lucide-react';
 import clsx from 'clsx';
 import { useNavigate } from 'react-router-dom';
+import { addMockDocument } from '../services/mockData';
 
 const Upload = () => {
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [processingState, setProcessingState] = useState<'idle' | 'uploading' | 'processing' | 'completed' | 'error'>('idle');
   const [progress, setProgress] = useState(0);
+
+  const handleFileSelect = (selectedFile: File | undefined) => {
+    if (!selectedFile) return;
+    if (selectedFile.size > 10 * 1024 * 1024) return;
+    setFile(selectedFile);
+    setProcessingState('idle');
+    setProgress(0);
+  };
 
   const workflowSteps = [
     { id: 1, name: 'Tải lên hệ thống', status: processingState === 'idle' ? 'pending' : (progress > 20 ? 'completed' : 'processing') },
@@ -28,8 +38,9 @@ const Upload = () => {
         if (prev >= 100) {
           clearInterval(interval);
           setProcessingState('completed');
+          const document = addMockDocument(file);
           // Navigate to details after 1 second
-          setTimeout(() => navigate('/documents/DOC-001'), 1500);
+          setTimeout(() => navigate(`/documents/${document.id}`), 1500);
           return 100;
         }
         return prev + 10;
@@ -48,20 +59,23 @@ const Upload = () => {
         
         {processingState === 'idle' ? (
           <div className="border-2 border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-50 transition-colors rounded-xl p-12 flex flex-col items-center justify-center text-center cursor-pointer relative"
-               onClick={() => {
-                  // Simulate file selection
-                  setFile(new File([""], "invoice_example.pdf", { type: "application/pdf" }));
-               }}>
+            onClick={() => fileInputRef.current?.click()}>
             <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4">
               <UploadCloud className="text-blue-500" size={32} />
             </div>
             <h3 className="text-lg font-semibold text-slate-800 mb-1">Kéo thả chứng từ vào đây</h3>
             <p className="text-sm text-slate-500 mb-6">Hỗ trợ các định dạng: PDF, JPG, PNG, XML (tối đa 10MB)</p>
             
-            <button className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 shadow-sm transition-all">
+            <button type="button" onClick={(event) => { event.stopPropagation(); fileInputRef.current?.click(); }} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 shadow-sm transition-all">
               Chọn File
             </button>
-            <input type="file" className="hidden" />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,.xml"
+              className="hidden"
+              onChange={(event) => handleFileSelect(event.target.files?.[0])}
+            />
           </div>
         ) : (
           <div className="flex flex-col items-center">

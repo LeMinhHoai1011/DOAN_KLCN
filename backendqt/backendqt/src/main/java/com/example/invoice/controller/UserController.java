@@ -30,6 +30,7 @@ public class UserController {
 	public UserResponse update(Authentication authentication, @Valid @RequestBody UpdateUserRequest request) {
 		return userService.updateCurrent(authentication, request);
 	}
+	
 
 	@PutMapping("/me/password")
 	@ResponseStatus(HttpStatus.NO_CONTENT)

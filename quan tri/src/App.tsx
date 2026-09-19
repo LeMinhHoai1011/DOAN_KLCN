@@ -4,11 +4,15 @@ import Dashboard from './pages/Dashboard';
 import Documents from './pages/Documents';
 import DocumentDetail from './pages/DocumentDetail';
 import Upload from './pages/Upload';
+import Login from './pages/Login';
+import Register from './pages/Register';
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="documents" element={<Documents />} />
