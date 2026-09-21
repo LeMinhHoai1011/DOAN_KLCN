@@ -1,72 +1,94 @@
 import { useRef, useState } from 'react';
-import { UploadCloud, FileType, CheckCircle2, Loader2, Play } from 'lucide-react';
-import clsx from 'clsx';
+import { CheckCircle2, FileType, Loader2, UploadCloud, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { addMockDocument } from '../services/mockData';
+import documentService from '../services/documentService';
+import type { DocumentResponse } from '../services/documentService';
+
+type UploadState = 'idle' | 'uploading' | 'completed' | 'error';
+
+const formatFileSize = (size: number) => {
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 const Upload = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [processingState, setProcessingState] = useState<'idle' | 'uploading' | 'processing' | 'completed' | 'error'>('idle');
-  const [progress, setProgress] = useState(0);
+  const [uploadState, setUploadState] = useState<UploadState>('idle');
+  const [uploadResult, setUploadResult] = useState<DocumentResponse | null>(null);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const handleFileSelect = (selectedFile: File | undefined) => {
-    if (!selectedFile) return;
-    if (selectedFile.size > 10 * 1024 * 1024) return;
+    if (!selectedFile) {
+      return;
+    }
+
+    setUploadResult(null);
+    setErrorMessage('');
+
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      setFile(null);
+      setUploadState('idle');
+      setErrorMessage('Kích thước file không được vượt quá 10MB');
+      return;
+    }
+
     setFile(selectedFile);
-    setProcessingState('idle');
-    setProgress(0);
+    setUploadState('idle');
   };
 
-  const workflowSteps = [
-    { id: 1, name: 'Tải lên hệ thống', status: processingState === 'idle' ? 'pending' : (progress > 20 ? 'completed' : 'processing') },
-    { id: 2, name: 'Tiền xử lý hình ảnh', status: progress > 20 ? (progress > 40 ? 'completed' : 'processing') : 'pending' },
-    { id: 3, name: 'Nhận dạng OCR', status: progress > 40 ? (progress > 60 ? 'completed' : 'processing') : 'pending' },
-    { id: 4, name: 'Trích xuất trường dữ liệu', status: progress > 60 ? (progress > 80 ? 'completed' : 'processing') : 'pending' },
-    { id: 5, name: 'AI Phân loại', status: progress > 80 ? (progress >= 100 ? 'completed' : 'processing') : 'pending' },
-  ];
+  const handleUpload = async () => {
+    if (!file) {
+      return;
+    }
 
-  const handleSimulateProcess = () => {
-    if (!file) return;
-    setProcessingState('processing');
-    setProgress(0);
-    
-    // Simulate steps
-    const interval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setProcessingState('completed');
-          const document = addMockDocument(file);
-          // Navigate to details after 1 second
-          setTimeout(() => navigate(`/documents/${document.id}`), 1500);
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 500);
+    setUploadState('uploading');
+    setErrorMessage('');
+
+    try {
+      const response = await documentService.uploadDocument(file);
+      setUploadResult(response);
+      setUploadState('completed');
+    } catch {
+      setUploadState('error');
+      setErrorMessage('Upload thất bại. Vui lòng thử lại.');
+    }
+  };
+
+  const handleCancel = () => {
+    setFile(null);
+    setUploadResult(null);
+    setUploadState('idle');
+    setErrorMessage('');
   };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Upload Chứng Từ</h1>
-        <p className="text-slate-500 mt-1">Kéo thả file vào đây để hệ thống tự động xử lý và trích xuất dữ liệu</p>
+        <p className="text-slate-500 mt-1">Kéo thả file vào đây để tải lên hệ thống</p>
       </div>
 
       <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-        
-        {processingState === 'idle' ? (
-          <div className="border-2 border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-50 transition-colors rounded-xl p-12 flex flex-col items-center justify-center text-center cursor-pointer relative"
-            onClick={() => fileInputRef.current?.click()}>
+        {!file ? (
+          <div
+            className="border-2 border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-50 transition-colors rounded-xl p-12 flex flex-col items-center justify-center text-center cursor-pointer relative"
+            onClick={() => fileInputRef.current?.click()}
+          >
             <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4">
               <UploadCloud className="text-blue-500" size={32} />
             </div>
             <h3 className="text-lg font-semibold text-slate-800 mb-1">Kéo thả chứng từ vào đây</h3>
             <p className="text-sm text-slate-500 mb-6">Hỗ trợ các định dạng: PDF, JPG, PNG, XML (tối đa 10MB)</p>
-            
-            <button type="button" onClick={(event) => { event.stopPropagation(); fileInputRef.current?.click(); }} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 shadow-sm transition-all">
+            <button
+              type="button"
+              onClick={(event) => { event.stopPropagation(); fileInputRef.current?.click(); }}
+              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 shadow-sm transition-all"
+            >
               Chọn File
             </button>
             <input
@@ -85,58 +107,59 @@ const Upload = () => {
                   <FileType size={24} />
                 </div>
                 <div className="text-left">
-                  <div className="font-medium text-slate-800">{file?.name || 'document.pdf'}</div>
-                  <div className="text-xs text-slate-500">2.4 MB</div>
+                  <div className="font-medium text-slate-800">{file.name}</div>
+                  <div className="text-xs text-slate-500">{formatFileSize(file.size)}</div>
                 </div>
               </div>
-              {processingState === 'completed' && <CheckCircle2 className="text-emerald-500" size={24} />}
+              {uploadState === 'completed' && <CheckCircle2 className="text-emerald-500" size={24} />}
+              {uploadState === 'error' && <XCircle className="text-red-500" size={24} />}
             </div>
 
-            <div className="w-full max-w-lg space-y-6">
-              <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wider mb-4">Tiến trình xử lý</h3>
-              
-              <div className="relative">
-                <div className="absolute left-3.5 top-2 bottom-2 w-0.5 bg-slate-200"></div>
-                <div className="absolute left-3.5 top-2 w-0.5 bg-blue-500 transition-all duration-300" style={{ height: `${progress}%` }}></div>
-                
-                <div className="space-y-6">
-                  {workflowSteps.map((step) => (
-                    <div key={step.id} className="relative flex items-center gap-4 z-10">
-                      <div className={clsx(
-                        "w-7 h-7 rounded-full flex items-center justify-center border-2 bg-white transition-colors duration-300",
-                        step.status === 'completed' ? "border-blue-500 text-blue-500" :
-                        step.status === 'processing' ? "border-blue-500 text-blue-500 shadow-[0_0_0_4px_rgba(59,130,246,0.1)]" :
-                        "border-slate-300 text-slate-300"
-                      )}>
-                        {step.status === 'completed' ? <CheckCircle2 size={16} /> : 
-                         step.status === 'processing' ? <Loader2 size={14} className="animate-spin" /> : 
-                         <div className="w-2 h-2 rounded-full bg-slate-300"></div>}
-                      </div>
-                      <div className={clsx(
-                        "font-medium transition-colors",
-                        step.status === 'completed' ? "text-slate-800" :
-                        step.status === 'processing' ? "text-blue-600" :
-                        "text-slate-400"
-                      )}>
-                        {step.name}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            <div className="w-full max-w-lg">
+              <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                {uploadState === 'uploading' && <Loader2 className="text-blue-500 animate-spin" size={22} />}
+                {uploadState === 'completed' && <CheckCircle2 className="text-emerald-500" size={22} />}
+                {uploadState === 'error' && <XCircle className="text-red-500" size={22} />}
+                {uploadState === 'idle' && <UploadCloud className="text-slate-400" size={22} />}
+                <span className="text-sm font-medium text-slate-700">
+                  {uploadState === 'uploading' && 'Đang tải lên...'}
+                  {uploadState === 'completed' && 'Upload thành công'}
+                  {uploadState === 'error' && 'Upload thất bại'}
+                  {uploadState === 'idle' && 'Sẵn sàng tải lên'}
+                </span>
               </div>
+
+              {uploadResult && (
+                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                  <div>Đã tạo chứng từ với mã: <strong>{uploadResult.id}</strong></div>
+                  <div>Trạng thái: <strong>{uploadResult.status}</strong></div>
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
 
-      {file && processingState === 'idle' && (
+      {errorMessage && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessage}
+        </div>
+      )}
+
+      {file && uploadState !== 'uploading' && (
         <div className="flex justify-end gap-3">
-          <button onClick={() => setFile(null)} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">
+          <button onClick={handleCancel} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">
             Hủy
           </button>
-          <button onClick={handleSimulateProcess} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors flex items-center gap-2 font-medium">
-            <Play size={18} /> Bắt đầu xử lý
-          </button>
+          {uploadState === 'completed' ? (
+            <button onClick={() => navigate(`/documents/${uploadResult?.id}`)} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors font-medium">
+              Xem chứng từ
+            </button>
+          ) : (
+            <button onClick={handleUpload} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors flex items-center gap-2 font-medium">
+              <UploadCloud size={18} /> Tải lên
+            </button>
+          )}
         </div>
       )}
     </div>

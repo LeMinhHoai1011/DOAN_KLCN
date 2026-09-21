@@ -35,6 +35,12 @@ public class InvoiceService {
 		return toResponse(load(id));
 	}
 
+	public InvoiceResponse findByDocumentId(Long documentId) {
+		return invoiceRepository.findByDocumentId(documentId)
+				.map(this::toResponse)
+				.orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
+	}
+
 	@Transactional
 	public InvoiceResponse update(Long id, InvoiceRequest request) {
 		Invoice invoice = load(id);

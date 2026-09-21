@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import "./Login.css";
+import { getErrorMessage, login } from "../services/authService";
 
 function Login() {
   const navigate = useNavigate();
@@ -21,35 +22,10 @@ function Login() {
     }
 
     try {
-      const response = await fetch(
-        "http://localhost:8081/api/v1/auth/login",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            username: username,
-            password: password,
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.message || "Đăng nhập thất bại");
-        return;
-      }
-
-      // Lưu thông tin người dùng đang đăng nhập
-      localStorage.setItem("user", JSON.stringify(data));
-
-      // Chuyển vào Dashboard
+      await login({ username, password });
       navigate("/");
-
-    } catch (error) {
-      setError("Không thể kết nối đến Server");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Đăng nhập thất bại hoặc không thể kết nối đến Server"));
     }
   };
 

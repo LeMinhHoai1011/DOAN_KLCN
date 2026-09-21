@@ -22,6 +22,11 @@ server:
   port: 8081
 
 app:
+  demo-admin:
+    enabled: ${DEMO_ADMIN_ENABLED:true}
+    username: ${DEMO_ADMIN_USERNAME:admin}
+    password: ${DEMO_ADMIN_PASSWORD:Admin@123456}
+    email: ${DEMO_ADMIN_EMAIL:admin@smartinvoice.local}
   jwt:
     secret: ${JWT_SECRET:invoice-core-development-secret-key-change-before-production}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}

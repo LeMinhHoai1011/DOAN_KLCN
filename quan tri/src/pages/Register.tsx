@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import "./Register.css";
+import { getErrorMessage, register } from "../services/authService";
 
 function Register() {
   const navigate = useNavigate();
@@ -32,28 +33,7 @@ function Register() {
     }
 
     try {
-      const response = await fetch(
-        "http://localhost:8081/api/v1/auth/register",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            username: username,
-            fullName: fullName,
-            email: email,
-            password: password,
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.message || "Đăng ký thất bại");
-        return;
-      }
+      await register({ username, fullName, email, password });
 
       setMessage("Đăng ký tài khoản thành công!");
 
@@ -67,8 +47,8 @@ function Register() {
         navigate("/login");
       }, 1500);
 
-    } catch (error) {
-      setError("Không thể kết nối đến Server");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Đăng ký thất bại hoặc không thể kết nối đến Server"));
     }
   };
 

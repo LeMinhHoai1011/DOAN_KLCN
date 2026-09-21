@@ -5,7 +5,9 @@ import com.example.invoice.dto.document.DocumentResponse;
 import com.example.invoice.dto.document.DocumentUpdateRequest;
 import com.example.invoice.dto.document.OCRResultRequest;
 import com.example.invoice.dto.document.OCRResultResponse;
+import com.example.invoice.dto.invoice.InvoiceResponse;
 import com.example.invoice.service.DocumentService;
+import com.example.invoice.service.InvoiceService;
 import com.example.invoice.service.OCRResultService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -29,6 +31,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class DocumentController {
 	private final DocumentService documentService;
+	private final InvoiceService invoiceService;
 	private final OCRResultService ocrResultService;
 
 	@PostMapping
@@ -67,6 +70,11 @@ public class DocumentController {
 	@GetMapping("/{id}/ocr")
 	public OCRResultResponse getOcr(@PathVariable Long id) {
 		return ocrResultService.findByDocumentId(id);
+	}
+
+	@GetMapping("/{id}/invoice")
+	public InvoiceResponse getInvoice(@PathVariable Long id) {
+		return invoiceService.findByDocumentId(id);
 	}
 
 	@PutMapping("/{id}/ocr")
