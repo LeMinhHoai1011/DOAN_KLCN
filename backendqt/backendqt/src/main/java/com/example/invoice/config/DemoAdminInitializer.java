@@ -30,21 +30,42 @@ public class DemoAdminInitializer implements CommandLineRunner {
 	@Value("${app.demo-admin.email:admin@smartinvoice.local}")
 	private String email;
 
+	@Value("${app.demo-users.enabled:true}")
+	private boolean demoUsersEnabled;
+
 	@Override
 	public void run(String... args) {
 		allowLegacyPasswordColumnToBeEmpty();
+		allowSupportedRoles();
 
-		if (!enabled || userRepository.existsByUsername(username)) {
+		if (enabled) {
+			createIfMissing(username, password, "Smart Invoice Admin", email, UserRole.ADMIN);
+		}
+		if (demoUsersEnabled) {
+			createIfMissing("accountant", "Accountant@123", "Smart Invoice Accountant", "accountant@smartinvoice.local", UserRole.ACCOUNTANT);
+			createIfMissing("employee", "Employee@123", "Smart Invoice Employee", "employee@smartinvoice.local", UserRole.EMPLOYEE);
+		}
+	}
+
+	private void allowSupportedRoles() {
+		try {
+			jdbcTemplate.execute("alter table users drop constraint if exists users_role_check");
+			jdbcTemplate.execute("alter table users add constraint users_role_check check (role in ('ADMIN', 'ACCOUNTANT', 'EMPLOYEE', 'USER'))");
+		} catch (DataAccessException ignored) {
+		}
+	}
+
+	private void createIfMissing(String accountUsername, String accountPassword, String fullName, String accountEmail, UserRole role) {
+		if (userRepository.existsByUsername(accountUsername)) {
 			return;
 		}
-
-		User admin = new User();
-		admin.setUsername(username);
-		admin.setPassword(passwordEncoder.encode(password));
-		admin.setFullName("Smart Invoice Admin");
-		admin.setEmail(email);
-		admin.setRole(UserRole.ADMIN);
-		userRepository.save(admin);
+		User user = new User();
+		user.setUsername(accountUsername);
+		user.setPassword(passwordEncoder.encode(accountPassword));
+		user.setFullName(fullName);
+		user.setEmail(accountEmail);
+		user.setRole(role);
+		userRepository.save(user);
 	}
 
 	private void allowLegacyPasswordColumnToBeEmpty() {
