@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/api/v1/invoices")
@@ -24,27 +25,32 @@ public class InvoiceController {
 	private final InvoiceService invoiceService;
 
 	@PostMapping
+	@PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTANT')")
 	@ResponseStatus(HttpStatus.CREATED)
 	public InvoiceResponse create(@Valid @RequestBody InvoiceRequest request) {
 		return invoiceService.create(request);
 	}
 
 	@GetMapping
+	@PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTANT', 'EMPLOYEE', 'USER')")
 	public List<InvoiceResponse> findAll() {
 		return invoiceService.findAll();
 	}
 
 	@GetMapping("/{id}")
+	@PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTANT', 'EMPLOYEE', 'USER')")
 	public InvoiceResponse findById(@PathVariable Long id) {
 		return invoiceService.findById(id);
 	}
 
 	@PutMapping("/{id}")
+	@PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTANT')")
 	public InvoiceResponse update(@PathVariable Long id, @Valid @RequestBody InvoiceRequest request) {
 		return invoiceService.update(id, request);
 	}
 
 	@DeleteMapping("/{id}")
+	@PreAuthorize("hasRole('ADMIN')")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void delete(@PathVariable Long id) {
 		invoiceService.delete(id);

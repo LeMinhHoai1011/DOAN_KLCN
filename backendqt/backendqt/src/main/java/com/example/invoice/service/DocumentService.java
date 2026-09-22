@@ -7,8 +7,14 @@ import com.example.invoice.entity.Document;
 import com.example.invoice.entity.User;
 import com.example.invoice.exception.ResourceNotFoundException;
 import com.example.invoice.repository.DocumentRepository;
+import io.minio.BucketExistsArgs;
+import io.minio.MakeBucketArgs;
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import java.io.InputStream;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +26,10 @@ public class DocumentService {
 	private final DocumentRepository documentRepository;
 	private final UserService userService;
 	private final StorageService storageService;
+	private final MinioClient minioClient;
+
+	@Value("${app.minio.bucket:invoice-files}")
+	private String bucket;
 
 	@Transactional
 	public DocumentResponse create(DocumentCreateRequest request, Authentication authentication) {
@@ -37,7 +47,27 @@ public class DocumentService {
 
 	@Transactional
 	public DocumentResponse createFromUpload(MultipartFile file, Authentication authentication) {
-		return create(new DocumentCreateRequest(file.getOriginalFilename(), file.getContentType(), file.getSize(), null), authentication);
+		if (file.isEmpty()) {
+			throw new IllegalArgumentException("Uploaded file must not be empty");
+		}
+
+		String originalFileName = storageService.sanitizeFileName(file.getOriginalFilename());
+		String objectKey = storageService.generateObjectKey(originalFileName);
+		try (InputStream inputStream = file.getInputStream()) {
+			if (!minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
+				minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
+			}
+			minioClient.putObject(PutObjectArgs.builder()
+					.bucket(bucket)
+					.object(objectKey)
+					.stream(inputStream, file.getSize(), -1)
+					.contentType(file.getContentType())
+					.build());
+		} catch (Exception exception) {
+			throw new IllegalStateException("Unable to upload file to MinIO", exception);
+		}
+
+		return create(new DocumentCreateRequest(originalFileName, file.getContentType(), file.getSize(), objectKey), authentication);
 	}
 
 	public List<DocumentResponse> findAll() {

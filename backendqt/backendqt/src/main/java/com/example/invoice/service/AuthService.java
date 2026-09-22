@@ -40,6 +40,7 @@ public class AuthService {
 		user.setFullName(request.fullName());
 		user.setEmail(request.email());
 		user.setPhone(request.phone());
+		user.setRole(com.example.invoice.entity.UserRole.EMPLOYEE);
 		return userMapper.toResponse(userRepository.save(user));
 	}
 

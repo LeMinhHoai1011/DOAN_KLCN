@@ -1,81 +1,49 @@
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  DoughnutController,
-  ArcElement
-} from 'chart.js';
-import { Doughnut, Line } from 'react-chartjs-2';
+import { useEffect, useState } from 'react';
 import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
-import { mockDashboardStats, mockDocuments } from '../services/mockData';
-import { FileText, CheckCircle2, Loader2, AlertTriangle, AlertCircle } from 'lucide-react';
-import clsx from 'clsx';
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  PointElement,
-  LineElement,
-  DoughnutController,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend
-);
+import dashboardService from '../services/dashboardService';
+import type { DashboardStatistics } from '../services/dashboardService';
+import documentService from '../services/documentService';
+import type { DocumentListItem } from '../services/documentService';
+import { AlertTriangle, CheckCircle2, FileText, Receipt } from 'lucide-react';
 
 const Dashboard = () => {
-  const lineChartData = {
-    labels: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'],
-    datasets: [
-      {
-        label: 'Chứng từ đã xử lý',
-        data: [120, 190, 150, 220, 280, 140, 110],
-        borderColor: '#3b82f6',
-        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-        fill: true,
-        tension: 0.4,
-      },
-    ],
-  };
+  const [statistics, setStatistics] = useState<DashboardStatistics | null>(null);
+  const [recentDocuments, setRecentDocuments] = useState<DocumentListItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const doughnutData = {
-    labels: ['Hóa đơn mua hàng', 'Hóa đơn bán hàng', 'Phiếu thu', 'Phiếu chi', 'Khác'],
-    datasets: [
-      {
-        data: [856, 624, 320, 285, 273],
-        backgroundColor: [
-          '#3b82f6', // blue
-          '#10b981', // green
-          '#f59e0b', // yellow
-          '#ef4444', // red
-          '#8b5cf6', // purple
-        ],
-        borderWidth: 0,
-      },
-    ],
-  };
+  useEffect(() => {
+    let isMounted = true;
 
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'bottom' as const,
-        labels: {
-          usePointStyle: true,
-          padding: 20,
+    const loadDashboard = async () => {
+      try {
+        const [dashboardStatistics, documents] = await Promise.all([
+          dashboardService.getDashboardStatistics(),
+          documentService.getDocuments(),
+        ]);
+
+        if (isMounted) {
+          setStatistics(dashboardStatistics);
+          setRecentDocuments(documents.slice(0, 5));
+        }
+      } catch {
+        if (isMounted) {
+          setError('Không thể tải dữ liệu dashboard');
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
         }
       }
-    }
-  };
+    };
+
+    loadDashboard();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -84,32 +52,32 @@ const Dashboard = () => {
         <p className="text-slate-500 mt-1">Theo dõi hoạt động số hóa và xử lý chứng từ</p>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <StatCard title="Tổng chứng từ" value={mockDashboardStats.total} icon={FileText} type="primary" />
-        <StatCard title="Đã xử lý" value={mockDashboardStats.processed} icon={CheckCircle2} type="success" />
-        <StatCard title="Đang xử lý" value={mockDashboardStats.processing} icon={Loader2} type="default" />
-        <StatCard title="Cần kiểm tra" value={mockDashboardStats.needsReview} icon={AlertTriangle} type="warning" />
-        <StatCard title="Lỗi OCR/AI" value={mockDashboardStats.error} icon={AlertCircle} type="error" />
+      {isLoading && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-slate-500">
+          Đang tải dữ liệu dashboard...
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-600">
+          {error}
+        </div>
+      )}
+
+      {statistics && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard title="Tổng chứng từ" value={statistics.totalDocuments} icon={FileText} type="primary" />
+          <StatCard title="Tổng hóa đơn" value={statistics.totalInvoices} icon={Receipt} type="default" />
+          <StatCard title="Đã phân loại" value={statistics.totalClassified} icon={CheckCircle2} type="success" />
+          <StatCard title="Cần kiểm tra" value={statistics.totalReviewRequired} icon={AlertTriangle} type="warning" />
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <h2 className="text-lg font-semibold text-slate-800 mb-2">Biểu đồ dashboard</h2>
+        <p className="text-sm text-slate-500">Chưa có API backend cho dữ liệu theo ngày hoặc phân loại để hiển thị biểu đồ.</p>
       </div>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4">Lưu lượng chứng từ (7 ngày qua)</h2>
-          <div className="h-[300px]">
-            <Line data={lineChartData} options={chartOptions} />
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4">Phân loại chứng từ</h2>
-          <div className="h-[300px]">
-            <Doughnut data={doughnutData} options={chartOptions} />
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Documents Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-200 flex justify-between items-center">
           <h2 className="text-lg font-semibold text-slate-800">Chứng từ mới nhất</h2>
@@ -128,20 +96,23 @@ const Dashboard = () => {
               </tr>
             </thead>
             <tbody className="text-sm divide-y divide-slate-100">
-              {mockDocuments.slice(0, 5).map((doc) => (
+              {isLoading && (
+                <tr>
+                  <td colSpan={6} className="py-10 px-6 text-center text-slate-500">Đang tải chứng từ...</td>
+                </tr>
+              )}
+              {!isLoading && !error && recentDocuments.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-10 px-6 text-center text-slate-500">Chưa có chứng từ nào</td>
+                </tr>
+              )}
+              {!isLoading && !error && recentDocuments.map((doc) => (
                 <tr key={doc.id} className="hover:bg-slate-50 transition-colors">
                   <td className="py-3 px-6 font-medium text-blue-600">{doc.id}</td>
                   <td className="py-3 px-6">{doc.fileName}</td>
-                  <td className="py-3 px-6">{doc.type}</td>
+                  <td className="py-3 px-6">{doc.fileType || '-'}</td>
                   <td className="py-3 px-6">{doc.date}</td>
-                  <td className="py-3 px-6">
-                    <span className={clsx(
-                      "font-medium",
-                      doc.aiConfidence >= 90 ? "text-emerald-600" : doc.aiConfidence >= 80 ? "text-amber-600" : "text-red-600"
-                    )}>
-                      {doc.aiConfidence}%
-                    </span>
-                  </td>
+                  <td className="py-3 px-6">-</td>
                   <td className="py-3 px-6">
                     <StatusBadge status={doc.status} />
                   </td>
