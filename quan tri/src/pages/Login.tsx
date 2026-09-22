@@ -22,8 +22,18 @@ function Login() {
     }
 
     try {
-      await login({ username, password });
-      navigate("/");
+      const response = await login({ username, password });
+      const role = response.user.role;
+      
+      if (role === 'ADMIN') {
+        navigate("/admin/dashboard");
+      } else if (role === 'ACCOUNTANT') {
+        navigate("/accountant/dashboard");
+      } else if (role === 'USER' || role === 'EMPLOYEE') {
+        navigate("/employee/dashboard");
+      } else {
+        navigate("/accountant/dashboard");
+      }
     } catch (error: unknown) {
       setError(getErrorMessage(error, "Đăng nhập thất bại hoặc không thể kết nối đến Server"));
     }
