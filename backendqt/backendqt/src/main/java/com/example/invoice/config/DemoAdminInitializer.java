@@ -12,6 +12,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 @Component
+@org.springframework.core.annotation.Order(1)
 @RequiredArgsConstructor
 public class DemoAdminInitializer implements CommandLineRunner {
 	private final UserRepository userRepository;

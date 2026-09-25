@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { CheckCircle2, FileType, Loader2, UploadCloud, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import documentService from '../../services/documentService';
-import type { DocumentResponse } from '../../services/documentService';
+import type { DocumentResponse, DocumentType } from '../../services/documentService';
+import { getCurrentUser, getEffectiveRole } from '../../services/authService';
 
 type UploadState = 'idle' | 'uploading' | 'completed' | 'error';
 
@@ -15,11 +16,20 @@ const formatFileSize = (size: number) => {
 
 const AccountantUpload = () => {
   const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [uploadState, setUploadState] = useState<UploadState>('idle');
   const [uploadResult, setUploadResult] = useState<DocumentResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  
+  const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
+  const [selectedTypeId, setSelectedTypeId] = useState<number | ''>('');
+
+  useEffect(() => {
+    documentService.getDocumentTypes()
+      .then(setDocumentTypes)
+      .catch(() => setErrorMessage('Không thể tải danh sách loại chứng từ'));
+  }, []);
 
   const handleFileSelect = (selectedFile: File | undefined) => {
     if (!selectedFile) return;
@@ -45,7 +55,8 @@ const AccountantUpload = () => {
     setErrorMessage('');
 
     try {
-      const response = await documentService.uploadDocument(file);
+      const typeIdToUpload = selectedTypeId !== '' ? selectedTypeId : undefined;
+      const response = await documentService.uploadDocument(file, typeIdToUpload);
       setUploadResult(response);
       setUploadState('completed');
     } catch {
@@ -59,6 +70,14 @@ const AccountantUpload = () => {
     setUploadResult(null);
     setUploadState('idle');
     setErrorMessage('');
+  };
+  
+  // Determine base path based on current location to navigate correctly back
+  const getBasePath = () => {
+    const role = getEffectiveRole(getCurrentUser());
+    if (role === 'ADMIN') return '/admin';
+    if (role === 'ACCOUNTANT') return '/accountant';
+    return '/employee';
   };
 
   return (
@@ -96,7 +115,7 @@ const AccountantUpload = () => {
           </div>
         ) : (
           <div className="flex flex-col items-center">
-            <div className="w-full flex items-center justify-between bg-slate-50 border border-slate-200 p-4 rounded-xl mb-8">
+            <div className="w-full flex items-center justify-between bg-slate-50 border border-slate-200 p-4 rounded-xl mb-6">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
                   <FileType size={24} />
@@ -108,6 +127,21 @@ const AccountantUpload = () => {
               </div>
               {uploadState === 'completed' && <CheckCircle2 className="text-emerald-500" size={24} />}
               {uploadState === 'error' && <XCircle className="text-red-500" size={24} />}
+            </div>
+            
+            <div className="w-full max-w-lg mb-8 text-left space-y-2">
+              <label className="block text-sm font-medium text-slate-700">Loại chứng từ</label>
+              <select 
+                value={selectedTypeId} 
+                onChange={(e) => setSelectedTypeId(e.target.value ? Number(e.target.value) : '')}
+                disabled={uploadState === 'uploading' || uploadState === 'completed'}
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">-- Chưa phân loại --</option>
+                {documentTypes.map(type => (
+                  <option key={type.id} value={type.id}>{type.name}</option>
+                ))}
+              </select>
             </div>
 
             <div className="w-full max-w-lg">
@@ -147,7 +181,7 @@ const AccountantUpload = () => {
             Hủy
           </button>
           {uploadState === 'completed' ? (
-            <button onClick={() => navigate(`/accountant/documents/${uploadResult?.id}`)} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors font-medium">
+            <button onClick={() => navigate(`${getBasePath()}/documents/${uploadResult?.id}`)} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors font-medium">
               Xem chứng từ
             </button>
           ) : (
@@ -162,3 +196,4 @@ const AccountantUpload = () => {
 };
 
 export default AccountantUpload;
+

@@ -48,6 +48,13 @@ public class Document {
     private String documentType;
 
     /**
+     * Entity mapping to DocumentType table.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "type_id")
+    private DocumentType type;
+
+    /**
      * Tên file gốc do người dùng upload.
      *
      * Ví dụ:

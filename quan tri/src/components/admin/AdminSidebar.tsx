@@ -6,6 +6,7 @@ import {
   Files,
   Settings,
   LogOut,
+  UploadCloud,
   BarChart3,
   BrainCircuit
 } from 'lucide-react';
@@ -17,6 +18,7 @@ const menuItems = [
   { name: 'Quản lý người dùng', path: '/admin/users', icon: Users },
   { name: 'Quản lý vai trò', path: '/admin/roles', icon: Shield },
   { name: 'Quản lý chứng từ', path: '/admin/documents', icon: Files },
+  { name: 'Tải lên chứng từ', path: '/admin/upload', icon: UploadCloud },
   { name: 'Thống kê hệ thống', path: '/admin/statistics', icon: BarChart3 },
 ];
 

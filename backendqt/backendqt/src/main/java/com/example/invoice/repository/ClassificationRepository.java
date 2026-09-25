@@ -9,4 +9,6 @@ public interface ClassificationRepository extends JpaRepository<Classification, 
 	Optional<Classification> findFirstByDocumentIdOrderByCreatedAtDesc(Long documentId);
 
 	long countByStatus(ClassificationStatus status);
+	long countByDocumentCompanyIdAndStatus(Long companyId, ClassificationStatus status);
+	long countByDocumentUploadedByIdAndStatus(Long uploadedById, ClassificationStatus status);
 }

@@ -12,6 +12,8 @@ export interface User {
   phone?: string | null
   avatar?: string | null
   role?: 'ADMIN' | 'ACCOUNTANT' | 'EMPLOYEE' | 'USER' | string
+  roles?: string[]
+  companyId?: number | null
   status?: string
   createdAt?: string
   updatedAt?: string
@@ -39,8 +41,14 @@ export interface RegisterRequest {
 export const login = async (credentials: LoginRequest) => {
   const { data } = await api.post<LoginResponse>('/api/v1/auth/login', credentials)
   saveToken(data.token)
-  saveUser(data.user)
+  const user = await getMe()
+  saveUser(user)
   window.dispatchEvent(new Event('auth-changed'))
+  return { ...data, user }
+}
+
+export const getMe = async () => {
+  const { data } = await api.get<User>('/api/v1/users/me')
   return data
 }
 
@@ -56,6 +64,10 @@ export const logout = () => {
 }
 
 export const getEffectiveRole = (user: User | null = getCurrentUser()) => {
+  const roles = user?.roles || []
+  if (roles.includes('ADMIN')) return 'ADMIN'
+  if (roles.includes('ACCOUNTANT')) return 'ACCOUNTANT'
+  if (roles.includes('EMPLOYEE')) return 'EMPLOYEE'
   if (user?.role === 'USER') return 'EMPLOYEE'
   return user?.role || null
 }

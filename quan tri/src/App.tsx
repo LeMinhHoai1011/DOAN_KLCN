@@ -17,13 +17,16 @@ import AccountantDocumentDetail from './pages/accountant/AccountantDocumentDetai
 import AccountantUpload from './pages/accountant/AccountantUpload';
 
 // Admin pages (folder admin/)
+import RoleManagement from './pages/admin/RoleManagement';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import UserManagement from './pages/admin/UserManagement';
+import SystemStatistics from './pages/admin/SystemStatistics';
+
 
 // Employee pages (folder employee/)
 import EmployeeDashboard from './pages/employee/EmployeeDashboard';
 
-import { getEffectiveRole, getToken, getCurrentUser } from './services/authService';
+import { getEffectiveRole, getToken, getCurrentUser, getMe, logout, saveUser } from './services/authService';
 
 // ─── Guards ───────────────────────────────────────────────────────────────────
 
@@ -75,6 +78,17 @@ function App() {
     return () => window.removeEventListener('auth-changed', syncUser);
   }, []);
 
+  useEffect(() => {
+    if (!getToken()) return;
+
+    void getMe()
+      .then((currentUser) => {
+        saveUser(currentUser);
+        setUser(currentUser);
+      })
+      .catch(() => logout());
+  }, []);
+
   const role = getEffectiveRole(user);
 
   return (
@@ -104,6 +118,7 @@ function App() {
               <Route path="documents" element={<AccountantDocuments />} />
               <Route path="documents/:id" element={<AccountantDocumentDetail />} />
               <Route path="upload" element={<AccountantUpload />} />
+              <Route path="upload" element={<AccountantUpload />} />
               <Route path="ocr-ai" element={<UnavailableFeature title="OCR & AI Tracking" />} />
               <Route path="storage" element={<UnavailableFeature title="Kho lưu trữ" />} />
               <Route path="classification" element={<UnavailableFeature title="Phân loại" />} />
@@ -112,16 +127,17 @@ function App() {
             </Route>
           </Route>
 
-          {/* ── ADMIN ── */}
+            {/* ── ADMIN ── */}
           <Route element={<RoleGuard allowedRoles={['ADMIN']} />}>
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<Navigate to="/admin/dashboard" replace />} />
               <Route path="dashboard" element={<AdminDashboard />} />
               <Route path="users" element={<UserManagement />} />
-              <Route path="roles" element={<UnavailableFeature title="Quản lý vai trò" />} />
+              <Route path="roles" element={<RoleManagement />} />
               <Route path="documents" element={<AccountantDocuments />} />
               <Route path="documents/:id" element={<AccountantDocumentDetail />} />
-              <Route path="statistics" element={<UnavailableFeature title="Thống kê hệ thống nâng cao" />} />
+              <Route path="upload" element={<AccountantUpload />} />
+              <Route path="statistics" element={<SystemStatistics />} />
               <Route path="settings" element={<UnavailableFeature title="Cài đặt" />} />
             </Route>
           </Route>
@@ -134,6 +150,7 @@ function App() {
               <Route path="documents" element={<AccountantDocuments />} />
               <Route path="documents/:id" element={<AccountantDocumentDetail />} />
               <Route path="upload" element={<AccountantUpload />} />
+              <Route path="upload" element={<AccountantUpload />} />
             </Route>
           </Route>
 
@@ -144,3 +161,4 @@ function App() {
 }
 
 export default App;
+

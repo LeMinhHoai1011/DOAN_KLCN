@@ -31,9 +31,23 @@ public class DocumentVersion {
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "created_by")
 	private User createdBy;
+	
+	@Column(name = "version_number", nullable = false)
+	private Integer versionNumber;
+
+	@Column(name = "original_filename")
+	private String originalFileName;
+
+	@Column(name = "content_type")
+	private String contentType;
+	
+	@Column(name = "file_size")
+	private Long fileSize;
 
 	private String fileName;
 	private String objectKey;
+	
+	@Column(updatable = false)
 	private LocalDateTime createdAt;
 
 	@PrePersist

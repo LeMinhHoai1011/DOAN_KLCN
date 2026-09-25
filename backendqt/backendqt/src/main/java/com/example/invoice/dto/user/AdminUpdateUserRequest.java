@@ -6,5 +6,6 @@ import jakarta.validation.constraints.NotNull;
 
 public record AdminUpdateUserRequest(
 		@NotNull UserRole role,
-		@NotNull UserStatus status) {
+		@NotNull UserStatus status,
+		Long companyId) {
 }

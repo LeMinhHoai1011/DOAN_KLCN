@@ -7,10 +7,13 @@ import com.example.invoice.dto.invoice.InvoiceResponse;
 import com.example.invoice.entity.Document;
 import com.example.invoice.entity.Invoice;
 import com.example.invoice.entity.InvoiceItem;
+import com.example.invoice.entity.User;
 import com.example.invoice.exception.ResourceNotFoundException;
 import com.example.invoice.repository.InvoiceRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class InvoiceService {
 	private final InvoiceRepository invoiceRepository;
 	private final DocumentService documentService;
+	private final UserService userService;
 
 	@Transactional
 	public InvoiceResponse create(InvoiceRequest request) {
@@ -28,7 +32,16 @@ public class InvoiceService {
 	}
 
 	public List<InvoiceResponse> findAll() {
-		return invoiceRepository.findAll().stream().map(this::toResponse).toList();
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		User user = userService.loadCurrent(auth);
+		if (hasRole(user, "ADMIN")) {
+			return invoiceRepository.findAll().stream().map(this::toResponse).toList();
+		}
+		if (isEmployee(user)) {
+			return invoiceRepository.findAllByDocumentUploadedById(user.getId()).stream().map(this::toResponse).toList();
+		}
+		if (user.getCompany() == null) return java.util.List.of();
+		return invoiceRepository.findAllByDocumentCompanyId(user.getCompany().getId()).stream().map(this::toResponse).toList();
 	}
 
 	public InvoiceResponse findById(Long id) {
@@ -36,7 +49,20 @@ public class InvoiceService {
 	}
 
 	public InvoiceResponse findByDocumentId(Long documentId) {
-		return invoiceRepository.findByDocumentId(documentId)
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		User user = userService.loadCurrent(auth);
+		if (hasRole(user, "ADMIN")) {
+			return invoiceRepository.findByDocumentId(documentId)
+					.map(this::toResponse)
+					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
+		}
+		if (isEmployee(user)) {
+			return invoiceRepository.findByDocumentIdAndDocumentUploadedById(documentId, user.getId())
+					.map(this::toResponse)
+					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
+		}
+		if (user.getCompany() == null) throw new ResourceNotFoundException("Invoice not found for document");
+		return invoiceRepository.findByDocumentIdAndDocumentCompanyId(documentId, user.getCompany().getId())
 				.map(this::toResponse)
 				.orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
 	}
@@ -82,7 +108,18 @@ public class InvoiceService {
 	}
 
 	private Invoice load(Long id) {
-		return invoiceRepository.findById(id)
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		User user = userService.loadCurrent(auth);
+		if (hasRole(user, "ADMIN")) {
+			return invoiceRepository.findById(id)
+					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+		}
+		if (isEmployee(user)) {
+			return invoiceRepository.findByIdAndDocumentUploadedById(id, user.getId())
+					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+		}
+		if (user.getCompany() == null) throw new ResourceNotFoundException("Invoice not found");
+		return invoiceRepository.findByIdAndDocumentCompanyId(id, user.getCompany().getId())
 				.orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 	}
 
@@ -95,4 +132,14 @@ public class InvoiceService {
 				invoice.getBuyerName(), invoice.getBuyerTaxCode(), invoice.getBuyerAddress(), invoice.getSubtotal(),
 				invoice.getVatAmount(), invoice.getTotalAmount(), items);
 	}
+
+	private boolean hasRole(User user, String roleCode) {
+		return user.getRoles().stream().anyMatch(role -> roleCode.equals(role.getCode()));
+	}
+
+	private boolean isEmployee(User user) {
+		return hasRole(user, "EMPLOYEE") || user.getRole() == com.example.invoice.entity.UserRole.EMPLOYEE
+				|| user.getRole() == com.example.invoice.entity.UserRole.USER;
+	}
 }
+

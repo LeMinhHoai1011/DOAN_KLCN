@@ -5,6 +5,7 @@ import documentService from '../../services/documentService';
 import type { DocumentListItem } from '../../services/documentService';
 import StatusBadge from '../../components/StatusBadge';
 import clsx from 'clsx';
+import { getEffectiveRole } from '../../services/authService';
 
 const AccountantDocuments = () => {
   const navigate = useNavigate();
@@ -12,6 +13,8 @@ const AccountantDocuments = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const role = getEffectiveRole();
+  const basePath = role === 'ADMIN' ? '/admin' : role === 'EMPLOYEE' ? '/employee' : '/accountant';
 
   useEffect(() => {
     let isMounted = true;
@@ -60,7 +63,7 @@ const AccountantDocuments = () => {
             <span>Bộ lọc</span>
           </button>
           <button
-            onClick={() => navigate('/accountant/upload')}
+            onClick={() => navigate(`${basePath}/upload`)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
           >
             <span>+ Upload chứng từ</span>
@@ -117,7 +120,7 @@ const AccountantDocuments = () => {
                 {!isLoading && filtered.map((doc) => (
                   <tr key={doc.id} className="hover:bg-slate-50 transition-colors group">
                     <td className="py-3 px-4 text-center"><input type="checkbox" className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" /></td>
-                    <td className="py-3 px-4 font-medium text-blue-600 cursor-pointer hover:underline" onClick={() => navigate(`/accountant/documents/${doc.id}`)}>{doc.id}</td>
+                    <td className="py-3 px-4 font-medium text-blue-600 cursor-pointer hover:underline" onClick={() => navigate(`${basePath}/documents/${doc.id}`)}>{doc.id}</td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
                         <span className="truncate max-w-[150px]">{doc.fileName}</span>
@@ -141,7 +144,7 @@ const AccountantDocuments = () => {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => navigate(`/accountant/documents/${doc.id}`)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Xem chi tiết">
+                        <button onClick={() => navigate(`${basePath}/documents/${doc.id}`)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Xem chi tiết">
                           <Eye size={18} />
                         </button>
                         <button className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="Xóa">

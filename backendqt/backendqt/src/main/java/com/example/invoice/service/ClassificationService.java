@@ -54,6 +54,7 @@ public class ClassificationService {
 	}
 
 	private Classification loadByDocumentId(Long documentId) {
+		documentService.load(documentId);
 		return classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(documentId)
 				.orElseThrow(() -> new ResourceNotFoundException("Classification not found"));
 	}

@@ -1,5 +1,6 @@
 package com.example.invoice.controller;
 
+import com.example.invoice.dto.user.AssignRolesRequest;
 import com.example.invoice.dto.user.ChangePasswordRequest;
 import com.example.invoice.dto.user.AdminCreateUserRequest;
 import com.example.invoice.dto.user.AdminUpdateUserRequest;
@@ -10,17 +11,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
-import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
@@ -47,6 +39,12 @@ public class UserController {
 		return userService.updateByAdmin(id, request);
 	}
 
+	@PutMapping("/{id}/roles")
+	@PreAuthorize("hasRole('ADMIN')")
+	public UserResponse assignRoles(@PathVariable Long id, @Valid @RequestBody AssignRolesRequest request) {
+		return userService.assignRoles(id, request);
+	}
+
 	@GetMapping("/me")
 	@PreAuthorize("isAuthenticated()")
 	public UserResponse me(Authentication authentication) {
@@ -54,10 +52,9 @@ public class UserController {
 	}
 
 	@PutMapping("/me")
-	public UserResponse update(Authentication authentication, @Valid @RequestBody UpdateUserRequest request) {
+	public UserResponse updateMe(Authentication authentication, @Valid @RequestBody UpdateUserRequest request) {
 		return userService.updateCurrent(authentication, request);
 	}
-	
 
 	@PutMapping("/me/password")
 	@ResponseStatus(HttpStatus.NO_CONTENT)

@@ -9,6 +9,7 @@ import invoiceService from '../../services/invoiceService';
 import type { ClassificationResponse } from '../../services/classificationService';
 import type { DocumentResponse, OCRResultResponse } from '../../services/documentService';
 import type { InvoiceResponse } from '../../services/invoiceService';
+import { getEffectiveRole } from '../../services/authService';
 
 interface InvoiceFormData {
   supplier: string;
@@ -60,6 +61,9 @@ const AccountantDocumentDetail = () => {
   const [error, setError] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
   const [saveError, setSaveError] = useState('');
+  const role = getEffectiveRole();
+  const canEdit = role === 'ADMIN' || role === 'ACCOUNTANT';
+  const basePath = role === 'ADMIN' ? '/admin' : role === 'EMPLOYEE' ? '/employee' : '/accountant';
 
   useEffect(() => {
     let isMounted = true;
@@ -116,7 +120,7 @@ const AccountantDocumentDetail = () => {
   };
 
   const handleSave = async () => {
-    if (!document) return;
+    if (!document || !canEdit) return;
 
     setIsSaving(true);
     setSaveMessage('');
@@ -177,6 +181,7 @@ const AccountantDocumentDetail = () => {
         type="text"
         value={value}
         onChange={(event) => updateInvoiceForm(field, event.target.value)}
+        disabled={!canEdit}
         className="w-full border border-slate-300 bg-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
       />
     </div>
@@ -186,7 +191,7 @@ const AccountantDocumentDetail = () => {
     <div className="space-y-4 h-[calc(100vh-8rem)] flex flex-col">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/accountant/documents')} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-600">
+          <button onClick={() => navigate(`${basePath}/documents`)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-600">
             <ArrowLeft size={20} />
           </button>
           <div>
@@ -202,10 +207,10 @@ const AccountantDocumentDetail = () => {
             <Download size={18} />
             <span>Tải file gốc</span>
           </button>
-          <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors shadow-sm">
+          {canEdit && <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors shadow-sm">
             <Save size={18} />
             <span>{isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}</span>
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -243,6 +248,7 @@ const AccountantDocumentDetail = () => {
             <select
               value={classificationValue}
               onChange={(event) => setClassificationValue(event.target.value)}
+              disabled={!canEdit}
               className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium text-slate-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
             >
               <option value="">Chưa có dữ liệu phân loại</option>

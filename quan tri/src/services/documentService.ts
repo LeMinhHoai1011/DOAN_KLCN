@@ -76,9 +76,24 @@ const getDocumentOCR = async (id: number) => {
   return data
 }
 
-const uploadDocument = async (file: File) => {
+export interface DocumentType {
+  id: number;
+  code: string;
+  name: string;
+  description: string;
+}
+
+const getDocumentTypes = async () => {
+  const { data } = await api.get<DocumentType[]>('/api/v1/documents/types')
+  return data
+}
+
+const uploadDocument = async (file: File, typeId?: number) => {
   const formData = new FormData()
   formData.append('file', file)
+  if (typeId) {
+    formData.append('typeId', typeId.toString())
+  }
 
   const { data } = await api.post<DocumentResponse>('/api/v1/documents/upload', formData)
   return data
@@ -89,6 +104,7 @@ const documentService = {
   getDocumentById,
   getDocumentOCR,
   uploadDocument,
+  getDocumentTypes,
 }
 
 export default documentService

@@ -18,6 +18,7 @@ public class OCRResultService {
 	private final DocumentService documentService;
 
 	public OCRResultResponse findByDocumentId(Long documentId) {
+        documentService.load(documentId); // Add IDOR check via DocumentService
 		return toResponse(ocrResultRepository.findFirstByDocumentIdOrderByProcessedAtDesc(documentId)
 				.orElseThrow(() -> new ResourceNotFoundException("OCR result not found")));
 	}
@@ -37,3 +38,4 @@ public class OCRResultService {
 		return new OCRResultResponse(result.getId(), result.getDocument().getId(), result.getRawText(), result.getConfidence(), result.getProcessedAt());
 	}
 }
+
