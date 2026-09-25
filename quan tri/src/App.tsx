@@ -17,8 +17,11 @@ import AccountantDocumentDetail from './pages/accountant/AccountantDocumentDetai
 import AccountantUpload from './pages/accountant/AccountantUpload';
 
 // Admin pages (folder admin/)
+import RoleManagement from './pages/admin/RoleManagement';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import UserManagement from './pages/admin/UserManagement';
+import SystemStatistics from './pages/admin/SystemStatistics';
+
 
 // Employee pages (folder employee/)
 import EmployeeDashboard from './pages/employee/EmployeeDashboard';
@@ -112,16 +115,16 @@ function App() {
             </Route>
           </Route>
 
-          {/* ── ADMIN ── */}
+            {/* ── ADMIN ── */}
           <Route element={<RoleGuard allowedRoles={['ADMIN']} />}>
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<Navigate to="/admin/dashboard" replace />} />
               <Route path="dashboard" element={<AdminDashboard />} />
               <Route path="users" element={<UserManagement />} />
-              <Route path="roles" element={<UnavailableFeature title="Quản lý vai trò" />} />
+              <Route path="roles" element={<RoleManagement />} />
               <Route path="documents" element={<AccountantDocuments />} />
               <Route path="documents/:id" element={<AccountantDocumentDetail />} />
-              <Route path="statistics" element={<UnavailableFeature title="Thống kê hệ thống nâng cao" />} />
+              <Route path="statistics" element={<SystemStatistics />} />
               <Route path="settings" element={<UnavailableFeature title="Cài đặt" />} />
             </Route>
           </Route>
