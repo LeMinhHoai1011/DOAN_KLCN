@@ -8,8 +8,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.ManyToMany;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.util.HashSet;
 import java.util.Set;
 import lombok.Getter;
@@ -40,6 +41,9 @@ public class Permission {
 	@Column(nullable = false)
 	private boolean active = true;
 
-	@ManyToMany(mappedBy = "permissions")
+	@OneToMany(mappedBy = "permission", fetch = FetchType.LAZY)
+	private Set<RolePermission> rolePermissions = new HashSet<>();
+
+	@Transient
 	private Set<Role> roles = new HashSet<>();
 }

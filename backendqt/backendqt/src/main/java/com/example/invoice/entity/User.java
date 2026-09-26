@@ -1,6 +1,7 @@
 package com.example.invoice.entity;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -10,14 +11,14 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.ManyToMany;
-import jakarta.persistence.JoinTable;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.time.LocalDateTime;
-import java.util.Set;
 import java.util.HashSet;
+import java.util.Set;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -35,12 +36,10 @@ public class User {
 	@JoinColumn(name = "company_id")
 	private Company company;
 
-	@ManyToMany(fetch = FetchType.EAGER)
-	@JoinTable(
-		name = "user_roles",
-		joinColumns = @JoinColumn(name = "user_id"),
-		inverseJoinColumns = @JoinColumn(name = "role_id")
-	)
+	@OneToMany(mappedBy = "user", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+	private Set<UserRoleAssignment> userRoles = new HashSet<>();
+
+	@Transient
 	private Set<Role> roles = new HashSet<>();
 
 	@Column(nullable = false, unique = true, length = 100)
@@ -58,8 +57,7 @@ public class User {
 	private String phone;
 	private String avatar;
 
-	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = 20)
+	@Transient
 	private UserRole role = UserRole.USER;
 
 	@Enumerated(EnumType.STRING)

@@ -5,7 +5,7 @@ import com.example.invoice.entity.UserStatus;
 import jakarta.validation.constraints.NotNull;
 
 public record AdminUpdateUserRequest(
-		@NotNull UserRole role,
+		UserRole role,
 		@NotNull UserStatus status,
 		Long companyId) {
 }

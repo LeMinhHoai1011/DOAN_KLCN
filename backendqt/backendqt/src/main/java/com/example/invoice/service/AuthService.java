@@ -6,6 +6,7 @@ import com.example.invoice.dto.auth.RegisterRequest;
 import com.example.invoice.dto.user.UserResponse;
 import com.example.invoice.entity.Role;
 import com.example.invoice.entity.User;
+import com.example.invoice.entity.UserRoleAssignment;
 import com.example.invoice.exception.BadRequestException;
 import com.example.invoice.repository.RoleRepository;
 import com.example.invoice.repository.UserRepository;
@@ -47,7 +48,12 @@ public class AuthService {
 		user.setPhone(request.phone());
 		user.setRole(com.example.invoice.entity.UserRole.EMPLOYEE); // Keep legacy enum
 		
-		roleRepository.findByCode("EMPLOYEE").ifPresent(r -> user.getRoles().add(r)); // Map DB role
+		roleRepository.findByCode("EMPLOYEE").ifPresent(role -> {
+			UserRoleAssignment assignment = new UserRoleAssignment();
+			assignment.setUser(user);
+			assignment.setRole(role);
+			user.getUserRoles().add(assignment);
+		});
 
 		return userMapper.toResponse(userRepository.save(user));
 	}

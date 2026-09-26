@@ -156,6 +156,7 @@ public class DocumentService {
 		return toResponse(documentRepository.save(document));
 	}
 
+	@Transactional(readOnly = true)
 	public InputStreamResource download(Long id) {
 		Document document = load(id);
 		try {
@@ -169,20 +170,21 @@ public class DocumentService {
 		}
 	}
 
+	@Transactional(readOnly = true)
 	public List<DocumentResponse> findAll() {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		User user = userService.loadCurrent(auth);
-		if (hasRole(user, "ADMIN")) {
+		if (hasRole(user, "ADMIN") || hasRole(user, "ACCOUNTANT")) {
 			return documentRepository.findAll().stream().map(this::toResponse).toList();
 		}
-		if (hasRole(user, "EMPLOYEE") || user.getRole() == com.example.invoice.entity.UserRole.EMPLOYEE
-				|| user.getRole() == com.example.invoice.entity.UserRole.USER) {
+		if (hasRole(user, "EMPLOYEE") || hasRole(user, "USER")) {
 			return documentRepository.findAllByUploadedById(user.getId()).stream().map(this::toResponse).toList();
 		}
 		if (user.getCompany() == null) return java.util.List.of();
 		return documentRepository.findAllByCompanyId(user.getCompany().getId()).stream().map(this::toResponse).toList();
 	}
 
+	@Transactional(readOnly = true)
 	public DocumentResponse findById(Long id) {
 		return toResponse(load(id));
 	}
@@ -216,15 +218,15 @@ public class DocumentService {
 		documentRepository.delete(document);
 	}
 
+	@Transactional(readOnly = true)
 	public Document load(Long id) {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		User user = userService.loadCurrent(auth);
-		if (hasRole(user, "ADMIN")) {
+		if (hasRole(user, "ADMIN") || hasRole(user, "ACCOUNTANT")) {
 			return documentRepository.findById(id)
 					.orElseThrow(() -> new ResourceNotFoundException("Document not found"));
 		}
-		if (hasRole(user, "EMPLOYEE") || user.getRole() == com.example.invoice.entity.UserRole.EMPLOYEE
-				|| user.getRole() == com.example.invoice.entity.UserRole.USER) {
+		if (hasRole(user, "EMPLOYEE") || hasRole(user, "USER")) {
 			return documentRepository.findByIdAndUploadedById(id, user.getId())
 					.orElseThrow(() -> new ResourceNotFoundException("Document not found"));
 		}
@@ -257,6 +259,7 @@ public class DocumentService {
 	}
 
 	private boolean hasRole(User user, String roleCode) {
-		return user.getRoles().stream().anyMatch(role -> roleCode.equals(role.getCode()));
+		return user.getUserRoles().stream()
+				.anyMatch(assignment -> roleCode.equals(assignment.getRole().getCode()));
 	}
 }

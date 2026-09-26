@@ -8,6 +8,7 @@ import com.example.invoice.dto.user.UpdateUserRequest;
 import com.example.invoice.dto.user.UserResponse;
 import com.example.invoice.entity.Role;
 import com.example.invoice.entity.User;
+import com.example.invoice.entity.UserRoleAssignment;
 import com.example.invoice.entity.Company;
 import com.example.invoice.exception.BadRequestException;
 import com.example.invoice.exception.ResourceNotFoundException;
@@ -58,9 +59,10 @@ public class UserService {
 		user.setRole(request.role()); // Legacy enum
 		user.setCompany(loadCompany(request.companyId()));
 
-		// Map to DB role
 		if (request.role() != null) {
-			roleRepository.findByCode(request.role().name()).ifPresent(r -> user.getRoles().add(r));
+			Role role = roleRepository.findByCode(request.role().name())
+					.orElseThrow(() -> new ResourceNotFoundException("Role not found"));
+			replaceRoleAssignments(user, List.of(role));
 		}
 
 		return userMapper.toResponse(userRepository.save(user));
@@ -70,14 +72,18 @@ public class UserService {
 	public UserResponse updateByAdmin(Long id, AdminUpdateUserRequest request) {
 		User user = userRepository.findById(id)
 				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
-		user.setRole(request.role()); // Legacy enum
-		user.setStatus(request.status());
-		user.setCompany(loadCompany(request.companyId()));
+		if (request.status() != null) user.setStatus(request.status());
+		if (request.companyId() != null) user.setCompany(loadCompany(request.companyId()));
 
-		// Map to DB role
 		if (request.role() != null) {
-			user.getRoles().clear();
-			roleRepository.findByCode(request.role().name()).ifPresent(r -> user.getRoles().add(r));
+			user.setRole(request.role()); // Legacy enum
+			Role role = roleRepository.findByCode(request.role().name())
+					.orElseThrow(() -> new ResourceNotFoundException("Role not found"));
+			boolean alreadyAssigned = user.getUserRoles().stream()
+					.anyMatch(assignment -> assignment.getRole().getId().equals(role.getId()));
+			if (!alreadyAssigned) {
+				replaceRoleAssignments(user, List.of(role));
+			}
 		}
 
 		return userMapper.toResponse(user);
@@ -110,8 +116,7 @@ public class UserService {
 		if (roles.size() != request.roleIds().size()) {
 			throw new BadRequestException("One or more role IDs are invalid");
 		}
-		user.getRoles().clear();
-		user.getRoles().addAll(roles);
+		replaceRoleAssignments(user, roles);
 		// Sync legacy enum with the primary role (first role in set)
 		if (!roles.isEmpty()) {
 			try {
@@ -121,6 +126,16 @@ public class UserService {
 			}
 		}
 		return userMapper.toResponse(userRepository.save(user));
+	}
+
+	private void replaceRoleAssignments(User user, List<Role> roles) {
+		user.getUserRoles().clear();
+		for (Role role : roles) {
+			UserRoleAssignment assignment = new UserRoleAssignment();
+			assignment.setUser(user);
+			assignment.setRole(role);
+			user.getUserRoles().add(assignment);
+		}
 	}
 
 	User loadCurrent(Authentication authentication) {

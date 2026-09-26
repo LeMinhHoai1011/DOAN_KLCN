@@ -2,6 +2,8 @@ package com.example.invoice.security;
 
 import com.example.invoice.entity.Permission;
 import com.example.invoice.entity.Role;
+import com.example.invoice.entity.RolePermission;
+import com.example.invoice.entity.UserRoleAssignment;
 import com.example.invoice.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.GrantedAuthority;
@@ -28,22 +30,17 @@ public class CustomUserDetailsService implements UserDetailsService {
 		
 		List<GrantedAuthority> authorities = new ArrayList<>();
 		
-		if (user.getRoles() != null && !user.getRoles().isEmpty()) {
-			for (Role role : user.getRoles()) {
+		for (UserRoleAssignment assignment : user.getUserRoles()) {
+			Role role = assignment.getRole();
 				if (role.isActive()) {
 					authorities.add(new SimpleGrantedAuthority("ROLE_" + role.getCode()));
-					if (role.getPermissions() != null) {
-						for (Permission p : role.getPermissions()) {
-							if (p.isActive()) {
-								authorities.add(new SimpleGrantedAuthority("PERMISSION_" + p.getCode()));
-							}
+					for (RolePermission rolePermission : role.getRolePermissions()) {
+						Permission permission = rolePermission.getPermission();
+						if (permission.isActive()) {
+							authorities.add(new SimpleGrantedAuthority("PERMISSION_" + permission.getCode()));
 						}
 					}
 				}
-			}
-		} else {
-			// Fallback to legacy enum if no DB roles are mapped yet
-			authorities.add(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()));
 		}
 
 		return org.springframework.security.core.userdetails.User

@@ -31,10 +31,11 @@ public class InvoiceService {
 		return toResponse(invoiceRepository.save(invoice));
 	}
 
+	@Transactional(readOnly = true)
 	public List<InvoiceResponse> findAll() {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		User user = userService.loadCurrent(auth);
-		if (hasRole(user, "ADMIN")) {
+		if (hasRole(user, "ADMIN") || hasRole(user, "ACCOUNTANT")) {
 			return invoiceRepository.findAll().stream().map(this::toResponse).toList();
 		}
 		if (isEmployee(user)) {
@@ -44,14 +45,16 @@ public class InvoiceService {
 		return invoiceRepository.findAllByDocumentCompanyId(user.getCompany().getId()).stream().map(this::toResponse).toList();
 	}
 
+	@Transactional(readOnly = true)
 	public InvoiceResponse findById(Long id) {
 		return toResponse(load(id));
 	}
 
+	@Transactional(readOnly = true)
 	public InvoiceResponse findByDocumentId(Long documentId) {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		User user = userService.loadCurrent(auth);
-		if (hasRole(user, "ADMIN")) {
+		if (hasRole(user, "ADMIN") || hasRole(user, "ACCOUNTANT")) {
 			return invoiceRepository.findByDocumentId(documentId)
 					.map(this::toResponse)
 					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
@@ -110,7 +113,7 @@ public class InvoiceService {
 	private Invoice load(Long id) {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		User user = userService.loadCurrent(auth);
-		if (hasRole(user, "ADMIN")) {
+		if (hasRole(user, "ADMIN") || hasRole(user, "ACCOUNTANT")) {
 			return invoiceRepository.findById(id)
 					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 		}
@@ -134,12 +137,12 @@ public class InvoiceService {
 	}
 
 	private boolean hasRole(User user, String roleCode) {
-		return user.getRoles().stream().anyMatch(role -> roleCode.equals(role.getCode()));
+		return user.getUserRoles().stream()
+				.anyMatch(assignment -> roleCode.equals(assignment.getRole().getCode()));
 	}
 
 	private boolean isEmployee(User user) {
-		return hasRole(user, "EMPLOYEE") || user.getRole() == com.example.invoice.entity.UserRole.EMPLOYEE
-				|| user.getRole() == com.example.invoice.entity.UserRole.USER;
+		return hasRole(user, "EMPLOYEE") || hasRole(user, "USER");
 	}
 }
 

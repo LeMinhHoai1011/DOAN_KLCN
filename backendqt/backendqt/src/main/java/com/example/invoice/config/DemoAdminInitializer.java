@@ -2,6 +2,9 @@ package com.example.invoice.config;
 
 import com.example.invoice.entity.User;
 import com.example.invoice.entity.UserRole;
+import com.example.invoice.entity.Role;
+import com.example.invoice.entity.UserRoleAssignment;
+import com.example.invoice.repository.RoleRepository;
 import com.example.invoice.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,12 +13,14 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component
-@org.springframework.core.annotation.Order(1)
+@org.springframework.core.annotation.Order(3)
 @RequiredArgsConstructor
 public class DemoAdminInitializer implements CommandLineRunner {
 	private final UserRepository userRepository;
+	private final RoleRepository roleRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final JdbcTemplate jdbcTemplate;
 
@@ -35,6 +40,7 @@ public class DemoAdminInitializer implements CommandLineRunner {
 	private boolean demoUsersEnabled;
 
 	@Override
+	@Transactional
 	public void run(String... args) {
 		allowLegacyPasswordColumnToBeEmpty();
 		allowSupportedRoles();
@@ -57,15 +63,23 @@ public class DemoAdminInitializer implements CommandLineRunner {
 	}
 
 	private void createIfMissing(String accountUsername, String accountPassword, String fullName, String accountEmail, UserRole role) {
-		if (userRepository.existsByUsername(accountUsername)) {
-			return;
-		}
-		User user = new User();
-		user.setUsername(accountUsername);
-		user.setPassword(passwordEncoder.encode(accountPassword));
-		user.setFullName(fullName);
-		user.setEmail(accountEmail);
+		User user = userRepository.findByUsername(accountUsername).orElseGet(() -> {
+			User newUser = new User();
+			newUser.setUsername(accountUsername);
+			newUser.setPassword(passwordEncoder.encode(accountPassword));
+			newUser.setFullName(fullName);
+			newUser.setEmail(accountEmail);
+			return userRepository.save(newUser);
+		});
 		user.setRole(role);
+		Role databaseRole = roleRepository.findByCode(role.name()).orElse(null);
+		if (databaseRole != null && user.getUserRoles().stream()
+				.noneMatch(assignment -> assignment.getRole().getId().equals(databaseRole.getId()))) {
+			UserRoleAssignment assignment = new UserRoleAssignment();
+			assignment.setUser(user);
+			assignment.setRole(databaseRole);
+			user.getUserRoles().add(assignment);
+		}
 		userRepository.save(user);
 	}
 

@@ -3,8 +3,9 @@ package com.example.invoice.config;
 import com.example.invoice.entity.Permission;
 import com.example.invoice.entity.PermissionGroup;
 import com.example.invoice.entity.Role;
+import com.example.invoice.entity.RolePermission;
 import com.example.invoice.entity.User;
-import com.example.invoice.entity.UserRole;
+import com.example.invoice.entity.UserRoleAssignment;
 import com.example.invoice.repository.PermissionGroupRepository;
 import com.example.invoice.repository.PermissionRepository;
 import com.example.invoice.repository.RoleRepository;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 @Component
 @Order(2)
@@ -165,21 +167,49 @@ public class RolePermissionInitializer implements CommandLineRunner {
     }
 
     private void assignPermissions(Role role, List<Permission> permissions) {
-        role.getPermissions().addAll(permissions);
+        for (Permission permission : permissions) {
+            boolean alreadyAssigned = role.getRolePermissions().stream()
+                    .anyMatch(assignment -> assignment.getPermission().getId().equals(permission.getId()));
+            if (!alreadyAssigned) {
+                RolePermission assignment = new RolePermission();
+                assignment.setRole(role);
+                assignment.setPermission(permission);
+                role.getRolePermissions().add(assignment);
+            }
+        }
         roleRepository.save(role);
     }
 
     private void migrateExistingUsers() {
         List<User> users = userRepository.findAll();
         for (User u : users) {
-            if (u.getRoles() == null || u.getRoles().isEmpty()) {
-                if (u.getRole() != null) {
-                    roleRepository.findByCode(u.getRole().name()).ifPresent(r -> {
-                        u.getRoles().add(r);
-                        userRepository.save(u);
-                    });
-                }
+            String legacyRoleCode = readLegacyRoleCode(u.getId());
+            if (legacyRoleCode == null) {
+                continue;
             }
+            Role role = roleRepository.findByCode(legacyRoleCode.toUpperCase()).orElse(null);
+            if (role == null) {
+                continue;
+            }
+            Set<String> builtInRoles = Set.of("ADMIN", "ACCOUNTANT", "EMPLOYEE", "USER");
+            boolean alreadyAssigned = u.getUserRoles().stream()
+                    .anyMatch(assignment -> assignment.getRole().getId().equals(role.getId()));
+            if (!alreadyAssigned) {
+                u.getUserRoles().removeIf(assignment -> builtInRoles.contains(assignment.getRole().getCode()));
+                UserRoleAssignment assignment = new UserRoleAssignment();
+                assignment.setUser(u);
+                assignment.setRole(role);
+                u.getUserRoles().add(assignment);
+                userRepository.save(u);
+            }
+        }
+    }
+
+    private String readLegacyRoleCode(Long userId) {
+        try {
+            return jdbcTemplate.queryForObject("select role from users where user_id = ?", String.class, userId);
+        } catch (org.springframework.dao.DataAccessException ignored) {
+            return null;
         }
     }
 }

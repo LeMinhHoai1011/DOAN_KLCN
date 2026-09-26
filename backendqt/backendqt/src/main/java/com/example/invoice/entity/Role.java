@@ -1,16 +1,17 @@
 package com.example.invoice.entity;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.JoinTable;
-import jakarta.persistence.ManyToMany;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
@@ -27,11 +28,9 @@ public class Role {
 	@Column(name = "role_id")
 	private Long id;
 
-	/** Unique machine-readable code (e.g. ADMIN, ACCOUNTANT). Used as the source of truth for Spring Security GrantedAuthority. */
 	@Column(nullable = false, unique = true, length = 50)
 	private String code;
 
-	/** Human-readable display name. Maps to existing column "role_name" to preserve backward compatibility with the legacy schema. */
 	@Column(name = "role_name", length = 100)
 	private String name;
 
@@ -40,15 +39,13 @@ public class Role {
 	@Column(nullable = false)
 	private boolean active = true;
 
-	@ManyToMany(mappedBy = "roles")
-	private Set<User> users = new HashSet<>();
+	@OneToMany(mappedBy = "role", fetch = FetchType.LAZY)
+	private Set<UserRoleAssignment> userRoles = new HashSet<>();
 
-	@ManyToMany
-	@JoinTable(
-		name = "role_permissions",
-		joinColumns = @JoinColumn(name = "role_id"),
-		inverseJoinColumns = @JoinColumn(name = "permission_id")
-	)
+	@OneToMany(mappedBy = "role", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+	private Set<RolePermission> rolePermissions = new HashSet<>();
+
+	@Transient
 	private Set<Permission> permissions = new HashSet<>();
 
 	@Column(updatable = false)

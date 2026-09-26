@@ -9,6 +9,7 @@ import com.example.invoice.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -18,9 +19,10 @@ public class DashboardService {
 	private final ClassificationRepository classificationRepository;
 	private final UserService userService;
 
+	@Transactional(readOnly = true)
 	public DashboardStatisticsResponse statistics() {
 		User user = userService.loadCurrent(SecurityContextHolder.getContext().getAuthentication());
-		if (hasRole(user, "ADMIN")) return statisticsForAll();
+		if (hasRole(user, "ADMIN") || hasRole(user, "ACCOUNTANT")) return statisticsForAll();
 		if (isEmployee(user)) return statisticsForUser(user.getId());
 		if (user.getCompany() == null) return new DashboardStatisticsResponse(0, 0, 0, 0);
 		return statisticsForCompany(user.getCompany().getId());
@@ -58,11 +60,11 @@ public class DashboardService {
 	}
 
 	private boolean hasRole(User user, String roleCode) {
-		return user.getRoles().stream().anyMatch(role -> roleCode.equals(role.getCode()));
+		return user.getUserRoles().stream()
+				.anyMatch(assignment -> roleCode.equals(assignment.getRole().getCode()));
 	}
 
 	private boolean isEmployee(User user) {
-		return hasRole(user, "EMPLOYEE") || user.getRole() == com.example.invoice.entity.UserRole.EMPLOYEE
-				|| user.getRole() == com.example.invoice.entity.UserRole.USER;
+		return hasRole(user, "EMPLOYEE") || hasRole(user, "USER");
 	}
 }

@@ -9,7 +9,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
@@ -45,7 +44,7 @@ public class Classification {
 	@Column(precision = 5, scale = 2)
 	private BigDecimal confidence;
 
-	@Lob
+	@Column(columnDefinition = "text")
 	private String reason;
 
 	@Enumerated(EnumType.STRING)

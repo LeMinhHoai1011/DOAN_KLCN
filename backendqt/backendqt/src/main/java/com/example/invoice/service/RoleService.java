@@ -7,6 +7,7 @@ import com.example.invoice.dto.role.RoleResponse;
 import com.example.invoice.dto.role.RoleUpdatePermissionsRequest;
 import com.example.invoice.entity.Permission;
 import com.example.invoice.entity.Role;
+import com.example.invoice.entity.RolePermission;
 import com.example.invoice.exception.BadRequestException;
 import com.example.invoice.exception.ResourceNotFoundException;
 import com.example.invoice.repository.PermissionGroupRepository;
@@ -30,10 +31,12 @@ public class RoleService {
 
 	// ── Role CRUD ──────────────────────────────────────────────────────────────
 
+	@Transactional(readOnly = true)
 	public List<RoleResponse> findAllRoles() {
 		return roleRepository.findAll().stream().map(this::toRoleResponse).toList();
 	}
 
+	@Transactional(readOnly = true)
 	public RoleResponse findRoleById(Long id) {
 		return toRoleResponse(loadRole(id));
 	}
@@ -79,8 +82,10 @@ public class RoleService {
 
 	// ── Role Permissions ───────────────────────────────────────────────────────
 
+	@Transactional(readOnly = true)
 	public Set<PermissionResponse> getRolePermissions(Long roleId) {
-		return loadRole(roleId).getPermissions().stream()
+		return loadRole(roleId).getRolePermissions().stream()
+				.map(RolePermission::getPermission)
 				.map(this::toPermissionResponse)
 				.collect(Collectors.toSet());
 	}
@@ -92,17 +97,24 @@ public class RoleService {
 		if (permissions.size() != request.permissionIds().size()) {
 			throw new BadRequestException("One or more permission IDs are invalid");
 		}
-		role.getPermissions().clear();
-		role.getPermissions().addAll(permissions);
+		role.getRolePermissions().clear();
+		for (Permission permission : permissions) {
+			RolePermission rolePermission = new RolePermission();
+			rolePermission.setRole(role);
+			rolePermission.setPermission(permission);
+			role.getRolePermissions().add(rolePermission);
+		}
 		return toRoleResponse(roleRepository.save(role));
 	}
 
 	// ── Permission & Group ────────────────────────────────────────────────────
 
+	@Transactional(readOnly = true)
 	public List<PermissionResponse> findAllPermissions() {
 		return permissionRepository.findAll().stream().map(this::toPermissionResponse).toList();
 	}
 
+	@Transactional(readOnly = true)
 	public List<PermissionGroupResponse> findAllPermissionGroups() {
 		return permissionGroupRepository.findAll().stream()
 				.map(group -> new PermissionGroupResponse(
@@ -123,7 +135,8 @@ public class RoleService {
 	}
 
 	private RoleResponse toRoleResponse(Role role) {
-		Set<String> permCodes = role.getPermissions().stream()
+		Set<String> permCodes = role.getRolePermissions().stream()
+				.map(RolePermission::getPermission)
 				.map(Permission::getCode).collect(Collectors.toSet());
 		return new RoleResponse(
 				role.getId(),
