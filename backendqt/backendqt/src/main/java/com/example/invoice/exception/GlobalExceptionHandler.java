@@ -12,6 +12,8 @@ import org.springframework.security.authentication.DisabledException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -51,6 +53,21 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(DataAccessException.class)
 	ResponseEntity<ErrorResponse> handleDatabase(DataAccessException ex, HttpServletRequest request) {
 		return error(HttpStatus.INTERNAL_SERVER_ERROR, "DATABASE_ERROR", "Database operation failed", request.getRequestURI());
+	}
+
+	@ExceptionHandler(MissingServletRequestPartException.class)
+	ResponseEntity<ErrorResponse> handleMissingMultipartPart(MissingServletRequestPartException ex, HttpServletRequest request) {
+		return error(HttpStatus.BAD_REQUEST, "MISSING_MULTIPART_FILE", "An image file is required", request.getRequestURI());
+	}
+
+	@ExceptionHandler(MaxUploadSizeExceededException.class)
+	ResponseEntity<ErrorResponse> handleMaxUploadSize(MaxUploadSizeExceededException ex, HttpServletRequest request) {
+		return error(HttpStatus.PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "Uploaded file exceeds the server limit", request.getRequestURI());
+	}
+
+	@ExceptionHandler(AiProviderException.class)
+	ResponseEntity<ErrorResponse> handleAiProvider(AiProviderException ex, HttpServletRequest request) {
+		return error(HttpStatus.BAD_GATEWAY, "AI_PROVIDER_ERROR", ex.getMessage(), request.getRequestURI());
 	}
 
 	@ExceptionHandler(Exception.class)

@@ -8,7 +8,7 @@ import {
   BrainCircuit
 } from 'lucide-react';
 import clsx from 'clsx';
-import { getCurrentUser, logout } from '../../services/authService';
+import { getCurrentUser, getEffectiveRole, logout } from '../../services/authService';
 
 const menuItems = [
   { name: 'Dashboard Nhân viên', path: '/employee/dashboard', icon: LayoutDashboard },
@@ -19,6 +19,7 @@ const menuItems = [
 const EmployeeSidebar = () => {
   const navigate = useNavigate();
   const user = getCurrentUser();
+  const role = getEffectiveRole(user);
   const displayName = user?.fullName || user?.username || 'Người dùng';
   const initials = displayName
     .split(' ')
@@ -43,7 +44,7 @@ const EmployeeSidebar = () => {
 
       <div className="flex-1 overflow-y-auto py-6 px-3 flex flex-col gap-1">
         <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">Menu chính</div>
-        {menuItems.map((item) => {
+        {menuItems.filter((item) => item.path !== '/employee/upload' || role === 'EMPLOYEE').map((item) => {
           const Icon = item.icon;
           return (
             <NavLink
@@ -64,7 +65,7 @@ const EmployeeSidebar = () => {
 
         <div className="mt-8 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">Hệ thống</div>
         <NavLink
-          to="/settings"
+          to="/employee/settings"
           className={({ isActive }) => clsx(
             "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
             isActive 

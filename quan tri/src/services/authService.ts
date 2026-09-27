@@ -64,12 +64,23 @@ export const logout = () => {
 }
 
 export const getEffectiveRole = (user: User | null = getCurrentUser()) => {
-  const roles = user?.roles || []
-  if (roles.includes('ADMIN')) return 'ADMIN'
-  if (roles.includes('ACCOUNTANT')) return 'ACCOUNTANT'
-  if (roles.includes('EMPLOYEE')) return 'EMPLOYEE'
-  if (user?.role === 'USER') return 'EMPLOYEE'
-  return user?.role || null
+  const normalizeRole = (value: string | undefined) => {
+    return value?.trim().toUpperCase().replace(/^ROLE_/, '')
+  }
+  const roleCodes = [...(user?.roles || []).map(normalizeRole), normalizeRole(user?.role)]
+
+  for (const role of ['ADMIN', 'ACCOUNTANT', 'EMPLOYEE', 'USER']) {
+    if (roleCodes.includes(role)) return role
+  }
+  return null
+}
+
+export const getDashboardPath = (user: User | null = getCurrentUser()) => {
+  const role = getEffectiveRole(user)
+  if (role === 'ADMIN') return '/admin/dashboard'
+  if (role === 'ACCOUNTANT') return '/accountant/dashboard'
+  if (role === 'EMPLOYEE' || role === 'USER') return '/employee/dashboard'
+  return null
 }
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY)

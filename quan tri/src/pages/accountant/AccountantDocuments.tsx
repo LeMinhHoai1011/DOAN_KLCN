@@ -13,8 +13,11 @@ const AccountantDocuments = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [fileTypeFilter, setFileTypeFilter] = useState('ALL');
   const role = getEffectiveRole();
-  const basePath = role === 'ADMIN' ? '/admin' : role === 'EMPLOYEE' ? '/employee' : '/accountant';
+  const basePath = role === 'ADMIN' ? '/admin' : role === 'EMPLOYEE' || role === 'USER' ? '/employee' : '/accountant';
 
   useEffect(() => {
     let isMounted = true;
@@ -43,12 +46,21 @@ const AccountantDocuments = () => {
     };
   }, []);
 
-  const filtered = documents.filter((doc) =>
-    searchTerm === '' ||
-    String(doc.id).includes(searchTerm) ||
-    (doc.fileName && doc.fileName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (doc.supplier && doc.supplier.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const normalizedSearch = searchTerm.trim().toLocaleLowerCase();
+  const filtered = documents.filter((doc) => {
+    const mimeType = doc.fileType.toLocaleLowerCase();
+    const matchesSearch = !normalizedSearch ||
+      String(doc.id).includes(normalizedSearch) ||
+      doc.fileName.toLocaleLowerCase().includes(normalizedSearch) ||
+      mimeType.includes(normalizedSearch);
+    const matchesStatus = statusFilter === 'ALL' || doc.status === statusFilter;
+    const matchesFileType = fileTypeFilter === 'ALL' ||
+      (fileTypeFilter === 'PDF' && mimeType.includes('pdf')) ||
+      (fileTypeFilter === 'IMAGE' && mimeType.startsWith('image/')) ||
+      (fileTypeFilter === 'OTHER' && !mimeType.includes('pdf') && !mimeType.startsWith('image/'));
+
+    return matchesSearch && matchesStatus && matchesFileType;
+  });
 
   return (
     <div className="space-y-6">
@@ -58,16 +70,23 @@ const AccountantDocuments = () => {
           <p className="text-slate-500 mt-1">Tra cứu và xử lý các chứng từ đã được số hóa</p>
         </div>
         <div className="flex gap-2">
-          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">
+          <button
+            type="button"
+            aria-expanded={showFilters}
+            onClick={() => setShowFilters((open) => !open)}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+          >
             <Filter size={18} />
             <span>Bộ lọc</span>
           </button>
-          <button
-            onClick={() => navigate(`${basePath}/upload`)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-          >
-            <span>+ Upload chứng từ</span>
-          </button>
+          {role !== 'USER' && (
+            <button
+              onClick={() => navigate(`${basePath}/upload`)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+            >
+              <span>+ Upload chứng từ</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -77,7 +96,7 @@ const AccountantDocuments = () => {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
               type="text"
-              placeholder="Tìm kiếm theo mã, nhà cung cấp..."
+              placeholder="Tìm kiếm theo mã, tên file hoặc loại file..."
               className="w-full bg-white border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 pl-9 pr-4 outline-none text-sm transition-all"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -87,6 +106,51 @@ const AccountantDocuments = () => {
             {isLoading ? 'Đang tải...' : `Tổng số ${filtered.length}`}
           </div>
         </div>
+
+        {showFilters && (
+          <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 px-4 py-3">
+            <label className="grid gap-1 text-xs font-medium text-slate-500">
+              <span>Trạng thái</span>
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="min-w-44 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+              >
+                <option value="ALL">Tất cả</option>
+                <option value="Đã tải lên">Đã tải lên</option>
+                <option value="Đang xử lý">Đang xử lý</option>
+                <option value="Đã xử lý">Đã xử lý</option>
+                <option value="Cần kiểm tra">Cần kiểm tra</option>
+                <option value="Hoàn tất">Hoàn tất</option>
+                <option value="Lỗi">Lỗi</option>
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-medium text-slate-500">
+              <span>Loại file</span>
+              <select
+                value={fileTypeFilter}
+                onChange={(event) => setFileTypeFilter(event.target.value)}
+                className="min-w-40 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+              >
+                <option value="ALL">Tất cả</option>
+                <option value="PDF">PDF</option>
+                <option value="IMAGE">Hình ảnh</option>
+                <option value="OTHER">Khác</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter('ALL');
+                setFileTypeFilter('ALL');
+                setSearchTerm('');
+              }}
+              className="px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 rounded-lg"
+            >
+              Xóa bộ lọc
+            </button>
+          </div>
+        )}
 
         {error ? (
           <div className="p-10 text-center text-red-600">{error}</div>
@@ -98,7 +162,7 @@ const AccountantDocuments = () => {
                   <th className="py-3 px-4 w-12 text-center"><input type="checkbox" className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" /></th>
                   <th className="py-3 px-4 font-medium">Mã</th>
                   <th className="py-3 px-4 font-medium">Tên chứng từ</th>
-                  <th className="py-3 px-4 font-medium">Nhà cung cấp</th>
+                  <th className="py-3 px-4 font-medium">Loại file</th>
                   <th className="py-3 px-4 font-medium">Ngày</th>
                   <th className="py-3 px-4 font-medium text-right">Số tiền</th>
                   <th className="py-3 px-4 font-medium">AI Confidence</th>
@@ -126,7 +190,9 @@ const AccountantDocuments = () => {
                         <span className="truncate max-w-[150px]">{doc.fileName}</span>
                       </div>
                     </td>
-                    <td className="py-3 px-4 truncate max-w-[200px]" title={doc.supplier || '-'}>{doc.supplier || '-'}</td>
+                    <td className="py-3 px-4 truncate max-w-[200px]" title={doc.fileType}>
+                      {doc.fileType === 'application/pdf' ? 'PDF' : doc.fileType.startsWith('image/') ? doc.fileType.slice(6).toUpperCase() : doc.fileType || '-'}
+                    </td>
                     <td className="py-3 px-4">{doc.date}</td>
                     <td className="py-3 px-4 text-right font-medium">{doc.amount === undefined ? '-' : `${doc.amount.toLocaleString('vi-VN')} đ`}</td>
                     <td className="py-3 px-4">

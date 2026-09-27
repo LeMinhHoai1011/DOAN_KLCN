@@ -2,33 +2,30 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { UserPlus, Users } from 'lucide-react'
 import api from '../../services/api'
+import { getErrorMessage } from '../../services/authService'
 import type { User } from '../../services/authService'
 import roleService from '../../services/roleService'
 import type { Role } from '../../services/roleService'
 
 type ManagedUser = User & { status: 'ACTIVE' | 'INACTIVE' }
-type Company = { id: number; companyName: string; taxCode: string | null }
 const assignableLegacyRoles = new Set(['ADMIN', 'ACCOUNTANT', 'EMPLOYEE', 'USER'])
 
 const UserManagement = () => {
   const [users, setUsers] = useState<ManagedUser[]>([])
   const [roles, setRoles] = useState<Role[]>([])
-  const [companies, setCompanies] = useState<Company[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [isCreating, setIsCreating] = useState(false)
-  const [form, setForm] = useState({ username: '', password: '', fullName: '', email: '', role: 'EMPLOYEE', companyId: '' })
+  const [form, setForm] = useState({ username: '', password: '', fullName: '', email: '', role: 'EMPLOYEE' })
 
   const loadData = async () => {
     try {
-      const [usersRes, rolesRes, companiesRes] = await Promise.all([
+      const [usersRes, rolesRes] = await Promise.all([
         api.get<ManagedUser[]>('/api/v1/users'),
         roleService.getRoles(),
-        api.get<Company[]>('/api/v1/companies'),
       ])
       setUsers(usersRes.data)
       setRoles(rolesRes.data)
-      setCompanies(companiesRes.data)
     } catch {
       setError('Khong the tai danh sach nguoi dung hoac vai tro')
     } finally {
@@ -44,25 +41,24 @@ const UserManagement = () => {
     event.preventDefault()
     setError('')
     try {
-      await api.post('/api/v1/users', { ...form, companyId: form.companyId ? Number(form.companyId) : null })
-      setForm({ username: '', password: '', fullName: '', email: '', role: 'EMPLOYEE', companyId: '' })
+      await api.post('/api/v1/users', form)
+      setForm({ username: '', password: '', fullName: '', email: '', role: 'EMPLOYEE' })
       setIsCreating(false)
       await loadData()
-    } catch {
-      setError('Khong the tao nguoi dung. Kiem tra username hoac email da ton tai.')
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Không thể tạo tài khoản. Kiểm tra lại thông tin đã nhập.'))
     }
   }
 
   const updateStatus = async (user: ManagedUser, newStatus: string) => {
     try {
       await api.put(`/api/v1/users/${user.id}`, {
-        role: user.role, // legacy
         status: newStatus,
         companyId: user.companyId ?? null,
       })
       await loadData()
-    } catch {
-      setError('Khong the cap nhat trang thai')
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Không thể cập nhật trạng thái tài khoản.'))
     }
   }
   
@@ -77,19 +73,6 @@ const UserManagement = () => {
       await loadData()
     } catch {
       setError('Khong the cap nhat quyen')
-    }
-  }
-
-  const assignCompany = async (user: ManagedUser, companyId: string) => {
-    try {
-      await api.put(`/api/v1/users/${user.id}`, {
-        role: user.role,
-        status: user.status,
-        companyId: companyId ? Number(companyId) : null,
-      })
-      await loadData()
-    } catch {
-      setError('Khong the cap nhat cong ty')
     }
   }
 
@@ -115,10 +98,6 @@ const UserManagement = () => {
           <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="rounded-lg border border-slate-200 px-3 py-2">
             {roles.filter(r => assignableLegacyRoles.has(r.code)).map(r => <option key={r.id} value={r.code}>{r.name} ({r.code})</option>)}
           </select>
-          <select value={form.companyId} onChange={(event) => setForm({ ...form, companyId: event.target.value })} className="rounded-lg border border-slate-200 px-3 py-2">
-            <option value="">Chưa gán công ty</option>
-            {companies.map(company => <option key={company.id} value={company.id}>{company.companyName}{company.taxCode ? ` (${company.taxCode})` : ''}</option>)}
-          </select>
           <button type="submit" className="rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700">Tao tai khoan</button>
         </form>
       )}
@@ -126,7 +105,7 @@ const UserManagement = () => {
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         {isLoading ? <div className="p-10 text-center text-slate-500">Dang tai...</div> : users.length === 0 ? <div className="p-10 text-center text-slate-500"><Users className="mx-auto mb-2" />Chua co nguoi dung</div> : (
           <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500"><tr><th className="p-4">Nguoi dung</th><th className="p-4">Email</th><th className="p-4">Role</th><th className="p-4">Cong ty</th><th className="p-4">Trang thai</th><th className="p-4">Thao tac</th></tr></thead>
+            <thead className="bg-slate-50 text-slate-500"><tr><th className="p-4">Nguoi dung</th><th className="p-4">Email</th><th className="p-4">Role</th><th className="p-4">Trang thai</th><th className="p-4">Thao tac</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {users.map((user) => <tr key={user.id}>
                 <td className="p-4"><div className="font-medium text-slate-800">{user.fullName}</div><div className="text-slate-500">@{user.username}</div></td>
@@ -135,12 +114,6 @@ const UserManagement = () => {
                   <select value={user.role || ''} onChange={(event) => void assignRole(user, event.target.value)} className="rounded border border-slate-200 px-2 py-1">
                     <option value="" disabled>Chon role...</option>
                     {roles.map(r => <option key={r.id} value={r.code}>{r.name}</option>)}
-                  </select>
-                </td>
-                <td className="p-4">
-                  <select value={user.companyId ?? ''} onChange={(event) => void assignCompany(user, event.target.value)} className="rounded border border-slate-200 px-2 py-1">
-                    <option value="">Chưa gán</option>
-                    {companies.map(company => <option key={company.id} value={company.id}>{company.companyName}</option>)}
                   </select>
                 </td>
                 <td className="p-4"><span className={user.status === 'ACTIVE' ? 'text-emerald-600' : 'text-red-600'}>{user.status === 'ACTIVE' ? 'Dang hoat dong' : 'Da khoa'}</span></td>

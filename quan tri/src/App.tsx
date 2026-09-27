@@ -15,6 +15,7 @@ import AccountantDashboard from './pages/accountant/AccountantDashboard';
 import AccountantDocuments from './pages/accountant/AccountantDocuments';
 import AccountantDocumentDetail from './pages/accountant/AccountantDocumentDetail';
 import AccountantUpload from './pages/accountant/AccountantUpload';
+import AiTest from './pages/accountant/AiTest';
 
 // Admin pages (folder admin/)
 import RoleManagement from './pages/admin/RoleManagement';
@@ -26,7 +27,7 @@ import SystemStatistics from './pages/admin/SystemStatistics';
 // Employee pages (folder employee/)
 import EmployeeDashboard from './pages/employee/EmployeeDashboard';
 
-import { getEffectiveRole, getToken, getCurrentUser, getMe, logout, saveUser } from './services/authService';
+import { getDashboardPath, getEffectiveRole, getToken, getCurrentUser, getMe, logout, saveUser } from './services/authService';
 
 // ─── Guards ───────────────────────────────────────────────────────────────────
 
@@ -48,10 +49,7 @@ function RoleGuard({ allowedRoles }: { allowedRoles: string[] }) {
   }
 
   if (allowedRoles.length > 0 && (!role || !allowedRoles.includes(role))) {
-    // Redirect về đúng trang của role thực tế
-    if (role === 'ADMIN') return <Navigate to="/admin/dashboard" replace />;
-    if (role === 'ACCOUNTANT') return <Navigate to="/accountant/dashboard" replace />;
-    return <Navigate to="/employee/dashboard" replace />;
+    return <Navigate to={getDashboardPath(user) || '/login'} replace />;
   }
 
   return <Outlet />;
@@ -89,8 +87,6 @@ function App() {
       .catch(() => logout());
   }, []);
 
-  const role = getEffectiveRole(user);
-
   return (
     <BrowserRouter>
       <Routes>
@@ -102,13 +98,7 @@ function App() {
         <Route element={<ProtectedRoute />}>
 
           {/* Redirect từ "/" về đúng dashboard theo role */}
-          <Route path="/" element={
-            <Navigate to={
-              role === 'ADMIN' ? '/admin/dashboard'
-              : role === 'ACCOUNTANT' ? '/accountant/dashboard'
-              : '/employee/dashboard'
-            } replace />
-          } />
+          <Route path="/" element={<Navigate to={getDashboardPath(user) || '/login'} replace />} />
 
           {/* ── KẾ TOÁN (ACCOUNTANT) ── */}
           <Route element={<RoleGuard allowedRoles={['ACCOUNTANT']} />}>
@@ -118,8 +108,7 @@ function App() {
               <Route path="documents" element={<AccountantDocuments />} />
               <Route path="documents/:id" element={<AccountantDocumentDetail />} />
               <Route path="upload" element={<AccountantUpload />} />
-              <Route path="upload" element={<AccountantUpload />} />
-              <Route path="ocr-ai" element={<UnavailableFeature title="OCR & AI Tracking" />} />
+              <Route path="ocr-ai" element={<AiTest />} />
               <Route path="storage" element={<UnavailableFeature title="Kho lưu trữ" />} />
               <Route path="classification" element={<UnavailableFeature title="Phân loại" />} />
               <Route path="reports" element={<UnavailableFeature title="Báo cáo" />} />
@@ -143,14 +132,16 @@ function App() {
           </Route>
 
           {/* ── NHÂN VIÊN (EMPLOYEE / USER) ── */}
-          <Route element={<RoleGuard allowedRoles={['EMPLOYEE']} />}>
+          <Route element={<RoleGuard allowedRoles={['EMPLOYEE', 'USER']} />}>
             <Route path="/employee" element={<EmployeeLayout />}>
               <Route index element={<Navigate to="/employee/dashboard" replace />} />
               <Route path="dashboard" element={<EmployeeDashboard />} />
               <Route path="documents" element={<AccountantDocuments />} />
               <Route path="documents/:id" element={<AccountantDocumentDetail />} />
-              <Route path="upload" element={<AccountantUpload />} />
-              <Route path="upload" element={<AccountantUpload />} />
+              <Route element={<RoleGuard allowedRoles={['EMPLOYEE']} />}>
+                <Route path="upload" element={<AccountantUpload />} />
+              </Route>
+              <Route path="settings" element={<UnavailableFeature title="Cài đặt" />} />
             </Route>
           </Route>
 
