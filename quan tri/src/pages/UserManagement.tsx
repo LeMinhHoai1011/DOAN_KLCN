@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Search, UserPlus, Shield, User, Trash2 } from 'lucide-react';
+import api from '../services/api';
 
 interface UserData {
   id: number;
@@ -14,15 +15,8 @@ const UserManagement = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://localhost:8080/api/users')
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error('Không thể lấy danh sách người dùng');
-        }
-
-        return response.json();
-      })
-      .then((data) => {
+    api.get<UserData[]>('/api/v1/users')
+      .then(({ data }) => {
         setUsers(data);
         setLoading(false);
       })

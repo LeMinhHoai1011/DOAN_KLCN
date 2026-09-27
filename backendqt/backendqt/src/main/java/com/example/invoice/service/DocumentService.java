@@ -5,6 +5,7 @@ import com.example.invoice.dto.document.DocumentResponse;
 import com.example.invoice.dto.document.DocumentUpdateRequest;
 import com.example.invoice.entity.Document;
 import com.example.invoice.entity.DocumentType;
+import com.example.invoice.entity.DocumentStatus;
 import com.example.invoice.entity.DocumentVersion;
 import com.example.invoice.entity.User;
 import com.example.invoice.exception.ResourceNotFoundException;
@@ -168,6 +169,24 @@ public class DocumentService {
 		} catch (Exception e) {
 			throw new IllegalStateException("Could not download file from MinIO", e);
 		}
+	}
+
+	@Transactional(readOnly = true)
+	public byte[] loadFileBytes(Long id) {
+		Document document = load(id);
+		try (InputStream stream = minioClient.getObject(GetObjectArgs.builder()
+				.bucket(bucket)
+				.object(document.getFilePath())
+				.build())) {
+			return stream.readAllBytes();
+		} catch (Exception exception) {
+			throw new IllegalStateException("Could not load document content from MinIO", exception);
+		}
+	}
+
+	@Transactional
+	public void updateProcessingStatus(Long id, DocumentStatus status) {
+		load(id).setStatus(status);
 	}
 
 	@Transactional(readOnly = true)

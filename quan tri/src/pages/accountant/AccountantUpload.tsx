@@ -3,7 +3,7 @@ import { CheckCircle2, FileType, Loader2, UploadCloud, XCircle } from 'lucide-re
 import { useNavigate } from 'react-router-dom';
 import documentService from '../../services/documentService';
 import type { DocumentResponse, DocumentType } from '../../services/documentService';
-import { getCurrentUser, getEffectiveRole } from '../../services/authService';
+import { getCurrentUser, getEffectiveRole, getErrorMessage } from '../../services/authService';
 
 type UploadState = 'idle' | 'uploading' | 'completed' | 'error';
 
@@ -57,11 +57,16 @@ const AccountantUpload = () => {
     try {
       const typeIdToUpload = selectedTypeId !== '' ? selectedTypeId : undefined;
       const response = await documentService.uploadDocument(file, typeIdToUpload);
+      if (file.type === 'image/jpeg' || file.type === 'image/png') {
+        await documentService.processDocument(response.id);
+      } else if (file.type === 'application/pdf') {
+        setErrorMessage('Đã upload. AI xử lý PDF đang chờ hỗ trợ chuyển đổi trang sang ảnh.');
+      }
       setUploadResult(response);
       setUploadState('completed');
-    } catch {
+    } catch (error: unknown) {
       setUploadState('error');
-      setErrorMessage('Upload thất bại. Vui lòng thử lại.');
+      setErrorMessage(getErrorMessage(error, 'Upload hoặc xử lý AI thất bại. Vui lòng thử lại.'));
     }
   };
 

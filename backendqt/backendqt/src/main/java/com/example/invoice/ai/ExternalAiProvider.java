@@ -39,7 +39,7 @@ public class ExternalAiProvider implements AiProvider {
 
 	@Override
 	public String providerName() {
-		return "cloud";
+		return "external";
 	}
 
 	@Override
@@ -56,8 +56,7 @@ public class ExternalAiProvider implements AiProvider {
 		String apiKey = required(cloud.getApiKey(), "AI cloud API key must be configured");
 		String model = required(cloud.getModel(), "AI cloud model must be configured");
 		String path = required(cloud.getChatCompletionsPath(), "AI cloud chat-completions path must be configured");
-		int timeoutSeconds = properties.getRequestTimeoutSeconds();
-		if (timeoutSeconds <= 0) {
+		if (properties.getRequestTimeout().isZero() || properties.getRequestTimeout().isNegative()) {
 			throw new BadRequestException("AI request timeout must be greater than zero");
 		}
 
@@ -74,7 +73,7 @@ public class ExternalAiProvider implements AiProvider {
 
 		String endpoint = joinUrl(baseUrl, path);
 		OkHttpClient client = new OkHttpClient.Builder()
-				.callTimeout(Duration.ofSeconds(timeoutSeconds))
+				.callTimeout(properties.getRequestTimeout())
 				.build();
 		Request httpRequest = new Request.Builder()
 				.url(endpoint)

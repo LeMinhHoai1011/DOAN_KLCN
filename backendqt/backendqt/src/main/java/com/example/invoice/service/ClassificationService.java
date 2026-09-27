@@ -5,6 +5,8 @@ import com.example.invoice.dto.classification.ClassificationUpdateRequest;
 import com.example.invoice.entity.Classification;
 import com.example.invoice.entity.ClassificationStatus;
 import com.example.invoice.entity.Document;
+import com.example.invoice.entity.DocumentStatus;
+import com.example.invoice.entity.ReviewStatus;
 import com.example.invoice.exception.ResourceNotFoundException;
 import com.example.invoice.repository.ClassificationRepository;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,8 @@ public class ClassificationService {
 	public ClassificationResponse approve(Long documentId) {
 		Classification classification = loadByDocumentId(documentId);
 		classification.setStatus(ClassificationStatus.ACCEPTED);
+		classification.getDocument().setStatus(DocumentStatus.COMPLETED);
+		classification.getDocument().setReviewStatus(ReviewStatus.APPROVED);
 		return toResponse(classification);
 	}
 

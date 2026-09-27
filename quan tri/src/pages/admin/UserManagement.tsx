@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { UserPlus, Users } from 'lucide-react'
+import { UserPlus, Users, X } from 'lucide-react'
 import api from '../../services/api'
 import { getErrorMessage } from '../../services/authService'
 import type { User } from '../../services/authService'
@@ -36,6 +36,15 @@ const UserManagement = () => {
   useEffect(() => {
     void loadData()
   }, [])
+
+  useEffect(() => {
+    if (!isCreating) return
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsCreating(false)
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isCreating])
 
   const createUser = async (event: FormEvent) => {
     event.preventDefault()
@@ -83,7 +92,7 @@ const UserManagement = () => {
           <h1 className="text-2xl font-bold text-slate-800">Quan ly nguoi dung</h1>
           <p className="text-slate-500 mt-1">Tao tai khoan, phan quyen va khoa/mo khoa</p>
         </div>
-        <button type="button" onClick={() => setIsCreating((value) => !value)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+        <button type="button" onClick={() => setIsCreating(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
           <UserPlus size={18} /> Them nguoi dung
         </button>
       </div>
@@ -91,15 +100,31 @@ const UserManagement = () => {
       {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-red-700">{error}</div>}
 
       {isCreating && (
-        <form onSubmit={createUser} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-2">
-          {(['username', 'password', 'fullName', 'email'] as const).map((field) => (
-            <input key={field} required type={field === 'password' ? 'password' : field === 'email' ? 'email' : 'text'} placeholder={field} value={form[field]} onChange={(event) => setForm({ ...form, [field]: event.target.value })} className="rounded-lg border border-slate-200 px-3 py-2" />
-          ))}
-          <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="rounded-lg border border-slate-200 px-3 py-2">
-            {roles.filter(r => assignableLegacyRoles.has(r.code)).map(r => <option key={r.id} value={r.code}>{r.name} ({r.code})</option>)}
-          </select>
-          <button type="submit" className="rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700">Tao tai khoan</button>
-        </form>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" onMouseDown={() => setIsCreating(false)}>
+          <form onSubmit={createUser} role="dialog" aria-modal="true" aria-labelledby="create-user-title" onMouseDown={(event) => event.stopPropagation()} className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 id="create-user-title" className="text-lg font-semibold text-slate-800">Tao nguoi dung moi</h2>
+                <p className="mt-1 text-sm text-slate-500">Nhap thong tin tai khoan va vai tro ban dau.</p>
+              </div>
+              <button type="button" onClick={() => setIsCreating(false)} aria-label="Dong" title="Dong" className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {(['username', 'password', 'fullName', 'email'] as const).map((field) => (
+                <input key={field} required type={field === 'password' ? 'password' : field === 'email' ? 'email' : 'text'} placeholder={field} value={form[field]} onChange={(event) => setForm({ ...form, [field]: event.target.value })} className="rounded-lg border border-slate-200 px-3 py-2" />
+              ))}
+              <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="rounded-lg border border-slate-200 px-3 py-2">
+                {roles.filter(r => assignableLegacyRoles.has(r.code)).map(r => <option key={r.id} value={r.code}>{r.name} ({r.code})</option>)}
+              </select>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setIsCreating(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-50">Huy</button>
+              <button type="submit" className="rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700">Tao tai khoan</button>
+            </div>
+          </form>
+        </div>
       )}
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">

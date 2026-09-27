@@ -41,16 +41,19 @@ app:
 # provider credentials are never committed to source control.
 ai:
   provider: ${AI_PROVIDER:ollama}
-  request-timeout-seconds: ${AI_REQUEST_TIMEOUT_SECONDS:60}
+  request-timeout: ${AI_TIMEOUT:120s}
   max-image-size-bytes: ${AI_MAX_IMAGE_SIZE_BYTES:10485760}
   ollama:
-    base-url: ${AI_OLLAMA_BASE_URL:http://127.0.0.1:11434}
-    model: ${AI_OLLAMA_MODEL:qwen3-vl:8b}
-  cloud:
-    base-url: ${AI_CLOUD_BASE_URL:}
-    api-key: ${AI_CLOUD_API_KEY:}
-    model: ${AI_CLOUD_MODEL:}
-    chat-completions-path: ${AI_CLOUD_CHAT_COMPLETIONS_PATH:/chat/completions}
+    base-url: ${OLLAMA_BASE_URL:http://192.168.1.9:11434}
+    model: ${OLLAMA_MODEL:qwen3-vl:8b}
+  # cloud:
+  #   base-url: ${AI_CLOUD_BASE_URL:}
+  #   api-key: ${AI_CLOUD_API_KEY:}
+  #   model: ${AI_CLOUD_MODEL:}
+  #   chat-completions-path: ${AI_CLOUD_CHAT_COMPLETIONS_PATH:/chat/completions}
+  document:
+    high-confidence-threshold: ${AI_HIGH_CONFIDENCE_THRESHOLD:0.90}
+    review-threshold: ${AI_REVIEW_THRESHOLD:0.75}
 
 springdoc:
   swagger-ui:

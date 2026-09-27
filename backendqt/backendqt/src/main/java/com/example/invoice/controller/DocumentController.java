@@ -5,6 +5,8 @@ import com.example.invoice.dto.document.DocumentResponse;
 import com.example.invoice.dto.document.DocumentUpdateRequest;
 import com.example.invoice.dto.document.OCRResultRequest;
 import com.example.invoice.dto.document.OCRResultResponse;
+import com.example.invoice.dto.ai.AiDocumentProcessingResponse;
+import com.example.invoice.service.DocumentAiProcessingService;
 import com.example.invoice.dto.invoice.InvoiceResponse;
 import com.example.invoice.service.DocumentService;
 import com.example.invoice.service.InvoiceService;
@@ -29,6 +31,7 @@ public class DocumentController {
 	private final DocumentService documentService;
 	private final InvoiceService invoiceService;
 	private final OCRResultService ocrResultService;
+	private final DocumentAiProcessingService documentAiProcessingService;
 
 	@PostMapping
 	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_CREATE') or hasRole('ADMIN')")
@@ -54,6 +57,18 @@ public class DocumentController {
 			@RequestParam("file") MultipartFile file,
 			Authentication authentication) {
 		return documentService.uploadNewVersion(id, file, authentication);
+	}
+
+	@PostMapping("/{id}/process")
+	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_CREATE') or hasAuthority('PERMISSION_DOCUMENT_UPDATE') or hasRole('ADMIN')")
+	public AiDocumentProcessingResponse process(@PathVariable Long id) {
+		return documentAiProcessingService.process(id, false);
+	}
+
+	@PostMapping("/{id}/reprocess")
+	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_CREATE') or hasAuthority('PERMISSION_DOCUMENT_UPDATE') or hasRole('ADMIN')")
+	public AiDocumentProcessingResponse reprocess(@PathVariable Long id) {
+		return documentAiProcessingService.process(id, true);
 	}
 
 	@GetMapping

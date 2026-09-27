@@ -28,6 +28,13 @@ export interface OCRResultResponse {
   processedAt: string
 }
 
+export interface AiDocumentProcessingResponse {
+  documentId: number
+  status: DocumentStatus
+  requiresReview: boolean
+  warnings: string[]
+}
+
 export interface DocumentListItem {
   id: number
   fileName: string
@@ -99,11 +106,18 @@ const uploadDocument = async (file: File, typeId?: number) => {
   return data
 }
 
+const processDocument = async (id: number, reprocess = false) => {
+  const action = reprocess ? 'reprocess' : 'process'
+  const { data } = await api.post<AiDocumentProcessingResponse>(`/api/v1/documents/${id}/${action}`)
+  return data
+}
+
 const documentService = {
   getDocuments,
   getDocumentById,
   getDocumentOCR,
   uploadDocument,
+  processDocument,
   getDocumentTypes,
 }
 

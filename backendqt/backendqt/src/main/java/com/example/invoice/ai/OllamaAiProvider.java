@@ -2,6 +2,7 @@ package com.example.invoice.ai;
 
 import com.example.invoice.config.AiProperties;
 import com.example.invoice.dto.ai.AiImageRequest;
+import com.example.invoice.dto.ai.AiConnectivityResponse;
 import com.example.invoice.dto.ai.AiProviderResponse;
 import com.example.invoice.exception.AiProviderException;
 import com.example.invoice.exception.BadRequestException;
@@ -9,10 +10,15 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -24,12 +30,13 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class OllamaAiProvider implements AiProvider {
+	private static final Logger log = LoggerFactory.getLogger(OllamaAiProvider.class);
 	private static final MediaType JSON_MEDIA_TYPE = MediaType.get("application/json");
-	private static final String DEFAULT_PROMPT =
-			"Describe the invoice image briefly. Return the visible text and key invoice fields when available.";
+	private static final String DEFAULT_PROMPT = "Return a JSON object containing only visible document information.";
 
 	private final AiProperties properties;
 	private final ObjectMapper objectMapper;
+	private final OkHttpClient aiHttpClient;
 
 	@Override
 	public String providerName() {
@@ -48,19 +55,23 @@ public class OllamaAiProvider implements AiProvider {
 		String model = required(properties.getOllama().getModel(), "AI Ollama model must be configured");
 		String endpoint = required(properties.getOllama().getBaseUrl(), "AI Ollama base URL must be configured")
 				.replaceAll("/+$", "") + "/api/generate";
-		int timeoutSeconds = properties.getRequestTimeoutSeconds();
-		if (timeoutSeconds <= 0) {
+		if (properties.getRequestTimeout().isZero() || properties.getRequestTimeout().isNegative()) {
 			throw new BadRequestException("AI request timeout must be greater than zero");
 		}
 
+		String prompt = request.prompt() == null || request.prompt().isBlank() ? DEFAULT_PROMPT : request.prompt();
+		String base64Image = Base64.getEncoder().encodeToString(request.imageBytes());
 		String payload = serialize(new OllamaGenerateRequest(
 				model,
-				request.prompt() == null || request.prompt().isBlank() ? DEFAULT_PROMPT : request.prompt(),
-				List.of(Base64.getEncoder().encodeToString(request.imageBytes())),
+				prompt,
+				List.of(base64Image),
+				false,
+				"json",
 				false));
-		OkHttpClient client = new OkHttpClient.Builder()
-				.callTimeout(Duration.ofSeconds(timeoutSeconds))
-				.build();
+		OkHttpClient client = configuredClient();
+		log.info("Ollama request provider={} endpoint={} model={} imageBytes={} base64Length={} payloadLength={} promptLength={} timeout={}",
+				providerName(), endpoint, model, request.imageBytes().length, base64Image.length(), payload.length(), prompt.length(),
+				properties.getRequestTimeout());
 		Request httpRequest = new Request.Builder()
 				.url(endpoint)
 				.post(RequestBody.create(payload, JSON_MEDIA_TYPE))
@@ -70,21 +81,102 @@ public class OllamaAiProvider implements AiProvider {
 		try (Response response = client.newCall(httpRequest).execute()) {
 			String rawResponse = response.body() == null ? "" : response.body().string();
 			long durationMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
+			JsonNode body = parseResponse(rawResponse);
+			log.info("Ollama response status={} durationMs={} done={} doneReason={} responseLength={} thinkingLength={}",
+					response.code(), durationMs, body.path("done").asBoolean(false), body.path("done_reason").asText(""),
+					body.path("response").asText("").length(), body.path("thinking").asText("").length());
 			if (!response.isSuccessful()) {
-				throw new AiProviderException("Ollama returned HTTP " + response.code());
+				throw new AiProviderException(response.code() == 404
+						? "OLLAMA_MODEL_NOT_FOUND: configured model is unavailable"
+						: "OLLAMA_INVALID_RESPONSE: Ollama returned HTTP " + response.code());
 			}
 
-			JsonNode body = objectMapper.readTree(rawResponse);
 			if (body.hasNonNull("error")) {
-				throw new AiProviderException("Ollama returned an error: " + body.get("error").asText());
+				throw new AiProviderException("OLLAMA_INVALID_RESPONSE: " + body.get("error").asText());
 			}
-			if (!body.hasNonNull("response")) {
-				throw new AiProviderException("Ollama response did not include generated content");
-			}
-			return new AiProviderResponse(providerName(), model, body.get("response").asText(), rawResponse, durationMs);
+			return new AiProviderResponse(providerName(), model, selectGeneratedContent(body), rawResponse, durationMs);
+		} catch (SocketTimeoutException exception) {
+			throw failed(classifySocketTimeout(exception), exception, startedAt);
 		} catch (IOException exception) {
-			throw new AiProviderException("Could not connect to Ollama at " + endpoint, exception);
+			throw failed(classifyIoFailure(exception), exception, startedAt);
 		}
+	}
+
+	public AiConnectivityResponse checkConnectivity() {
+		String model = required(properties.getOllama().getModel(), "AI Ollama model must be configured");
+		String endpoint = required(properties.getOllama().getBaseUrl(), "AI Ollama base URL must be configured")
+				.replaceAll("/+$", "") + "/api/tags";
+		Request request = new Request.Builder().url(endpoint).get().build();
+		OkHttpClient client = configuredClient();
+		try (Response response = client.newCall(request).execute()) {
+			if (!response.isSuccessful())
+				throw new AiProviderException("OLLAMA_INVALID_RESPONSE: /api/tags returned HTTP " + response.code());
+			JsonNode models = objectMapper.readTree(response.body() == null ? "" : response.body().string())
+					.path("models");
+			if (!models.isArray())
+				throw new AiProviderException("OLLAMA_INVALID_RESPONSE: /api/tags did not include models");
+			List<String> names = new java.util.ArrayList<>();
+			models.forEach(node -> {
+				if (node.hasNonNull("name"))
+					names.add(node.get("name").asText());
+			});
+			if (!names.contains(model))
+				throw new AiProviderException("OLLAMA_MODEL_NOT_FOUND: " + model);
+			return new AiConnectivityResponse(providerName(), model, List.copyOf(names));
+		} catch (IOException exception) {
+			throw failed(classifyIoFailure(exception), exception, System.nanoTime());
+		}
+	}
+
+	String selectGeneratedContent(JsonNode body) {
+		String response = body.path("response").asText("").trim();
+		if (!response.isBlank()) return response;
+		String thinking = body.path("thinking").asText("").trim();
+		if (thinking.isBlank()) throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: Ollama returned no generated content");
+		try {
+			if (!objectMapper.readTree(thinking).isObject()) {
+				throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: thinking did not contain a JSON object");
+			}
+			return thinking;
+		} catch (JsonProcessingException exception) {
+			throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: response was empty and thinking did not contain valid JSON", exception);
+		}
+	}
+
+	private JsonNode parseResponse(String rawResponse) {
+		try {
+			return objectMapper.readTree(rawResponse);
+		} catch (JsonProcessingException exception) {
+			throw new AiProviderException("OLLAMA_INVALID_RESPONSE: Ollama returned malformed JSON", exception);
+		}
+	}
+
+	private OkHttpClient configuredClient() {
+		Duration timeout = properties.getRequestTimeout();
+		return aiHttpClient.newBuilder()
+				.connectTimeout(timeout)
+				.readTimeout(timeout)
+				.writeTimeout(timeout)
+				.callTimeout(timeout)
+				.build();
+	}
+
+	private String classifyIoFailure(IOException exception) {
+		if (exception instanceof ConnectException) return "OLLAMA_CONNECT_TIMEOUT";
+		if (exception instanceof InterruptedIOException) return "OLLAMA_CALL_TIMEOUT";
+		return "OLLAMA_UNREACHABLE";
+	}
+
+	private String classifySocketTimeout(SocketTimeoutException exception) {
+		String message = exception.getMessage() == null ? "" : exception.getMessage().toLowerCase(java.util.Locale.ROOT);
+		return message.contains("connect") ? "OLLAMA_CONNECT_TIMEOUT" : "OLLAMA_READ_TIMEOUT";
+	}
+
+	private AiProviderException failed(String code, Exception exception, long startedAt) {
+		long durationMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
+		log.warn("Ollama request failed code={} exceptionClass={} message={} durationMs={}", code,
+				exception.getClass().getSimpleName(), exception.getMessage(), durationMs);
+		return new AiProviderException(code + ": " + exception.getMessage(), exception);
 	}
 
 	private String serialize(OllamaGenerateRequest request) {
@@ -102,6 +194,12 @@ public class OllamaAiProvider implements AiProvider {
 		return value.trim();
 	}
 
-	private record OllamaGenerateRequest(String model, String prompt, List<String> images, boolean stream) {
+	private record OllamaGenerateRequest(
+			String model,
+			String prompt,
+			List<String> images,
+			boolean stream,
+			String format,
+			boolean think) {
 	}
 }

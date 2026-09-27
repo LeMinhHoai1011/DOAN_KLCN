@@ -114,6 +114,9 @@ export const saveUser = (user: User) => {
 
 export const getErrorMessage = (error: unknown, fallback: string) => {
   if (axios.isAxiosError<{ message?: string }>(error)) {
+    if (error.response?.status === 403) {
+      return 'Bạn không có quyền thực hiện thao tác này.'
+    }
     return error.response?.data?.message || fallback
   }
 

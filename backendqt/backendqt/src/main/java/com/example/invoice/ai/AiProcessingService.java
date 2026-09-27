@@ -2,6 +2,8 @@ package com.example.invoice.ai;
 
 import com.example.invoice.config.AiProperties;
 import com.example.invoice.dto.ai.AiImageRequest;
+import com.example.invoice.dto.ai.AiDocumentRequest;
+import com.example.invoice.dto.ai.AiDocumentResult;
 import com.example.invoice.dto.ai.AiProviderResponse;
 import com.example.invoice.exception.BadRequestException;
 import java.util.List;
@@ -20,6 +22,10 @@ public class AiProcessingService {
 
 	public AiProviderResponse analyzeImage(AiImageRequest request) {
 		return selectedProvider().analyzeImage(request);
+	}
+
+	public AiDocumentResult analyzeDocument(AiDocumentRequest request) {
+		return selectedProvider().analyze(request);
 	}
 
 	public String selectedProviderName() {
