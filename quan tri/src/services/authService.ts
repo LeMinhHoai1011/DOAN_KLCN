@@ -38,6 +38,11 @@ export interface RegisterRequest {
   phone?: string
 }
 
+export interface ChangePasswordRequest {
+  currentPassword: string
+  newPassword: string
+}
+
 export const login = async (credentials: LoginRequest) => {
   const { data } = await api.post<LoginResponse>('/api/v1/auth/login', credentials)
   saveToken(data.token)
@@ -50,6 +55,10 @@ export const login = async (credentials: LoginRequest) => {
 export const getMe = async () => {
   const { data } = await api.get<User>('/api/v1/users/me')
   return data
+}
+
+export const changePassword = async (request: ChangePasswordRequest) => {
+  await api.put('/api/v1/users/me/password', request)
 }
 
 export const register = async (request: RegisterRequest) => {

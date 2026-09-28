@@ -1,10 +1,14 @@
 package com.example.invoice.service;
 
 import com.example.invoice.dto.DashboardStatisticsResponse;
+import com.example.invoice.dto.FinancialDashboardResponse;
 import com.example.invoice.entity.ClassificationStatus;
 import com.example.invoice.repository.ClassificationRepository;
 import com.example.invoice.repository.DocumentRepository;
 import com.example.invoice.repository.InvoiceRepository;
+import com.example.invoice.repository.FinancialTransactionRepository;
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import com.example.invoice.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -18,6 +22,16 @@ public class DashboardService {
 	private final InvoiceRepository invoiceRepository;
 	private final ClassificationRepository classificationRepository;
 	private final UserService userService;
+	private final FinancialTransactionRepository financialTransactionRepository;
+
+	@Transactional(readOnly = true)
+	public FinancialDashboardResponse financial(LocalDate dateFrom, LocalDate dateTo) {
+		User user = userService.loadCurrent(SecurityContextHolder.getContext().getAuthentication());
+		Long companyId = hasRole(user, "ADMIN") ? null : user.getCompany() == null ? -1L : user.getCompany().getId();
+		Object[] totals = financialTransactionRepository.summarize(companyId, dateFrom, dateTo).getFirst();
+		BigDecimal revenue = (BigDecimal) totals[0]; BigDecimal expense = (BigDecimal) totals[1];
+		return new FinancialDashboardResponse(revenue, expense, revenue.subtract(expense), financialTransactionRepository.expensesByCategory(companyId, dateFrom, dateTo).stream().map(row -> new FinancialDashboardResponse.CategoryExpense((String) row[0], (BigDecimal) row[1])).toList());
+	}
 
 	@Transactional(readOnly = true)
 	public DashboardStatisticsResponse statistics() {

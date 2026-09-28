@@ -4,12 +4,15 @@ import com.example.invoice.dto.invoice.InvoiceItemRequest;
 import com.example.invoice.dto.invoice.InvoiceItemResponse;
 import com.example.invoice.dto.invoice.InvoiceRequest;
 import com.example.invoice.dto.invoice.InvoiceResponse;
+import com.example.invoice.dto.invoice.ExtractedFieldResponse;
 import com.example.invoice.entity.Document;
+import com.example.invoice.entity.ExtractedField;
 import com.example.invoice.entity.Invoice;
 import com.example.invoice.entity.InvoiceItem;
 import com.example.invoice.entity.User;
 import com.example.invoice.exception.ResourceNotFoundException;
 import com.example.invoice.repository.InvoiceRepository;
+import com.example.invoice.repository.ExtractedFieldRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -21,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class InvoiceService {
 	private final InvoiceRepository invoiceRepository;
+	private final ExtractedFieldRepository extractedFieldRepository;
 	private final DocumentService documentService;
 	private final UserService userService;
 
@@ -68,6 +72,13 @@ public class InvoiceService {
 		return invoiceRepository.findByDocumentIdAndDocumentCompanyId(documentId, user.getCompany().getId())
 				.map(this::toResponse)
 				.orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
+	}
+
+	@Transactional(readOnly = true)
+	public List<ExtractedFieldResponse> findExtractedFieldsByDocumentId(Long documentId) {
+		Document document = documentService.load(documentId);
+		return extractedFieldRepository.findByDocumentId(document.getId()).stream()
+				.map(this::toExtractedFieldResponse).toList();
 	}
 
 	@Transactional
@@ -134,6 +145,11 @@ public class InvoiceService {
 				invoice.getInvoiceDate(), invoice.getSellerName(), invoice.getSellerTaxCode(), invoice.getSellerAddress(),
 				invoice.getBuyerName(), invoice.getBuyerTaxCode(), invoice.getBuyerAddress(), invoice.getSubtotal(),
 				invoice.getVatAmount(), invoice.getTotalAmount(), items);
+	}
+
+	private ExtractedFieldResponse toExtractedFieldResponse(ExtractedField field) {
+		return new ExtractedFieldResponse(field.getId(), field.getFieldName(), field.getFieldValue(), field.getSource(),
+				field.getConfidence());
 	}
 
 	private boolean hasRole(User user, String roleCode) {

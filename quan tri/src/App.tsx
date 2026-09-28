@@ -15,13 +15,18 @@ import AccountantDashboard from './pages/accountant/AccountantDashboard';
 import AccountantDocuments from './pages/accountant/AccountantDocuments';
 import AccountantDocumentDetail from './pages/accountant/AccountantDocumentDetail';
 import AccountantUpload from './pages/accountant/AccountantUpload';
+import FinancialTransactions from './pages/accountant/FinancialTransactions';
 import AiTest from './pages/accountant/AiTest';
+import ClassificationWorkspace from './pages/accountant/ClassificationWorkspace';
+import ReconciliationWorkspace from './pages/accountant/ReconciliationWorkspace';
 
 // Admin pages (folder admin/)
 import RoleManagement from './pages/admin/RoleManagement';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import UserManagement from './pages/admin/UserManagement';
 import SystemStatistics from './pages/admin/SystemStatistics';
+import CatalogManagement from './pages/admin/CatalogManagement';
+import ChangePassword from './pages/ChangePassword';
 
 
 // Employee pages (folder employee/)
@@ -108,11 +113,14 @@ function App() {
               <Route path="documents" element={<AccountantDocuments />} />
               <Route path="documents/:id" element={<AccountantDocumentDetail />} />
               <Route path="upload" element={<AccountantUpload />} />
+              <Route path="financial-transactions" element={<FinancialTransactions />} />
               <Route path="ocr-ai" element={<AiTest />} />
               <Route path="storage" element={<UnavailableFeature title="Kho lưu trữ" />} />
-              <Route path="classification" element={<UnavailableFeature title="Phân loại" />} />
+              <Route path="classification" element={<ClassificationWorkspace />} />
+              <Route path="reconciliation" element={<ReconciliationWorkspace />} />
               <Route path="reports" element={<UnavailableFeature title="Báo cáo" />} />
               <Route path="settings" element={<UnavailableFeature title="Cài đặt" />} />
+              <Route path="password" element={<ChangePassword />} />
             </Route>
           </Route>
 
@@ -127,7 +135,9 @@ function App() {
               <Route path="documents/:id" element={<AccountantDocumentDetail />} />
               <Route path="upload" element={<AccountantUpload />} />
               <Route path="statistics" element={<SystemStatistics />} />
+              <Route path="categories" element={<CatalogManagement />} />
               <Route path="settings" element={<UnavailableFeature title="Cài đặt" />} />
+              <Route path="password" element={<ChangePassword />} />
             </Route>
           </Route>
 
@@ -142,6 +152,7 @@ function App() {
                 <Route path="upload" element={<AccountantUpload />} />
               </Route>
               <Route path="settings" element={<UnavailableFeature title="Cài đặt" />} />
+              <Route path="password" element={<ChangePassword />} />
             </Route>
           </Route>
 

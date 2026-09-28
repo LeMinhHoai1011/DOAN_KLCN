@@ -8,17 +8,22 @@ import com.example.invoice.dto.document.OCRResultResponse;
 import com.example.invoice.dto.ai.AiDocumentProcessingResponse;
 import com.example.invoice.service.DocumentAiProcessingService;
 import com.example.invoice.dto.invoice.InvoiceResponse;
+import com.example.invoice.dto.invoice.ExtractedFieldResponse;
 import com.example.invoice.service.DocumentService;
 import com.example.invoice.service.InvoiceService;
 import com.example.invoice.service.OCRResultService;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -45,9 +50,8 @@ public class DocumentController {
 	@ResponseStatus(HttpStatus.CREATED)
 	public DocumentResponse upload(
 			@RequestParam("file") MultipartFile file,
-			@RequestParam(value = "typeId", required = false) Long typeId,
 			Authentication authentication) {
-		return documentService.createFromUpload(file, typeId, authentication);
+		return documentService.createFromUpload(file, authentication);
 	}
 
 	@PostMapping("/{id}/versions")
@@ -73,8 +77,14 @@ public class DocumentController {
 
 	@GetMapping
 	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_VIEW') or hasRole('ADMIN')")
-	public List<DocumentResponse> findAll() {
-		return documentService.findAll();
+	public Page<DocumentResponse> findAll(
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
+			@RequestParam(required = false) Long companyId, @RequestParam(required = false) com.example.invoice.entity.DocumentStatus processingStatus,
+			@RequestParam(required = false) com.example.invoice.entity.ReviewStatus reviewStatus, @RequestParam(required = false) Long typeId,
+			@RequestParam(required = false) Long uploaderId, @RequestParam(required = false) String search,
+			Pageable pageable, Authentication authentication) {
+		return documentService.findPage(dateFrom, dateTo, companyId, processingStatus, reviewStatus, typeId, uploaderId, search, pageable, authentication);
 	}
 
 	@GetMapping("/{id}")
@@ -92,6 +102,15 @@ public class DocumentController {
 				.contentType(MediaType.parseMediaType(doc.fileType()))
 				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + doc.originalFileName() + "\"")
 				.body(resource);
+	}
+
+	@GetMapping("/{id}/preview")
+	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_VIEW') or hasRole('ADMIN')")
+	public ResponseEntity<Resource> preview(@PathVariable Long id) {
+		DocumentResponse doc = documentService.findById(id);
+		Resource resource = documentService.download(id);
+		return ResponseEntity.ok().contentType(MediaType.parseMediaType(doc.fileType()))
+				.header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + doc.originalFileName() + "\"").body(resource);
 	}
 
 	@PutMapping("/{id}")
@@ -117,6 +136,12 @@ public class DocumentController {
 	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_VIEW') or hasRole('ADMIN')")
 	public InvoiceResponse getInvoice(@PathVariable Long id) {
 		return invoiceService.findByDocumentId(id);
+	}
+
+	@GetMapping("/{id}/extracted-fields")
+	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_VIEW') or hasRole('ADMIN')")
+	public List<ExtractedFieldResponse> getExtractedFields(@PathVariable Long id) {
+		return invoiceService.findExtractedFieldsByDocumentId(id);
 	}
 
 	@PutMapping("/{id}/ocr")

@@ -52,11 +52,13 @@ public class UserController {
 	}
 
 	@PutMapping("/me")
+	@PreAuthorize("isAuthenticated()")
 	public UserResponse updateMe(Authentication authentication, @Valid @RequestBody UpdateUserRequest request) {
 		return userService.updateCurrent(authentication, request);
 	}
 
 	@PutMapping("/me/password")
+	@PreAuthorize("isAuthenticated()")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void changePassword(Authentication authentication, @Valid @RequestBody ChangePasswordRequest request) {
 		userService.changePassword(authentication, request);

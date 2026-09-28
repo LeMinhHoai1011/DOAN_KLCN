@@ -3,7 +3,7 @@ import {
   LayoutDashboard, 
   Files, 
   UploadCloud, 
-  Settings,
+  KeyRound,
   LogOut,
   BrainCircuit
 } from 'lucide-react';
@@ -34,7 +34,7 @@ const EmployeeSidebar = () => {
   };
 
   return (
-    <aside className="w-64 bg-[#0B1731] text-slate-300 h-screen flex flex-col fixed left-0 top-0 shadow-xl z-20">
+    <aside className="fixed left-0 top-0 z-20 hidden h-screen w-64 flex-col bg-[#0B1731] text-slate-300 shadow-xl lg:flex">
       <div className="h-16 flex items-center px-6 border-b border-slate-700/50">
         <div className="flex items-center gap-2 text-white font-bold text-lg">
           <BrainCircuit className="text-blue-500" size={24} />
@@ -65,7 +65,7 @@ const EmployeeSidebar = () => {
 
         <div className="mt-8 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">Hệ thống</div>
         <NavLink
-          to="/employee/settings"
+          to="/employee/password"
           className={({ isActive }) => clsx(
             "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
             isActive 
@@ -73,8 +73,8 @@ const EmployeeSidebar = () => {
               : "hover:bg-slate-800/50 hover:text-white"
           )}
         >
-          <Settings size={20} className="text-slate-400" />
-          <span>Cài đặt</span>
+          <KeyRound size={20} className="text-slate-400" />
+          <span>Đổi mật khẩu</span>
         </NavLink>
       </div>
       

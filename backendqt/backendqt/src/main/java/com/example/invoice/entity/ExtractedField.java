@@ -30,8 +30,12 @@ public class ExtractedField {
 	private Long id;
 
 	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "invoice_id", nullable = false)
+	@JoinColumn(name = "invoice_id")
 	private Invoice invoice;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "document_id", nullable = false)
+	private Document document;
 
 	@Column(nullable = false, length = 100)
 	private String fieldName;

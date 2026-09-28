@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class AiDocumentResultValidator {
 	private static final Pattern TAX_CODE = Pattern.compile("\\d{10}(?:-\\d{3})?");
+	private static final Pattern EXTRA_FIELD_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9]*");
 	private static final BigDecimal MONEY_TOLERANCE = new BigDecimal("0.01");
 
 	public ValidatedAiDocumentResult validate(AiDocumentResult result, Set<String> allowedTypes) {
@@ -23,6 +24,9 @@ public class AiDocumentResultValidator {
 		List<String> warnings = new ArrayList<>(result.warnings() == null ? List.of() : result.warnings());
 		BigDecimal confidence = normalizeConfidence(result.classificationConfidence(), warnings);
 		validateInvoice(result.invoice(), warnings);
+		validateTransactionAssessment(result.transactionAssessment(), warnings);
+		validateCompanyRole(result.companyRole(), warnings);
+		validateExtraFields(result.extraFields(), warnings);
 		return new ValidatedAiDocumentResult(result, confidence, List.copyOf(warnings));
 	}
 
@@ -55,6 +59,27 @@ public class AiDocumentResultValidator {
 		if (invoice.subtotal() != null && invoice.vatAmount() != null && invoice.totalAmount() != null
 				&& invoice.subtotal().add(invoice.vatAmount()).subtract(invoice.totalAmount()).abs().compareTo(MONEY_TOLERANCE) > 0) {
 			warnings.add("Subtotal plus VAT does not match total amount");
+		}
+	}
+
+	private void validateTransactionAssessment(AiDocumentResult.AiTransactionAssessment assessment, List<String> warnings) {
+		if (assessment != null && assessment.confidence() != null) normalizeConfidence(assessment.confidence(), warnings);
+	}
+
+	private void validateCompanyRole(AiDocumentResult.AiCompanyRole companyRole, List<String> warnings) {
+		if (companyRole != null && companyRole.confidence() != null) normalizeConfidence(companyRole.confidence(), warnings);
+	}
+
+	private void validateExtraFields(List<AiDocumentResult.AiExtraField> extraFields, List<String> warnings) {
+		if (extraFields == null) return;
+		for (AiDocumentResult.AiExtraField field : extraFields) {
+			if (field == null || field.name() == null || !EXTRA_FIELD_NAME.matcher(field.name()).matches()) {
+				warnings.add("AI returned an extra field with a non-canonical name; persistence will normalize or skip it");
+				continue;
+			}
+			if (field.confidence() != null && (field.confidence().compareTo(BigDecimal.ZERO) < 0
+					|| field.confidence().compareTo(BigDecimal.ONE) > 0))
+				warnings.add("AI returned an extra field with invalid confidence; it will be skipped");
 		}
 	}
 

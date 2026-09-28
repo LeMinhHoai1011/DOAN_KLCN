@@ -13,6 +13,7 @@ import com.example.invoice.entity.Invoice;
 import com.example.invoice.entity.InvoiceItem;
 import com.example.invoice.entity.OCRResult;
 import com.example.invoice.repository.ClassificationRepository;
+import com.example.invoice.repository.AccountingCategoryRepository;
 import com.example.invoice.repository.DocumentTypeRepository;
 import com.example.invoice.repository.ExtractedFieldRepository;
 import com.example.invoice.repository.InvoiceRepository;
@@ -22,14 +23,21 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Persists a validated result after the remote AI request has completed. */
 @Service
-@RequiredArgsConstructor
 public class DocumentAiResultPersistenceService {
+	private static final Set<String> RESERVED_CORE_FIELD_NAMES = Set.of(
+			"invoiceNumber", "invoiceSeries", "invoiceDate", "sellerName", "sellerTaxCode", "sellerAddress",
+			"buyerName", "buyerTaxCode", "buyerAddress", "subtotal", "vatAmount", "taxAmount", "totalAmount", "items");
+	private static final int MAX_EXTRACTED_FIELD_NAME_LENGTH = 100;
 	private final DocumentService documentService;
 	private final DocumentTypeRepository documentTypeRepository;
 	private final OCRResultRepository ocrResultRepository;
@@ -38,6 +46,30 @@ public class DocumentAiResultPersistenceService {
 	private final ExtractedFieldRepository extractedFieldRepository;
 	private final ProcessingLogService processingLogService;
 	private final AiProperties aiProperties;
+	private final AccountingCategoryRepository accountingCategoryRepository;
+
+	@Autowired
+	public DocumentAiResultPersistenceService(DocumentService documentService, DocumentTypeRepository documentTypeRepository,
+			OCRResultRepository ocrResultRepository, ClassificationRepository classificationRepository, InvoiceRepository invoiceRepository,
+			ExtractedFieldRepository extractedFieldRepository, ProcessingLogService processingLogService, AiProperties aiProperties,
+			AccountingCategoryRepository accountingCategoryRepository) {
+		this.documentService = documentService;
+		this.documentTypeRepository = documentTypeRepository;
+		this.ocrResultRepository = ocrResultRepository;
+		this.classificationRepository = classificationRepository;
+		this.invoiceRepository = invoiceRepository;
+		this.extractedFieldRepository = extractedFieldRepository;
+		this.processingLogService = processingLogService;
+		this.aiProperties = aiProperties;
+		this.accountingCategoryRepository = accountingCategoryRepository;
+	}
+
+	DocumentAiResultPersistenceService(DocumentService documentService, DocumentTypeRepository documentTypeRepository,
+			OCRResultRepository ocrResultRepository, ClassificationRepository classificationRepository, InvoiceRepository invoiceRepository,
+			ExtractedFieldRepository extractedFieldRepository, ProcessingLogService processingLogService, AiProperties aiProperties) {
+		this(documentService, documentTypeRepository, ocrResultRepository, classificationRepository, invoiceRepository,
+				extractedFieldRepository, processingLogService, aiProperties, null);
+	}
 
 	@Transactional
 	public boolean persist(Long documentId, ValidatedAiDocumentResult validated) {
@@ -47,13 +79,13 @@ public class DocumentAiResultPersistenceService {
 				.orElseThrow(() -> new IllegalStateException("Validated document type no longer exists"));
 		document.setType(type);
 		document.setDocumentType(type.getCode());
+		persistIntelligence(document, result);
 
 		persistOcrWhenPresent(document, result, validated.confidence());
 		boolean requiresReview = validated.requiresReview(aiProperties.getDocument().getReviewThreshold());
 		persistClassification(document, result, validated.confidence(), validated.warnings(), requiresReview);
-		if (result.invoice() != null) {
-			persistInvoice(document, result.invoice(), result.fields());
-		}
+		Invoice invoice = result.invoice() == null ? null : persistInvoice(document, result.invoice());
+		replaceAiExtractedFields(document, invoice, result.fields(), result.extraFields());
 
 		document.setStatus(requiresReview ? DocumentStatus.NEED_REVIEW : DocumentStatus.PROCESSED);
 		document.setReviewStatus(ReviewStatus.PENDING);
@@ -82,7 +114,12 @@ public class DocumentAiResultPersistenceService {
 		classification.setModelName(result.provider());
 		classification.setModelVersion(result.model());
 		classification.setPredictedLabel(result.documentType());
-		classification.setCategory(result.documentType());
+		classification.setCategory(result.accountingCategoryCode());
+		if (accountingCategoryRepository != null && result.accountingCategoryCode() != null && document.getCompany() != null) {
+			accountingCategoryRepository.findByCompanyId(document.getCompany().getId()).stream()
+					.filter(category -> result.accountingCategoryCode().equals(category.getCategoryCode()))
+					.findFirst().ifPresent(classification::setAccountingCategory);
+		}
 		classification.setConfidence(confidence);
 		classification.setReason(String.join("; ", warnings));
 		classification.setStatus(requiresReview ? ClassificationStatus.NEED_REVIEW : ClassificationStatus.CLASSIFIED);
@@ -90,8 +127,7 @@ public class DocumentAiResultPersistenceService {
 		classificationRepository.save(classification);
 	}
 
-	private void persistInvoice(Document document, AiDocumentResult.AiInvoiceExtraction extraction,
-			List<AiDocumentResult.AiExtractedField> fields) {
+	private Invoice persistInvoice(Document document, AiDocumentResult.AiInvoiceExtraction extraction) {
 		Invoice invoice = invoiceRepository.findByDocumentId(document.getId()).orElseGet(Invoice::new);
 		invoice.setDocument(document);
 		invoice.setInvoiceNumber(extraction.invoiceNumber());
@@ -122,19 +158,89 @@ public class DocumentAiResultPersistenceService {
 				invoice.getItems().add(entity);
 			}
 		}
-		invoice = invoiceRepository.save(invoice);
-		extractedFieldRepository.deleteAll(extractedFieldRepository.findByInvoiceId(invoice.getId()));
+		return invoiceRepository.save(invoice);
+	}
+
+	private void replaceAiExtractedFields(Document document, Invoice invoice, List<AiDocumentResult.AiExtractedField> fields,
+			List<AiDocumentResult.AiExtraField> extraFields) {
+		extractedFieldRepository.deleteByDocumentIdAndSource(document.getId(), "AI");
+		Set<String> persistedNames = new LinkedHashSet<>();
 		for (AiDocumentResult.AiExtractedField field : fields == null
 				? List.<AiDocumentResult.AiExtractedField>of() : fields) {
 			if (field.fieldName() == null || field.fieldName().isBlank()) continue;
-			ExtractedField entity = new ExtractedField();
-			entity.setInvoice(invoice);
-			entity.setFieldName(field.fieldName());
-			entity.setFieldValue(field.fieldValue());
-			entity.setSource("AI");
-			entity.setConfidence(field.confidence());
-			extractedFieldRepository.save(entity);
+			persistedNames.add(normalizeExtraFieldName(field.fieldName()));
+			persistExtractedField(document, invoice, field.fieldName(), field.fieldValue(), field.confidence());
 		}
+		for (NormalizedExtraField field : normalizeExtraFields(extraFields).values()) {
+			if ((invoice != null && RESERVED_CORE_FIELD_NAMES.contains(field.name())) || persistedNames.contains(field.name())) continue;
+			persistExtractedField(document, invoice, field.name(), field.value(), field.confidence());
+			persistedNames.add(field.name());
+		}
+	}
+
+	private Map<String, NormalizedExtraField> normalizeExtraFields(List<AiDocumentResult.AiExtraField> fields) {
+		Map<String, NormalizedExtraField> normalized = new LinkedHashMap<>();
+		if (fields == null) return normalized;
+		for (AiDocumentResult.AiExtraField field : fields) {
+			if (field == null || field.value() == null || field.value().isBlank()) continue;
+			String name = normalizeExtraFieldName(field.name());
+			if (name == null || name.length() > MAX_EXTRACTED_FIELD_NAME_LENGTH || !isValidConfidence(field.confidence())) continue;
+			NormalizedExtraField candidate = new NormalizedExtraField(name, field.value().trim(), field.confidence());
+			NormalizedExtraField current = normalized.get(name);
+			if (current == null || isHigherConfidence(candidate.confidence(), current.confidence())) normalized.put(name, candidate);
+		}
+		return normalized;
+	}
+
+	private String normalizeExtraFieldName(String value) {
+		if (value == null || value.isBlank()) return null;
+		String trimmed = value.trim();
+		if (trimmed.matches("[A-Za-z][A-Za-z0-9]*"))
+			return Character.toLowerCase(trimmed.charAt(0)) + trimmed.substring(1);
+		String[] parts = trimmed.replaceAll("[^A-Za-z0-9]+", " ").trim().split("\\s+");
+		StringBuilder normalized = new StringBuilder();
+		for (String part : parts) {
+			if (part.isBlank()) continue;
+			String lower = part.toLowerCase(java.util.Locale.ROOT);
+			if (normalized.isEmpty()) normalized.append(lower);
+			else normalized.append(Character.toUpperCase(lower.charAt(0))).append(lower.substring(1));
+		}
+		return normalized.isEmpty() || !Character.isLetter(normalized.charAt(0)) ? null : normalized.toString();
+	}
+
+	private boolean isValidConfidence(BigDecimal confidence) {
+		return confidence == null || (confidence.compareTo(BigDecimal.ZERO) >= 0 && confidence.compareTo(BigDecimal.ONE) <= 0);
+	}
+
+	private boolean isHigherConfidence(BigDecimal candidate, BigDecimal current) {
+		if (candidate == null) return false;
+		return current == null || candidate.compareTo(current) > 0;
+	}
+
+	private void persistExtractedField(Document document, Invoice invoice, String name, String value, BigDecimal confidence) {
+		ExtractedField entity = new ExtractedField();
+		entity.setDocument(document);
+		entity.setInvoice(invoice);
+		entity.setFieldName(name);
+		entity.setFieldValue(value);
+		entity.setSource("AI");
+		entity.setConfidence(confidence);
+		extractedFieldRepository.save(entity);
+	}
+
+	private void persistIntelligence(Document document, AiDocumentResult result) {
+		AiDocumentResult.AiCompanyRole companyRole = result.companyRole();
+		document.setCompanyRole(companyRole == null || companyRole.role() == null ? null : companyRole.role().name());
+		document.setCompanyRoleConfidence(companyRole == null ? null : companyRole.confidence());
+		document.setCompanyRoleReason(companyRole == null ? null : companyRole.reason());
+		document.setDocumentDirection(result.documentDirection() == null ? null : result.documentDirection().name());
+		AiDocumentResult.AiTransactionAssessment assessment = result.transactionAssessment();
+		document.setTransactionAssessmentType(assessment == null || assessment.type() == null ? null : assessment.type().name());
+		document.setTransactionAssessmentConfidence(assessment == null ? null : assessment.confidence());
+		document.setTransactionAssessmentReason(assessment == null ? null : assessment.reason());
+	}
+
+	private record NormalizedExtraField(String name, String value, BigDecimal confidence) {
 	}
 
 	private LocalDate parseDate(String value) {

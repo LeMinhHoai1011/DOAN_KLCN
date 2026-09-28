@@ -1,4 +1,6 @@
 import { ArrowUpRight, BarChart3, Clock3, FileText, ShieldAlert } from 'lucide-react';
+import ContentCard from '../../components/ui/ContentCard';
+import PageHeader from '../../components/ui/PageHeader';
 
 const summaryCards = [
   { label: 'Tổng chứng từ', value: '3,486', note: '+12.4% so với tháng trước', color: 'blue', icon: FileText },
@@ -26,10 +28,10 @@ const topUsers = [
 const SystemStatistics = () => {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Thống kê hệ thống</h1>
-        <p className="mt-1 text-sm text-slate-500">Theo dõi hiệu suất xử lý, tiến độ hoạt động và áp lực công việc của tổ chức</p>
-      </div>
+      <PageHeader title="Thống kê hệ thống" description="Các biểu đồ chi tiết đang chờ API aggregate tương ứng." />
+      <ContentCard className="p-8 text-center"><BarChart3 className="mx-auto text-slate-300" size={40} /><h2 className="mt-4 text-lg font-semibold text-slate-800">Dữ liệu thống kê chi tiết chưa được kết nối</h2><p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">Không hiển thị số liệu mẫu để tránh nhầm lẫn với dữ liệu production. Dashboard quản trị vẫn cung cấp các KPI từ API hiện có.</p></ContentCard>
+      {/* Legacy static visual blocks below are retained temporarily for source safety; they are not rendered as production statistics. */}
+      <div className="hidden">
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {summaryCards.map(({ label, value, note, color, icon: Icon }) => (
@@ -155,6 +157,7 @@ const SystemStatistics = () => {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

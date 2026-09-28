@@ -7,7 +7,9 @@ import {
   Database, 
   Tags, 
   BarChart3, 
-  Settings,
+  WalletCards,
+  Scale,
+  KeyRound,
   LogOut
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -17,9 +19,11 @@ const menuItems = [
   { name: 'Tổng quan', path: '/accountant/dashboard', icon: LayoutDashboard },
   { name: 'Chứng từ', path: '/accountant/documents', icon: Files },
   { name: 'Upload chứng từ', path: '/accountant/upload', icon: UploadCloud },
+  { name: 'Thu / chi', path: '/accountant/financial-transactions', icon: WalletCards },
   { name: 'OCR & AI', path: '/accountant/ocr-ai', icon: BrainCircuit },
   { name: 'Kho lưu trữ', path: '/accountant/storage', icon: Database },
   { name: 'Phân loại', path: '/accountant/classification', icon: Tags },
+  { name: 'Đối soát', path: '/accountant/reconciliation', icon: Scale },
   { name: 'Báo cáo', path: '/accountant/reports', icon: BarChart3 },
 ];
 
@@ -40,7 +44,7 @@ const AccountantSidebar = () => {
   };
 
   return (
-    <aside className="w-64 bg-[#0B1731] text-slate-300 h-screen flex flex-col fixed left-0 top-0 shadow-xl z-20">
+    <aside className="fixed left-0 top-0 z-20 hidden h-screen w-64 flex-col bg-[#0B1731] text-slate-300 shadow-xl lg:flex">
       <div className="h-16 flex items-center px-6 border-b border-slate-700/50">
         <div className="flex items-center gap-2 text-white font-bold text-lg">
           <BrainCircuit className="text-blue-500" size={24} />
@@ -71,7 +75,7 @@ const AccountantSidebar = () => {
 
         <div className="mt-8 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">Hệ thống</div>
         <NavLink
-          to="/accountant/settings"
+          to="/accountant/password"
           className={({ isActive }) => clsx(
             "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
             isActive 
@@ -79,8 +83,8 @@ const AccountantSidebar = () => {
               : "hover:bg-slate-800/50 hover:text-white"
           )}
         >
-          <Settings size={20} className="text-slate-400" />
-          <span>Cài đặt</span>
+          <KeyRound size={20} className="text-slate-400" />
+          <span>Đổi mật khẩu</span>
         </NavLink>
       </div>
       

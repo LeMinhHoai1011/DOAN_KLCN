@@ -105,6 +105,9 @@ public class UserService {
 		if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
 			throw new BadRequestException("Current password is incorrect");
 		}
+		if (passwordEncoder.matches(request.newPassword(), user.getPassword())) {
+			throw new BadRequestException("New password must be different from the current password");
+		}
 		user.setPassword(passwordEncoder.encode(request.newPassword()));
 	}
 
@@ -138,7 +141,7 @@ public class UserService {
 		}
 	}
 
-	User loadCurrent(Authentication authentication) {
+	public User loadCurrent(Authentication authentication) {
 		return userRepository.findByUsername(authentication.getName())
 				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
 	}

@@ -3,6 +3,8 @@ package com.example.invoice.service;
 import com.example.invoice.dto.document.DocumentCreateRequest;
 import com.example.invoice.dto.document.DocumentResponse;
 import com.example.invoice.dto.document.DocumentUpdateRequest;
+import com.example.invoice.dto.document.CompanyRoleResponse;
+import com.example.invoice.dto.document.TransactionAssessmentResponse;
 import com.example.invoice.entity.Document;
 import com.example.invoice.entity.DocumentType;
 import com.example.invoice.entity.DocumentStatus;
@@ -19,12 +21,17 @@ import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import java.io.InputStream;
+import java.io.ByteArrayInputStream;
 import java.util.List;
+import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -72,7 +79,7 @@ public class DocumentService {
 	}
 
 	@Transactional
-	public DocumentResponse createFromUpload(MultipartFile file, Long typeId, Authentication authentication) {
+	public DocumentResponse createFromUpload(MultipartFile file, Authentication authentication) {
 		if (file.isEmpty()) {
 			throw new IllegalArgumentException("Uploaded file must not be empty");
 		}
@@ -94,13 +101,6 @@ public class DocumentService {
 		document.setFilePath(objectKey);
 		document.setUploadedBy(user);
 		document.setCompany(user.getCompany());
-		
-		if (typeId != null) {
-			DocumentType type = documentTypeRepository.findById(typeId)
-					.orElseThrow(() -> new ResourceNotFoundException("Document Type not found"));
-			document.setType(type);
-			document.setDocumentType(type.getCode()); // keep legacy string synced
-		}
 		
 		document = documentRepository.save(document);
 		
@@ -204,6 +204,39 @@ public class DocumentService {
 	}
 
 	@Transactional(readOnly = true)
+	public String storeProcessedImage(Long id, byte[] bytes, String contentType) {
+		Document document = load(id);
+		String companyPrefix = document.getCompany() == null ? "system" : "company-" + document.getCompany().getId();
+		String objectKey = companyPrefix + "/processed/" + id + "/" + java.util.UUID.randomUUID() + ".png";
+		try (InputStream input = new ByteArrayInputStream(bytes)) {
+			if (!minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
+			minioClient.putObject(PutObjectArgs.builder().bucket(bucket).object(objectKey).stream(input, bytes.length, -1).contentType(contentType).build());
+			return objectKey;
+		} catch (Exception exception) {
+			throw new IllegalStateException("Unable to store preprocessed image", exception);
+		}
+	}
+
+	@Transactional(readOnly = true)
+	public Page<DocumentResponse> findPage(LocalDate dateFrom, LocalDate dateTo, Long companyId,
+			DocumentStatus processingStatus, com.example.invoice.entity.ReviewStatus reviewStatus, Long typeId,
+			Long uploaderId, String search, Pageable pageable, Authentication authentication) {
+		User user = userService.loadCurrent(authentication);
+		Specification<Document> specification = scopeFor(user, companyId);
+		if (dateFrom != null) specification = specification.and((root, query, builder) -> builder.greaterThanOrEqualTo(root.get("createdAt"), dateFrom.atStartOfDay()));
+		if (dateTo != null) specification = specification.and((root, query, builder) -> builder.lessThan(root.get("createdAt"), dateTo.plusDays(1).atStartOfDay()));
+		if (processingStatus != null) specification = specification.and((root, query, builder) -> builder.equal(root.get("status"), processingStatus));
+		if (reviewStatus != null) specification = specification.and((root, query, builder) -> builder.equal(root.get("reviewStatus"), reviewStatus));
+		if (typeId != null) specification = specification.and((root, query, builder) -> builder.equal(root.get("type").get("id"), typeId));
+		if (uploaderId != null) specification = specification.and((root, query, builder) -> builder.equal(root.get("uploadedBy").get("id"), uploaderId));
+		if (search != null && !search.isBlank()) {
+			String value = "%" + search.trim().toLowerCase(java.util.Locale.ROOT) + "%";
+			specification = specification.and((root, query, builder) -> builder.like(builder.lower(root.get("originalFileName")), value));
+		}
+		return documentRepository.findAll(specification, pageable).map(this::toResponse);
+	}
+
+	@Transactional(readOnly = true)
 	public DocumentResponse findById(Long id) {
 		return toResponse(load(id));
 	}
@@ -241,8 +274,13 @@ public class DocumentService {
 	public Document load(Long id) {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		User user = userService.loadCurrent(auth);
-		if (hasRole(user, "ADMIN") || hasRole(user, "ACCOUNTANT")) {
+		if (hasRole(user, "ADMIN")) {
 			return documentRepository.findById(id)
+					.orElseThrow(() -> new ResourceNotFoundException("Document not found"));
+		}
+		if (hasRole(user, "ACCOUNTANT")) {
+			if (user.getCompany() == null) throw new ResourceNotFoundException("Document not found");
+			return documentRepository.findByIdAndCompanyId(id, user.getCompany().getId())
 					.orElseThrow(() -> new ResourceNotFoundException("Document not found"));
 		}
 		if (hasRole(user, "EMPLOYEE") || hasRole(user, "USER")) {
@@ -257,8 +295,25 @@ public class DocumentService {
 	public DocumentResponse toResponse(Document document) {
 		Long uploadedById = document.getUploadedBy() == null ? null : document.getUploadedBy().getId();
 		return new DocumentResponse(document.getId(), document.getOriginalFileName(), document.getFileType(),
-				document.getFileSize(), document.getFilePath(), document.getStatus(), uploadedById,
+				document.getFileSize(), document.getFilePath(), document.getStatus(), document.getReviewStatus(),
+				document.getCompany() == null ? null : document.getCompany().getId(), document.getType() == null ? null : document.getType().getId(),
+				document.getDocumentType(), new CompanyRoleResponse(document.getCompanyRole(), document.getCompanyRoleConfidence(), document.getCompanyRoleReason()),
+				document.getDocumentDirection(), new TransactionAssessmentResponse(document.getTransactionAssessmentType(), document.getTransactionAssessmentConfidence(), document.getTransactionAssessmentReason()), uploadedById,
 				document.getCreatedAt(), document.getUpdatedAt());
+	}
+
+	private Specification<Document> scopeFor(User user, Long requestedCompanyId) {
+		if (hasRole(user, "ADMIN")) {
+			return requestedCompanyId == null ? Specification.where(null)
+					: (root, query, builder) -> builder.equal(root.get("company").get("id"), requestedCompanyId);
+		}
+		if (hasRole(user, "EMPLOYEE") || hasRole(user, "USER")) {
+			if (requestedCompanyId != null && (user.getCompany() == null || !requestedCompanyId.equals(user.getCompany().getId()))) throw new IllegalArgumentException("You cannot access another company");
+			return (root, query, builder) -> builder.equal(root.get("uploadedBy").get("id"), user.getId());
+		}
+		if (user.getCompany() == null) return (root, query, builder) -> builder.disjunction();
+		if (requestedCompanyId != null && !requestedCompanyId.equals(user.getCompany().getId())) throw new IllegalArgumentException("You cannot access another company");
+		return (root, query, builder) -> builder.equal(root.get("company").get("id"), user.getCompany().getId());
 	}
 	
 	private void uploadToMinio(MultipartFile file, String objectKey) {

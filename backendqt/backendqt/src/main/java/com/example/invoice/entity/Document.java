@@ -47,6 +47,21 @@ public class Document {
     @Column(length = 50)
     private String documentType;
 
+    @Column(length = 20)
+    private String companyRole;
+    @Column(precision = 5, scale = 2)
+    private java.math.BigDecimal companyRoleConfidence;
+    @Column(columnDefinition = "text")
+    private String companyRoleReason;
+    @Column(length = 20)
+    private String documentDirection;
+    @Column(length = 20)
+    private String transactionAssessmentType;
+    @Column(precision = 5, scale = 2)
+    private java.math.BigDecimal transactionAssessmentConfidence;
+    @Column(columnDefinition = "text")
+    private String transactionAssessmentReason;
+
     /**
      * Entity mapping to DocumentType table.
      */
@@ -172,6 +187,10 @@ public class Document {
         fetch = FetchType.LAZY
     )
     private Invoice invoice;
+
+    /** Canonical owner for dynamic extraction fields; invoice is optional compatibility metadata. */
+    @OneToMany(mappedBy = "document")
+    private List<ExtractedField> extractedFields = new ArrayList<>();
 
 
     // =========================

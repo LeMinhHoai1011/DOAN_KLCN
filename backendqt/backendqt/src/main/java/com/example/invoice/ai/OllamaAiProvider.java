@@ -67,7 +67,8 @@ public class OllamaAiProvider implements AiProvider {
 				List.of(base64Image),
 				false,
 				"json",
-				false));
+				properties.getOllama().isThink(),
+				new OllamaOptions(properties.getOllama().getNumPredict())));
 		OkHttpClient client = configuredClient();
 		log.info("Ollama request provider={} endpoint={} model={} imageBytes={} base64Length={} payloadLength={} promptLength={} timeout={}",
 				providerName(), endpoint, model, request.imageBytes().length, base64Image.length(), payload.length(), prompt.length(),
@@ -94,7 +95,13 @@ public class OllamaAiProvider implements AiProvider {
 			if (body.hasNonNull("error")) {
 				throw new AiProviderException("OLLAMA_INVALID_RESPONSE: " + body.get("error").asText());
 			}
-			return new AiProviderResponse(providerName(), model, selectGeneratedContent(body), rawResponse, durationMs);
+			try {
+				return new AiProviderResponse(providerName(), model, selectGeneratedContent(body), rawResponse, durationMs);
+			} catch (AiProviderException exception) {
+				if ("length".equalsIgnoreCase(body.path("done_reason").asText()))
+					throw new AiProviderException("OLLAMA_TOKEN_LIMIT: generation stopped before producing complete structured JSON", exception);
+				throw exception;
+			}
 		} catch (SocketTimeoutException exception) {
 			throw failed(classifySocketTimeout(exception), exception, startedAt);
 		} catch (IOException exception) {
@@ -129,18 +136,29 @@ public class OllamaAiProvider implements AiProvider {
 	}
 
 	String selectGeneratedContent(JsonNode body) {
-		String response = body.path("response").asText("").trim();
-		if (!response.isBlank()) return response;
-		String thinking = body.path("thinking").asText("").trim();
-		if (thinking.isBlank()) throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: Ollama returned no generated content");
-		try {
-			if (!objectMapper.readTree(thinking).isObject()) {
-				throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: thinking did not contain a JSON object");
+		String response = extractJsonObject(body.path("response").asText(""));
+		if (response != null) return response;
+		String thinking = extractJsonObject(body.path("thinking").asText(""));
+		if (thinking != null) return thinking;
+		if (body.path("response").asText("").isBlank() && body.path("thinking").asText("").isBlank())
+			throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: Ollama returned no generated content");
+		throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: response and thinking did not contain a valid JSON object");
+	}
+
+	private String extractJsonObject(String content) {
+		if (content == null || content.isBlank()) return null;
+		int start = content.indexOf('{'), depth = 0;
+		if (start < 0) return null;
+		for (int index = start; index < content.length(); index++) {
+			char value = content.charAt(index);
+			if (value == '{') depth++;
+			else if (value == '}' && --depth == 0) {
+				String candidate = content.substring(start, index + 1);
+				try { return objectMapper.readTree(candidate).isObject() ? candidate : null; }
+				catch (JsonProcessingException ignored) { return null; }
 			}
-			return thinking;
-		} catch (JsonProcessingException exception) {
-			throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: response was empty and thinking did not contain valid JSON", exception);
 		}
+		return null;
 	}
 
 	private JsonNode parseResponse(String rawResponse) {
@@ -200,6 +218,8 @@ public class OllamaAiProvider implements AiProvider {
 			List<String> images,
 			boolean stream,
 			String format,
-			boolean think) {
+			boolean think,
+			OllamaOptions options) {
 	}
+	private record OllamaOptions(int num_predict) {}
 }

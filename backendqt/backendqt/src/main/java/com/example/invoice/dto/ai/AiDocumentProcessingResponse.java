@@ -7,5 +7,6 @@ public record AiDocumentProcessingResponse(
 		Long documentId,
 		DocumentStatus status,
 		boolean requiresReview,
-		List<String> warnings) {
+		List<String> warnings,
+		ImagePreprocessingMetadata preprocessing) {
 }

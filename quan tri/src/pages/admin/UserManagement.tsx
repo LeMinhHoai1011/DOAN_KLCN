@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { UserPlus, Users, X } from 'lucide-react'
+import { UserPlus, X } from 'lucide-react'
 import api from '../../services/api'
 import { getErrorMessage } from '../../services/authService'
 import type { User } from '../../services/authService'
 import roleService from '../../services/roleService'
 import type { Role } from '../../services/roleService'
+import ContentCard from '../../components/ui/ContentCard'
+import EmptyState from '../../components/ui/EmptyState'
+import ErrorState from '../../components/ui/ErrorState'
+import LoadingState from '../../components/ui/LoadingState'
+import PageHeader from '../../components/ui/PageHeader'
 
 type ManagedUser = User & { status: 'ACTIVE' | 'INACTIVE' }
 const assignableLegacyRoles = new Set(['ADMIN', 'ACCOUNTANT', 'EMPLOYEE', 'USER'])
@@ -17,6 +22,7 @@ const UserManagement = () => {
   const [error, setError] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [form, setForm] = useState({ username: '', password: '', fullName: '', email: '', role: 'EMPLOYEE' })
+  const [query, setQuery] = useState('')
 
   const loadData = async () => {
     try {
@@ -85,19 +91,16 @@ const UserManagement = () => {
     }
   }
 
+  const visibleUsers = users.filter((user) => {
+    const value = query.trim().toLocaleLowerCase()
+    return !value || user.fullName.toLocaleLowerCase().includes(value) || user.username.toLocaleLowerCase().includes(value) || user.email.toLocaleLowerCase().includes(value)
+  })
+
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Quan ly nguoi dung</h1>
-          <p className="text-slate-500 mt-1">Tao tai khoan, phan quyen va khoa/mo khoa</p>
-        </div>
-        <button type="button" onClick={() => setIsCreating(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-          <UserPlus size={18} /> Them nguoi dung
-        </button>
-      </div>
+      <PageHeader title="Quản lý người dùng" description="Tạo tài khoản, gán vai trò và khóa/mở khóa bằng API hiện có." actions={<button type="button" onClick={() => setIsCreating(true)} className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700"><UserPlus size={18} /> Thêm người dùng</button>} />
 
-      {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-red-700">{error}</div>}
+      {error && <ErrorState message={error} onRetry={() => void loadData()} />}
 
       {isCreating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" onMouseDown={() => setIsCreating(false)}>
@@ -127,12 +130,13 @@ const UserManagement = () => {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-        {isLoading ? <div className="p-10 text-center text-slate-500">Dang tai...</div> : users.length === 0 ? <div className="p-10 text-center text-slate-500"><Users className="mx-auto mb-2" />Chua co nguoi dung</div> : (
+      <ContentCard>
+        <div className="border-b border-slate-200 bg-slate-50 p-4"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm theo tên, username hoặc email..." className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" /></div>
+        {isLoading ? <LoadingState label="Đang tải người dùng..." /> : visibleUsers.length === 0 ? <EmptyState title={users.length === 0 ? 'Chưa có người dùng' : 'Không tìm thấy người dùng'} description="Thử thay đổi từ khóa tìm kiếm hoặc tạo tài khoản mới." /> : (
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-500"><tr><th className="p-4">Nguoi dung</th><th className="p-4">Email</th><th className="p-4">Role</th><th className="p-4">Trang thai</th><th className="p-4">Thao tac</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
-              {users.map((user) => <tr key={user.id}>
+              {visibleUsers.map((user) => <tr key={user.id} className="hover:bg-slate-50">
                 <td className="p-4"><div className="font-medium text-slate-800">{user.fullName}</div><div className="text-slate-500">@{user.username}</div></td>
                 <td className="p-4">{user.email}</td>
                 <td className="p-4">
@@ -147,7 +151,7 @@ const UserManagement = () => {
             </tbody>
           </table>
         )}
-      </div>
+      </ContentCard>
     </div>
   )
 }

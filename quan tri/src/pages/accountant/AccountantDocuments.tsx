@@ -1,240 +1,73 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Filter, Trash2, Eye } from 'lucide-react';
+import { Eye, Filter, Trash2 } from 'lucide-react';
 import documentService from '../../services/documentService';
-import type { DocumentListItem } from '../../services/documentService';
-import StatusBadge from '../../components/StatusBadge';
-import clsx from 'clsx';
+import type { DocumentListItem, DocumentStatus, DocumentType } from '../../services/documentService';
 import { getEffectiveRole } from '../../services/authService';
+import StatusBadge from '../../components/StatusBadge';
+import PageHeader from '../../components/ui/PageHeader';
+import ErrorState from '../../components/ui/ErrorState';
+import EmptyState from '../../components/ui/EmptyState';
+import LoadingState from '../../components/ui/LoadingState';
+import FilterBar from '../../components/ui/FilterBar';
+
+const PROCESSING_STATUSES: DocumentStatus[] = ['UPLOADED', 'PROCESSING', 'PROCESSED', 'NEED_REVIEW', 'COMPLETED', 'FAILED'];
+const REVIEW_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'CORRECTED'] as const;
+const processingLabels: Record<DocumentStatus, string> = { UPLOADED: 'Đã tải lên', PROCESSING: 'Đang xử lý', PROCESSED: 'Đã xử lý', NEED_REVIEW: 'Cần kiểm tra', COMPLETED: 'Hoàn tất', FAILED: 'Lỗi' };
+const reviewLabels: Record<(typeof REVIEW_STATUSES)[number], string> = { PENDING: 'Chờ kiểm tra', APPROVED: 'Đã duyệt', REJECTED: 'Từ chối', CORRECTED: 'Đã điều chỉnh' };
 
 const AccountantDocuments = () => {
   const navigate = useNavigate();
+  const role = getEffectiveRole();
+  const isEmployeeView = role === 'EMPLOYEE' || role === 'USER';
+  const basePath = role === 'ADMIN' ? '/admin' : isEmployeeView ? '/employee' : '/accountant';
   const [documents, setDocuments] = useState<DocumentListItem[]>([]);
+  const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('ALL');
-  const [fileTypeFilter, setFileTypeFilter] = useState('ALL');
-  const role = getEffectiveRole();
-  const basePath = role === 'ADMIN' ? '/admin' : role === 'EMPLOYEE' || role === 'USER' ? '/employee' : '/accountant';
+  const [search, setSearch] = useState('');
+  const [processingStatus, setProcessingStatus] = useState<DocumentStatus | 'ALL'>('ALL');
+  const [reviewStatus, setReviewStatus] = useState<(typeof REVIEW_STATUSES)[number] | 'ALL'>('ALL');
+  const [typeId, setTypeId] = useState('ALL');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sort, setSort] = useState('createdAt,desc');
+  const [pageNumber, setPageNumber] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
 
+  useEffect(() => { let mounted = true; void documentService.getDocumentTypes().then((types) => { if (mounted) setDocumentTypes(types); }).catch(() => undefined); return () => { mounted = false; }; }, []);
   useEffect(() => {
-    let isMounted = true;
+    let mounted = true;
+    setIsLoading(true);
+    void documentService.getDocumentPage({ page: pageNumber, size: 10, sort, search: search.trim() || undefined, processingStatus: processingStatus === 'ALL' ? undefined : processingStatus, reviewStatus: reviewStatus === 'ALL' ? undefined : reviewStatus, typeId: typeId === 'ALL' ? undefined : Number(typeId), dateFrom: dateFrom || undefined, dateTo: dateTo || undefined })
+      .then((page) => { if (mounted) { setDocuments(page.content); setTotalPages(page.totalPages); setTotalElements(page.totalElements); setError(''); } })
+      .catch(() => { if (mounted) setError('Không thể tải danh sách chứng từ'); })
+      .finally(() => { if (mounted) setIsLoading(false); });
+    return () => { mounted = false; };
+  }, [dateFrom, dateTo, pageNumber, processingStatus, reviewStatus, search, sort, typeId]);
 
-    const loadDocuments = async () => {
-      try {
-        const data = await documentService.getDocuments();
-        if (isMounted) {
-          setDocuments(data);
-        }
-      } catch {
-        if (isMounted) {
-          setError('Không thể tải danh sách chứng từ');
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
+  const firstPage = () => setPageNumber(1);
+  const resetFilters = () => { setSearch(''); setProcessingStatus('ALL'); setReviewStatus('ALL'); setTypeId('ALL'); setDateFrom(''); setDateTo(''); setSort('createdAt,desc'); firstPage(); };
+  const updateSearch = (value: string) => { setSearch(value); firstPage(); };
 
-    loadDocuments();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const normalizedSearch = searchTerm.trim().toLocaleLowerCase();
-  const filtered = documents.filter((doc) => {
-    const mimeType = doc.fileType.toLocaleLowerCase();
-    const matchesSearch = !normalizedSearch ||
-      String(doc.id).includes(normalizedSearch) ||
-      doc.fileName.toLocaleLowerCase().includes(normalizedSearch) ||
-      mimeType.includes(normalizedSearch);
-    const matchesStatus = statusFilter === 'ALL' || doc.status === statusFilter;
-    const matchesFileType = fileTypeFilter === 'ALL' ||
-      (fileTypeFilter === 'PDF' && mimeType.includes('pdf')) ||
-      (fileTypeFilter === 'IMAGE' && mimeType.startsWith('image/')) ||
-      (fileTypeFilter === 'OTHER' && !mimeType.includes('pdf') && !mimeType.startsWith('image/'));
-
-    return matchesSearch && matchesStatus && matchesFileType;
-  });
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Quản lý chứng từ</h1>
-          <p className="text-slate-500 mt-1">Tra cứu và xử lý các chứng từ đã được số hóa</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            aria-expanded={showFilters}
-            onClick={() => setShowFilters((open) => !open)}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
-          >
-            <Filter size={18} />
-            <span>Bộ lọc</span>
-          </button>
-          {role !== 'USER' && (
-            <button
-              onClick={() => navigate(`${basePath}/upload`)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-            >
-              <span>+ Upload chứng từ</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
-          <div className="relative max-w-md w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              type="text"
-              placeholder="Tìm kiếm theo mã, tên file hoặc loại file..."
-              className="w-full bg-white border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 pl-9 pr-4 outline-none text-sm transition-all"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <div className="text-sm text-slate-500">
-            {isLoading ? 'Đang tải...' : `Tổng số ${filtered.length}`}
-          </div>
-        </div>
-
-        {showFilters && (
-          <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 px-4 py-3">
-            <label className="grid gap-1 text-xs font-medium text-slate-500">
-              <span>Trạng thái</span>
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
-                className="min-w-44 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-              >
-                <option value="ALL">Tất cả</option>
-                <option value="Đã tải lên">Đã tải lên</option>
-                <option value="Đang xử lý">Đang xử lý</option>
-                <option value="Đã xử lý">Đã xử lý</option>
-                <option value="Cần kiểm tra">Cần kiểm tra</option>
-                <option value="Hoàn tất">Hoàn tất</option>
-                <option value="Lỗi">Lỗi</option>
-              </select>
-            </label>
-            <label className="grid gap-1 text-xs font-medium text-slate-500">
-              <span>Loại file</span>
-              <select
-                value={fileTypeFilter}
-                onChange={(event) => setFileTypeFilter(event.target.value)}
-                className="min-w-40 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-              >
-                <option value="ALL">Tất cả</option>
-                <option value="PDF">PDF</option>
-                <option value="IMAGE">Hình ảnh</option>
-                <option value="OTHER">Khác</option>
-              </select>
-            </label>
-            <button
-              type="button"
-              onClick={() => {
-                setStatusFilter('ALL');
-                setFileTypeFilter('ALL');
-                setSearchTerm('');
-              }}
-              className="px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 rounded-lg"
-            >
-              Xóa bộ lọc
-            </button>
-          </div>
-        )}
-
-        {error ? (
-          <div className="p-10 text-center text-red-600">{error}</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
-                  <th className="py-3 px-4 w-12 text-center"><input type="checkbox" className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" /></th>
-                  <th className="py-3 px-4 font-medium">Mã</th>
-                  <th className="py-3 px-4 font-medium">Tên chứng từ</th>
-                  <th className="py-3 px-4 font-medium">Loại file</th>
-                  <th className="py-3 px-4 font-medium">Ngày</th>
-                  <th className="py-3 px-4 font-medium text-right">Số tiền</th>
-                  <th className="py-3 px-4 font-medium">AI Confidence</th>
-                  <th className="py-3 px-4 font-medium">Trạng thái</th>
-                  <th className="py-3 px-4 font-medium text-center">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm divide-y divide-slate-100">
-                {isLoading && (
-                  <tr>
-                    <td colSpan={9} className="py-10 px-4 text-center text-slate-500">Đang tải danh sách chứng từ...</td>
-                  </tr>
-                )}
-                {!isLoading && filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="py-10 px-4 text-center text-slate-500">Chưa có chứng từ nào</td>
-                  </tr>
-                )}
-                {!isLoading && filtered.map((doc) => (
-                  <tr key={doc.id} className="hover:bg-slate-50 transition-colors group">
-                    <td className="py-3 px-4 text-center"><input type="checkbox" className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" /></td>
-                    <td className="py-3 px-4 font-medium text-blue-600 cursor-pointer hover:underline" onClick={() => navigate(`${basePath}/documents/${doc.id}`)}>{doc.id}</td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate max-w-[150px]">{doc.fileName}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 truncate max-w-[200px]" title={doc.fileType}>
-                      {doc.fileType === 'application/pdf' ? 'PDF' : doc.fileType.startsWith('image/') ? doc.fileType.slice(6).toUpperCase() : doc.fileType || '-'}
-                    </td>
-                    <td className="py-3 px-4">{doc.date}</td>
-                    <td className="py-3 px-4 text-right font-medium">{doc.amount === undefined ? '-' : `${doc.amount.toLocaleString('vi-VN')} đ`}</td>
-                    <td className="py-3 px-4">
-                      {doc.aiConfidence === undefined ? '-' : (
-                        <span className={clsx(
-                          "font-medium",
-                          doc.aiConfidence >= 90 ? "text-emerald-600" : doc.aiConfidence >= 80 ? "text-amber-600" : "text-red-600"
-                        )}>
-                          {doc.aiConfidence}%
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <StatusBadge status={doc.status} />
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => navigate(`${basePath}/documents/${doc.id}`)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Xem chi tiết">
-                          <Eye size={18} />
-                        </button>
-                        <button className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="Xóa">
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <div className="p-4 border-t border-slate-200 flex justify-between items-center bg-slate-50/50 text-sm">
-          <button className="px-4 py-2 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50">Trước</button>
-          <div className="flex gap-1">
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-600 text-white font-medium">1</button>
-          </div>
-          <button className="px-4 py-2 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50">Tiếp</button>
-        </div>
-      </div>
+  return <div className="space-y-6">
+    <PageHeader title={isEmployeeView ? 'Chứng từ của tôi' : 'Quản lý chứng từ'} description={isEmployeeView ? 'Theo dõi các chứng từ do bạn tải lên.' : 'Tra cứu các chứng từ đã được số hóa theo phạm vi được cấp quyền.'} actions={<div className="flex gap-2"><button type="button" aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-slate-700 hover:bg-slate-50"><Filter size={18} />Bộ lọc</button>{role !== 'USER' && <button onClick={() => navigate(`${basePath}/upload`)} className="rounded-lg bg-blue-600 px-4 py-2 text-white shadow-sm hover:bg-blue-700">+ Upload chứng từ</button>}</div>} />
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-slate-50/50 p-4"><input type="search" placeholder="Tìm theo tên file..." value={search} onChange={(event) => updateSearch(event.target.value)} className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500" /><span className="whitespace-nowrap text-sm text-slate-500">{isLoading ? 'Đang tải...' : `Tổng số ${totalElements}`}</span></div>
+      {showFilters && <div className="border-b border-slate-200 p-4"><FilterBar actions={<button type="button" onClick={resetFilters} className="rounded-lg px-3 py-2 text-sm text-blue-700 hover:bg-blue-50">Xóa bộ lọc</button>}>
+        <label className="grid gap-1 text-xs font-medium text-slate-500"><span>Xử lý</span><select value={processingStatus} onChange={(event) => { setProcessingStatus(event.target.value as DocumentStatus | 'ALL'); firstPage(); }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"><option value="ALL">Tất cả</option>{PROCESSING_STATUSES.map((status) => <option key={status} value={status}>{processingLabels[status]}</option>)}</select></label>
+        <label className="grid gap-1 text-xs font-medium text-slate-500"><span>Kiểm tra</span><select value={reviewStatus} onChange={(event) => { setReviewStatus(event.target.value as typeof reviewStatus); firstPage(); }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"><option value="ALL">Tất cả</option>{REVIEW_STATUSES.map((status) => <option key={status} value={status}>{reviewLabels[status]}</option>)}</select></label>
+        <label className="grid gap-1 text-xs font-medium text-slate-500"><span>Loại chứng từ</span><select value={typeId} onChange={(event) => { setTypeId(event.target.value); firstPage(); }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"><option value="ALL">Tất cả</option>{documentTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
+        <label className="grid gap-1 text-xs font-medium text-slate-500"><span>Từ ngày</span><input type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); firstPage(); }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" /></label>
+        <label className="grid gap-1 text-xs font-medium text-slate-500"><span>Đến ngày</span><input type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); firstPage(); }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" /></label>
+        <label className="grid gap-1 text-xs font-medium text-slate-500"><span>Sắp xếp</span><select value={sort} onChange={(event) => { setSort(event.target.value); firstPage(); }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"><option value="createdAt,desc">Mới nhất</option><option value="createdAt,asc">Cũ nhất</option><option value="originalFileName,asc">Tên A–Z</option><option value="originalFileName,desc">Tên Z–A</option></select></label>
+      </FilterBar></div>}
+      {error ? <div className="p-4"><ErrorState message={error} /></div> : isLoading ? <LoadingState label="Đang tải danh sách chứng từ..." /> : <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b border-slate-200 bg-slate-50 text-slate-500"><th className="p-3 font-medium">Mã</th><th className="p-3 font-medium">Tên chứng từ</th><th className="p-3 font-medium">Loại file</th><th className="p-3 font-medium">Ngày</th><th className="p-3 text-right font-medium">Số tiền</th><th className="p-3 font-medium">AI Confidence</th><th className="p-3 font-medium">Trạng thái</th><th className="p-3 text-center font-medium">Thao tác</th></tr></thead><tbody className="divide-y divide-slate-100">{documents.length === 0 ? <tr><td colSpan={8}><EmptyState title="Chưa có chứng từ" description="Thay đổi điều kiện lọc hoặc tải lên chứng từ mới." /></td></tr> : documents.map((doc) => <tr key={doc.id} className="group hover:bg-slate-50"><td className="p-3 font-medium text-blue-600">{doc.id}</td><td className="p-3">{doc.fileName}</td><td className="p-3">{doc.fileType === 'application/pdf' ? 'PDF' : doc.fileType.startsWith('image/') ? doc.fileType.slice(6).toUpperCase() : doc.fileType || '-'}</td><td className="p-3">{doc.date}</td><td className="p-3 text-right">{doc.amount === undefined ? '-' : `${doc.amount.toLocaleString('vi-VN')} đ`}</td><td className="p-3">{doc.aiConfidence === undefined ? '-' : `${doc.aiConfidence}%`}</td><td className="p-3"><StatusBadge status={doc.status} reviewStatus={doc.reviewStatus} /></td><td className="p-3"><div className="flex justify-center gap-2"><button onClick={() => navigate(`${basePath}/documents/${doc.id}`)} className="rounded p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600" title="Xem chi tiết"><Eye size={18} /></button>{!isEmployeeView && <button className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Xóa"><Trash2 size={18} /></button>}</div></td></tr>)}</tbody></table></div>}
+      <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50/50 p-4 text-sm"><button disabled={isLoading || pageNumber <= 1} onClick={() => setPageNumber((page) => page - 1)} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-slate-600 disabled:opacity-50">Trước</button><span>{pageNumber}/{Math.max(1, totalPages)}</span><button disabled={isLoading || totalPages === 0 || pageNumber >= totalPages} onClick={() => setPageNumber((page) => page + 1)} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-slate-600 disabled:opacity-50">Tiếp</button></div>
     </div>
-  );
+  </div>;
 };
 
 export default AccountantDocuments;

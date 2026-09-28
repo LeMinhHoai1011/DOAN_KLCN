@@ -6,4 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ExtractedFieldRepository extends JpaRepository<ExtractedField, Long> {
 	List<ExtractedField> findByInvoiceId(Long invoiceId);
+	List<ExtractedField> findByDocumentId(Long documentId);
+	long deleteByDocumentIdAndSource(Long documentId, String source);
 }
