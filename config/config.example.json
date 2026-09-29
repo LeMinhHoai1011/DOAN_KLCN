@@ -1,0 +1,12 @@
+{
+  "paths": { "backend": "backendqt/backendqt", "frontend": "quan tri", "minioExecutable": "C:/path/to/minio.exe", "minioData": "C:/path/to/minio-data" },
+  "backend": { "host": "localhost", "port": 8081 },
+  "frontend": { "host": "localhost", "port": 5173 },
+  "database": { "host": "localhost", "port": 5432, "database": "invoice_db", "username": "YOUR_USERNAME" },
+  "minio": { "host": "localhost", "apiPort": 9000, "consolePort": 9001, "bucket": "invoices" },
+  "ai": {
+    "provider": "ollama",
+    "ollama": { "host": "localhost", "port": 11434, "model": "qwen3-vl:8b", "timeoutSeconds": 120 },
+    "cloud": { "baseUrl": "", "model": "", "chatCompletionsPath": "/chat/completions", "timeoutSeconds": 120 }
+  }
+}

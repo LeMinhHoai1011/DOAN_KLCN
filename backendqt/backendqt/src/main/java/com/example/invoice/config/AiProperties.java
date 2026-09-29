@@ -69,6 +69,7 @@ public class AiProperties {
 		private String apiKey = "";
 		private String model = "";
 		private String chatCompletionsPath = "/chat/completions";
+		private Duration timeout = Duration.ofSeconds(120);
 
 		public String getBaseUrl() { return baseUrl; }
 		public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
@@ -78,6 +79,8 @@ public class AiProperties {
 		public void setModel(String model) { this.model = model; }
 		public String getChatCompletionsPath() { return chatCompletionsPath; }
 		public void setChatCompletionsPath(String chatCompletionsPath) { this.chatCompletionsPath = chatCompletionsPath; }
+		public Duration getTimeout() { return timeout; }
+		public void setTimeout(Duration timeout) { this.timeout = timeout; }
 	}
 
 	public static class DocumentProcessing {

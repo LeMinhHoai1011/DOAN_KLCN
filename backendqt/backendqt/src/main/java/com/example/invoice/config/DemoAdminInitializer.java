@@ -30,7 +30,7 @@ public class DemoAdminInitializer implements CommandLineRunner {
 	@Value("${app.demo-admin.username:admin}")
 	private String username;
 
-	@Value("${app.demo-admin.password:Admin@123456}")
+	@Value("${app.demo-admin.password:}")
 	private String password;
 
 	@Value("${app.demo-admin.email:admin@smartinvoice.local}")
