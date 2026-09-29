@@ -56,6 +56,12 @@ export const getMe = async () => {
   const { data } = await api.get<User>('/api/v1/users/me')
   return data
 }
+export const updateMe = async (request: Pick<User, 'fullName' | 'email' | 'phone' | 'avatar'>) => {
+  const { data } = await api.put<User>('/api/v1/users/me', request)
+  saveUser(data)
+  window.dispatchEvent(new Event('auth-changed'))
+  return data
+}
 
 export const changePassword = async (request: ChangePasswordRequest) => {
   await api.put('/api/v1/users/me/password', request)

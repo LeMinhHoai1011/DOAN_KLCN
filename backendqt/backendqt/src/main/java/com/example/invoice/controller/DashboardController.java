@@ -10,6 +10,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.RequestParam;
 import java.time.LocalDate;
+import java.util.List;
 import com.example.invoice.dto.FinancialDashboardResponse;
 
 @RestController
@@ -28,5 +29,11 @@ public class DashboardController {
 	@PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTANT')")
 	public FinancialDashboardResponse financial(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo) {
 		return dashboardService.financial(dateFrom, dateTo);
+	}
+
+	@GetMapping("/financial/time-series")
+	@PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTANT')")
+	public List<com.example.invoice.dto.FinancialTimeSeriesResponse> timeSeries(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo, @RequestParam(defaultValue = "DAILY") String interval) {
+		return dashboardService.timeSeries(dateFrom, dateTo, interval);
 	}
 }

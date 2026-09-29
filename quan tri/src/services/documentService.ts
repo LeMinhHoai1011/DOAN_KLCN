@@ -95,6 +95,7 @@ export interface DocumentListItem {
   id: number
   fileName: string
   fileType: string
+  fileSize: number
   /** Raw processing state returned by the backend; never replace it with a label. */
   status: DocumentStatus
   reviewStatus: DocumentResponse['reviewStatus']
@@ -124,6 +125,7 @@ export const mapDocument = (document: DocumentResponse): DocumentListItem => ({
   id: document.id,
   fileName: document.originalFileName,
   fileType: document.fileType,
+  fileSize: document.fileSize,
   status: document.status,
   reviewStatus: document.reviewStatus,
   displayStatus: statusLabels[document.status] || document.status,

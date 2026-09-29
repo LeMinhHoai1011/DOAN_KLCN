@@ -2,6 +2,7 @@ package com.example.invoice.service;
 
 import com.example.invoice.dto.DashboardStatisticsResponse;
 import com.example.invoice.dto.FinancialDashboardResponse;
+import com.example.invoice.dto.FinancialTimeSeriesResponse;
 import com.example.invoice.entity.ClassificationStatus;
 import com.example.invoice.repository.ClassificationRepository;
 import com.example.invoice.repository.DocumentRepository;
@@ -9,6 +10,7 @@ import com.example.invoice.repository.InvoiceRepository;
 import com.example.invoice.repository.FinancialTransactionRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import com.example.invoice.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -34,9 +36,21 @@ public class DashboardService {
 	}
 
 	@Transactional(readOnly = true)
+	public List<FinancialTimeSeriesResponse> timeSeries(LocalDate dateFrom, LocalDate dateTo, String interval) {
+		String period = "MONTHLY".equalsIgnoreCase(interval) ? "month" : "day";
+		User user = userService.loadCurrent(SecurityContextHolder.getContext().getAuthentication());
+		Long companyId = hasRole(user, "ADMIN") ? null : user.getCompany() == null ? -1L : user.getCompany().getId();
+		return financialTransactionRepository.timeSeries(companyId, dateFrom, dateTo, period).stream().map(row -> {
+			BigDecimal income = (BigDecimal) row[1]; BigDecimal expense = (BigDecimal) row[2];
+			return new FinancialTimeSeriesResponse((String) row[0], income, expense, income.subtract(expense));
+		}).toList();
+	}
+
+	@Transactional(readOnly = true)
 	public DashboardStatisticsResponse statistics() {
 		User user = userService.loadCurrent(SecurityContextHolder.getContext().getAuthentication());
-		if (hasRole(user, "ADMIN") || hasRole(user, "ACCOUNTANT")) return statisticsForAll();
+		if (hasRole(user, "ADMIN")) return statisticsForAll();
+		if (hasRole(user, "ACCOUNTANT")) return user.getCompany() == null ? new DashboardStatisticsResponse(0, 0, 0, 0) : statisticsForCompany(user.getCompany().getId());
 		if (isEmployee(user)) return statisticsForUser(user.getId());
 		if (user.getCompany() == null) return new DashboardStatisticsResponse(0, 0, 0, 0);
 		return statisticsForCompany(user.getCompany().getId());

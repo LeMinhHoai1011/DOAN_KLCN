@@ -8,6 +8,10 @@ import type { FinancialDashboard } from '../../services/dashboardService';
 import documentService from '../../services/documentService';
 import type { DocumentListItem } from '../../services/documentService';
 import { AlertTriangle, CheckCircle2, FileText, Receipt } from 'lucide-react';
+import { Line } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
+import type { FinancialSeriesPoint } from '../../services/dashboardService';
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
 const AccountantDashboard = () => {
   const navigate = useNavigate();
@@ -16,22 +20,27 @@ const AccountantDashboard = () => {
   const [recentDocuments, setRecentDocuments] = useState<DocumentListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [series, setSeries] = useState<FinancialSeriesPoint[]>([]);
+  const [interval, setInterval] = useState<'DAILY' | 'MONTHLY'>('MONTHLY');
+  const [seriesLoading, setSeriesLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadDashboard = async () => {
       try {
-        const [dashboardStatistics, documents, financialDashboard] = await Promise.all([
+        const [dashboardStatistics, documents, financialDashboard, timeSeries] = await Promise.all([
           dashboardService.getDashboardStatistics(),
           documentService.getDocuments(),
           dashboardService.getFinancialDashboard(),
+          dashboardService.getFinancialTimeSeries({ interval }),
         ]);
 
         if (isMounted) {
           setStatistics(dashboardStatistics);
           setFinancial(financialDashboard);
           setRecentDocuments(documents.slice(0, 5));
+          setSeries(timeSeries);
         }
       } catch {
         if (isMounted) {
@@ -40,6 +49,7 @@ const AccountantDashboard = () => {
       } finally {
         if (isMounted) {
           setIsLoading(false);
+          setSeriesLoading(false);
         }
       }
     };
@@ -49,7 +59,7 @@ const AccountantDashboard = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [interval]);
 
   return (
     <div className="space-y-6">
@@ -86,6 +96,11 @@ const AccountantDashboard = () => {
           <StatCard title="Dòng tiền (VND)" value={Number(financial.cashFlow)} icon={CheckCircle2} type="primary" />
         </div>
       )}
+
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold text-slate-800">Thu chi theo thoi gian</h2><select value={interval} onChange={(event) => setInterval(event.target.value as 'DAILY' | 'MONTHLY')} className="rounded border border-slate-200 px-3 py-2 text-sm"><option value="MONTHLY">Theo thang</option><option value="DAILY">Theo ngay</option></select></div>
+        {seriesLoading ? <p className="text-sm text-slate-500">Dang tai bieu do...</p> : series.length === 0 ? <p className="text-sm text-slate-500">Chua co du lieu trong khoang thoi gian da chon.</p> : <Line data={{labels:series.map(x=>x.period),datasets:[{label:'Thu',data:series.map(x=>Number(x.income)),borderColor:'#059669'},{label:'Chi',data:series.map(x=>Number(x.expense)),borderColor:'#e11d48'},{label:'Dong tien',data:series.map(x=>Number(x.cashFlow)),borderColor:'#2563eb'}]}} options={{responsive:true}} />}
+      </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
         <h2 className="text-lg font-semibold text-slate-800 mb-2">Chi phí theo nhóm</h2>
