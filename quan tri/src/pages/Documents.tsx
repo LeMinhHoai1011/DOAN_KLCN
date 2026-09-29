@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Filter, Trash2, Eye } from 'lucide-react';
+import { Search, Filter, Trash2, Eye, Download } from 'lucide-react';
 import documentService from '../services/documentService';
 import type { DocumentListItem } from '../services/documentService';
 import StatusBadge from '../components/StatusBadge';
 import clsx from 'clsx';
+import exportService from '../services/exportService';
 
 const Documents = ({ basePath = '/accountant' }: { basePath?: string }) => {
   const navigate = useNavigate();
@@ -12,6 +13,7 @@ const Documents = ({ basePath = '/accountant' }: { basePath?: string }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -40,6 +42,13 @@ const Documents = ({ basePath = '/accountant' }: { basePath?: string }) => {
     };
   }, []);
 
+  const handleExport = async () => {
+    setIsExporting(true);
+    try { await exportService.exportInvoices({ search: searchTerm || undefined }); }
+    catch { setError('KhÃ´ng thá»ƒ xuáº¥t dá»¯ liá»‡u.'); }
+    finally { setIsExporting(false); }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -51,6 +60,9 @@ const Documents = ({ basePath = '/accountant' }: { basePath?: string }) => {
           <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">
             <Filter size={18} />
             <span>Bộ lọc</span>
+          </button>
+          <button onClick={handleExport} disabled={isExporting} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+            <Download size={18} /><span>{isExporting ? 'Äang xuáº¥t...' : 'Xuáº¥t Excel'}</span>
           </button>
           <button onClick={() => navigate(`${basePath}/upload`)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
             <span>+ Upload chứng từ</span>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { Download, Pencil, Plus, Trash2 } from 'lucide-react'
 import financialTransactionService, { type AccountingCategory, type FinancialTransaction, type TransactionRequest, type TransactionType } from '../../services/financialTransactionService'
 import { getErrorMessage } from '../../services/authService'
 import ContentCard from '../../components/ui/ContentCard'
@@ -9,6 +9,7 @@ import ErrorState from '../../components/ui/ErrorState'
 import FilterBar from '../../components/ui/FilterBar'
 import LoadingState from '../../components/ui/LoadingState'
 import PageHeader from '../../components/ui/PageHeader'
+import exportService from '../../services/exportService'
 
 const today = new Date().toISOString().slice(0, 10)
 const emptyForm: TransactionRequest = { transactionType: 'EXPENSE', amount: 0, transactionDate: today }
@@ -24,6 +25,7 @@ const FinancialTransactions = () => {
   const [categoryId, setCategoryId] = useState('')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
 
   const load = async () => {
@@ -82,7 +84,15 @@ const FinancialTransactions = () => {
 
   const fieldClass = 'rounded-lg border border-slate-300 bg-white px-3 py-2 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
 
+  const exportReport = async () => {
+    setExporting(true)
+    try { await exportService.exportFinancialReport({ fromDate: dateFrom || undefined, toDate: dateTo || undefined }) }
+    catch (requestError: unknown) { setError(getErrorMessage(requestError, 'Export failed.')) }
+    finally { setExporting(false) }
+  }
+
   return <div className="space-y-6">
+    <div className="flex justify-end"><button onClick={() => void exportReport()} disabled={exporting} className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:bg-emerald-300"><Download size={16} />{exporting ? 'Dang xuat...' : 'Xuat bao cao Excel'}</button></div>
     <PageHeader title="Quản lý thu chi" description="Ghi nhận và theo dõi các giao dịch thuộc phạm vi công ty của bạn." />
     <div className="grid gap-4 md:grid-cols-3">
       <ContentCard className="border-emerald-200 bg-emerald-50 p-5"><p className="text-sm font-medium text-emerald-800">Tổng thu</p><p className="mt-1 text-2xl font-bold text-emerald-900">{money(summary.income)}</p><p className="mt-1 text-xs text-emerald-700">Từ danh sách giao dịch đang lọc</p></ContentCard>
