@@ -16,7 +16,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: validate #validate/update/create
     show-sql: true
     open-in-view: false
     properties:
@@ -62,7 +62,7 @@ ai:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     model: ${OLLAMA_MODEL:qwen3-vl:8b}
     think: ${OLLAMA_THINK:false}
-    num-predict: ${OLLAMA_NUM_PREDICT:4096}
+    num-predict: ${OLLAMA_NUM_PREDICT:8192}
   cloud:
     base-url: ${AI_CLOUD_BASE_URL:}
     api-key: ${AI_CLOUD_API_KEY:}
