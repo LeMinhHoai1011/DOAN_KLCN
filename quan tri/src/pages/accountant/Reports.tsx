@@ -25,7 +25,7 @@ export default function Reports() {
     setLoading(true)
     setError('')
     void Promise.all([
-      dashboardService.getFinancialDashboard({ dateFrom: fromDate || undefined, toDate: toDate || undefined }),
+      dashboardService.getFinancialDashboard({ dateFrom: fromDate || undefined, dateTo: toDate || undefined }),
       dashboardService.getDashboardStatistics(),
     ])
       .then(([financialDashboard, dashboardStatistics]) => {

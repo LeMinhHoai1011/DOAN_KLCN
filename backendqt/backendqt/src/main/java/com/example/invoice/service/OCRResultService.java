@@ -51,7 +51,7 @@ public class OCRResultService {
 	}
 
 	private OCRResultResponse toResponse(OCRResult result) {
-		return new OCRResultResponse(result.getId(), result.getDocument().getId(), result.getRawText(), result.getConfidence(), result.getProcessedAt());
+		return new OCRResultResponse(result.getId(), result.getDocument().getId(), result.getRawText(), result.getLayoutJson(), result.getConfidence(), result.getProcessedAt());
 	}
 }
 

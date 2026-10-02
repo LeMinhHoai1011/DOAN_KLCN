@@ -7,6 +7,7 @@ public record OCRResultResponse(
 		Long id,
 		Long documentId,
 		String rawText,
+		String layoutJson,
 		BigDecimal confidence,
 		LocalDateTime processedAt) {
 }

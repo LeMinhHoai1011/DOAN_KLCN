@@ -101,9 +101,12 @@ public class OllamaAiProvider implements AiProvider {
 					response.code(), durationMs, body.path("done").asBoolean(false), body.path("done_reason").asText(""),
 					body.path("response").asText("").length(), body.path("thinking").asText("").length());
 			if (!response.isSuccessful()) {
+				String providerError = body.path("error").asText("").replaceAll("[\\r\\n\\t]+", " ").trim();
+				if (providerError.length() > 500) providerError = providerError.substring(0, 500);
 				throw new AiProviderException(response.code() == 404
 						? "OLLAMA_MODEL_NOT_FOUND: configured model is unavailable"
-						: "OLLAMA_INVALID_RESPONSE: Ollama returned HTTP " + response.code());
+						: "OLLAMA_INVALID_RESPONSE: Ollama returned HTTP " + response.code()
+								+ (providerError.isBlank() ? "" : ": " + providerError));
 			}
 
 			if (body.hasNonNull("error")) {

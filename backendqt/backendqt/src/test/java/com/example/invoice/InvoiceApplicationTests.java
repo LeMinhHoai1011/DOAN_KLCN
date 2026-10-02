@@ -35,9 +35,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.context.ActiveProfiles;
 
 @SpringBootTest(properties = {"app.demo-admin.enabled=true", "app.demo-users.enabled=true"})
 @AutoConfigureMockMvc
+@ActiveProfiles("test")
 class InvoiceApplicationTests {
 	@Autowired
 	private UserRepository userRepository;
@@ -131,9 +133,16 @@ class InvoiceApplicationTests {
 		company.setCompanyName("Dashboard Test Company " + uniqueId);
 		company.setTaxCode("DASH-" + uniqueId);
 		companyRepository.saveAndFlush(company);
+		User accountant = userRepository.findByUsername("accountant").orElseThrow();
+		accountant.setCompany(company);
+		userRepository.saveAndFlush(accountant);
+		Company otherCompany = new Company();
+		otherCompany.setCompanyName("Other Test Company " + uniqueId);
+		otherCompany.setTaxCode("OTHER-" + uniqueId);
+		companyRepository.saveAndFlush(otherCompany);
 
 		Document document = new Document();
-		document.setCompany(company);
+		document.setCompany(otherCompany);
 		document.setOriginalFileName("dashboard-test-" + uniqueId + ".pdf");
 		document.setFileType("application/pdf");
 		document.setFileSize(1L);

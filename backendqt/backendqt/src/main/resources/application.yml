@@ -2,6 +2,12 @@ spring:
   application:
     name: invoice-backend-core
 
+  servlet:
+    multipart:
+      max-file-size: ${UPLOAD_MAX_FILE_SIZE:10MB}
+      # Multipart boundaries and headers add overhead beyond the file itself.
+      max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:12MB}
+
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:invoice_db}
     username: ${DB_USERNAME:postgres}
@@ -45,6 +51,13 @@ ai:
   provider: ${AI_PROVIDER:ollama}
   request-timeout: ${AI_TIMEOUT:120s}
   max-image-size-bytes: ${AI_MAX_IMAGE_SIZE_BYTES:10485760}
+  ocr:
+    enabled: ${OCR_ENABLED:true}
+    data-path: ${TESSDATA_PATH:}
+    language: ${OCR_LANGUAGE:${TESSERACT_LANGUAGE:vie+eng}}
+    max-prompt-words: ${OCR_MAX_PROMPT_WORDS:1200}
+    minimum-text-length: ${OCR_MINIMUM_TEXT_LENGTH:40}
+    good-confidence: ${OCR_GOOD_CONFIDENCE:0.65}
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     model: ${OLLAMA_MODEL:qwen3-vl:8b}
@@ -59,12 +72,6 @@ ai:
   document:
     high-confidence-threshold: ${AI_HIGH_CONFIDENCE_THRESHOLD:0.90}
     review-threshold: ${AI_REVIEW_THRESHOLD:0.75}
-  ocr:
-    data-path: ${TESSDATA_PATH:}
-    language: ${TESSERACT_LANGUAGE:vie+eng}
-    minimum-text-length: ${OCR_MINIMUM_TEXT_LENGTH:40}
-    good-confidence: ${OCR_GOOD_CONFIDENCE:0.65}
-
 springdoc:
   swagger-ui:
     path: /swagger-ui.html

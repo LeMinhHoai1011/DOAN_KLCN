@@ -27,6 +27,8 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,12 +49,13 @@ public class DocumentAiResultPersistenceService {
 	private final ProcessingLogService processingLogService;
 	private final AiProperties aiProperties;
 	private final AccountingCategoryRepository accountingCategoryRepository;
+	private final ObjectMapper objectMapper;
 
 	@Autowired
 	public DocumentAiResultPersistenceService(DocumentService documentService, DocumentTypeRepository documentTypeRepository,
 			OCRResultRepository ocrResultRepository, ClassificationRepository classificationRepository, InvoiceRepository invoiceRepository,
 			ExtractedFieldRepository extractedFieldRepository, ProcessingLogService processingLogService, AiProperties aiProperties,
-			AccountingCategoryRepository accountingCategoryRepository) {
+			AccountingCategoryRepository accountingCategoryRepository, ObjectMapper objectMapper) {
 		this.documentService = documentService;
 		this.documentTypeRepository = documentTypeRepository;
 		this.ocrResultRepository = ocrResultRepository;
@@ -62,29 +65,41 @@ public class DocumentAiResultPersistenceService {
 		this.processingLogService = processingLogService;
 		this.aiProperties = aiProperties;
 		this.accountingCategoryRepository = accountingCategoryRepository;
+		this.objectMapper = objectMapper;
 	}
 
 	DocumentAiResultPersistenceService(DocumentService documentService, DocumentTypeRepository documentTypeRepository,
 			OCRResultRepository ocrResultRepository, ClassificationRepository classificationRepository, InvoiceRepository invoiceRepository,
 			ExtractedFieldRepository extractedFieldRepository, ProcessingLogService processingLogService, AiProperties aiProperties) {
 		this(documentService, documentTypeRepository, ocrResultRepository, classificationRepository, invoiceRepository,
-				extractedFieldRepository, processingLogService, aiProperties, null);
+				extractedFieldRepository, processingLogService, aiProperties, null, new ObjectMapper());
 	}
 
 	@Transactional
 	public boolean persist(Long documentId, ValidatedAiDocumentResult validated) {
+		return persist(documentId, validated, null);
+	}
+
+	@Transactional
+	public boolean persist(Long documentId, ValidatedAiDocumentResult validated, OcrDocumentResult tessOcr) {
 		Document document = documentService.load(documentId);
 		AiDocumentResult result = validated.result();
 		DocumentType type = documentTypeRepository.findByCode(result.documentType())
 				.orElseThrow(() -> new IllegalStateException("Validated document type no longer exists"));
+		if (!type.isActive()) throw new IllegalStateException("Validated document type is no longer active");
 		document.setType(type);
 		document.setDocumentType(type.getCode());
 		persistIntelligence(document, result);
 
+		persistOcrWhenPresent(document, result, validated.confidence(), tessOcr);
 		boolean requiresReview = validated.requiresReview(aiProperties.getDocument().getReviewThreshold());
-		Invoice invoice = result.invoice() == null ? null : persistInvoice(document, result.invoice());
-		if (result.invoice() == null) requiresReview = removeStaleAiInvoice(document) || requiresReview;
 		persistClassification(document, result, validated.confidence(), validated.warnings(), requiresReview);
+		Invoice invoice = null;
+		if (isInvoiceType(type.getCode()) && result.invoice() != null) {
+			invoice = persistInvoice(document, result.invoice());
+		} else if (!isInvoiceType(type.getCode())) {
+			removeStaleInvoice(document);
+		}
 		replaceAiExtractedFields(document, invoice, result.fields(), result.extraFields());
 
 		document.setStatus(requiresReview ? DocumentStatus.NEED_REVIEW : DocumentStatus.PROCESSED);
@@ -94,45 +109,24 @@ public class DocumentAiResultPersistenceService {
 		return requiresReview;
 	}
 
-	private boolean removeStaleAiInvoice(Document document) {
-		Invoice invoice = invoiceRepository.findByDocumentId(document.getId()).orElse(null);
-		if (invoice == null) return false;
-			boolean hasManualFields = extractedFieldRepository.findByDocumentId(document.getId()).stream()
-					.anyMatch(field -> field.getSource() != null && !"AI".equalsIgnoreCase(field.getSource()));
-			boolean hasCorrections = extractedFieldRepository.findByDocumentId(document.getId()).stream()
-					.anyMatch(field -> field.getCorrections() != null && !field.getCorrections().isEmpty());
-		if (!invoice.isAiGenerated() || hasManualFields || hasCorrections) {
-				processingLogService.append(document.getId(), "AI_DOCUMENT", "STALE_INVOICE", "WARNING", null, null,
-						"Previous invoice retained because manual/corrected data exists; accountant review is required");
-			return true;
-		} else {
-			// AI extracted fields may still reference the generated invoice. Remove those
-			// dependants before deleting the stale invoice and flush the deletion now so a
-			// later classification query cannot auto-flush a dangling managed association.
-			List<ExtractedField> aiFields = extractedFieldRepository.findByDocumentId(document.getId()).stream()
-					.filter(field -> "AI".equalsIgnoreCase(field.getSource()))
-					.toList();
-			extractedFieldRepository.deleteAll(aiFields);
-			extractedFieldRepository.flush();
-			invoice.getItems().clear();
-			invoiceRepository.flush();
-			document.setInvoice(null);
-			invoiceRepository.deleteAiGeneratedByDocumentId(document.getId());
-			return false;
-		}
-	}
-
-	private void persistOcrWhenPresent(Document document, AiDocumentResult result, BigDecimal confidence) {
-		if (result.rawText() == null || result.rawText().isBlank()) return;
+	private void persistOcrWhenPresent(Document document, AiDocumentResult result, BigDecimal confidence, OcrDocumentResult tessOcr) {
+		String rawText = tessOcr != null && tessOcr.successful() ? tessOcr.rawText() : result.rawText();
+		if (rawText == null || rawText.isBlank()) return;
 		OCRResult ocr = ocrResultRepository.findFirstByDocumentIdOrderByProcessedAtDesc(document.getId()).orElseGet(OCRResult::new);
 		ocr.setDocument(document);
-		ocr.setOcrEngine(result.provider());
-		ocr.setModelVersion(result.model());
-		ocr.setRawText(result.rawText());
-		ocr.setConfidence(confidence);
-		ocr.setProcessingTime(result.durationMs());
+		ocr.setOcrEngine(tessOcr != null && tessOcr.successful() ? "tesseract" : result.provider());
+		ocr.setModelVersion(tessOcr != null && tessOcr.successful() ? aiProperties.getOcr().getLanguage() : result.model());
+		ocr.setRawText(rawText);
+		ocr.setConfidence(tessOcr != null && tessOcr.successful() ? BigDecimal.valueOf(tessOcr.confidence()).movePointLeft(2) : confidence);
+		ocr.setProcessingTime(tessOcr != null && tessOcr.successful() ? tessOcr.durationMs() : result.durationMs());
+		ocr.setLayoutJson(tessOcr == null ? null : serializeLayout(tessOcr));
 		ocr.setStatus("SUCCESS");
 		ocrResultRepository.save(ocr);
+	}
+
+	private String serializeLayout(OcrDocumentResult result) {
+		try { return objectMapper.writeValueAsString(result.pages()); }
+		catch (JsonProcessingException exception) { throw new IllegalStateException("Could not serialize OCR layout", exception); }
 	}
 
 	private void persistClassification(Document document, AiDocumentResult result, BigDecimal confidence, List<String> warnings, boolean requiresReview) {
@@ -188,6 +182,27 @@ public class DocumentAiResultPersistenceService {
 			}
 		}
 		return invoiceRepository.save(invoice);
+	}
+
+	/** Removes obsolete AI type-specific data while retaining user-managed fields. */
+	private void removeStaleInvoice(Document document) {
+		Invoice invoice = invoiceRepository.findByDocumentId(document.getId()).orElse(null);
+		if (invoice == null || !invoice.isAiGenerated()) return;
+		for (ExtractedField field : extractedFieldRepository.findByDocumentId(document.getId())) {
+			if (!"AI".equalsIgnoreCase(field.getSource()) && field.getInvoice() != null) {
+				field.setInvoice(null);
+				invoice.getExtractedFields().remove(field);
+			}
+		}
+		invoiceRepository.deleteAiGeneratedByDocumentId(document.getId());
+	}
+
+	private boolean isInvoiceType(String typeCode) {
+		if (typeCode == null) return false;
+		String normalized = typeCode.trim().toUpperCase(java.util.Locale.ROOT)
+				.replace('-', '_').replace(' ', '_');
+		return "INVOICE".equals(normalized) || "VAT_INVOICE".equals(normalized)
+				|| normalized.endsWith("_INVOICE");
 	}
 
 	private void replaceAiExtractedFields(Document document, Invoice invoice, List<AiDocumentResult.AiExtractedField> fields,

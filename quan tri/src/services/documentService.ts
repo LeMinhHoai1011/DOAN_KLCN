@@ -62,6 +62,8 @@ export interface OCRResultResponse {
   id: number
   documentId: number
   rawText: string
+  /** JSON array of pages and normalized 0..1 OCR word bounding boxes. */
+  layoutJson: string | null
   confidence: number | null
   processedAt: string
 }

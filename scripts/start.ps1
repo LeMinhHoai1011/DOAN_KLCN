@@ -11,7 +11,15 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $ConfigPath = Join-Path $ProjectRoot 'config/config.local.json'
 function Stop-WithError([string]$Message) { Write-Error $Message; exit 1 }
 function Test-Port([string]$HostName, [int]$TargetPort) {
-    try { $c = [Net.Sockets.TcpClient]::new(); $a = $c.BeginConnect($HostName, $TargetPort, $null, $null); $ok = $a.AsyncWaitHandle.WaitOne(800); if ($ok) { $c.EndConnect($a) }; $c.Dispose(); $ok } catch { $false }
+    try { $addresses = [Net.Dns]::GetHostAddresses($HostName) } catch { return $false }
+    foreach ($address in $addresses) {
+        $client = [Net.Sockets.TcpClient]::new($address.AddressFamily)
+        try {
+            $attempt = $client.BeginConnect($address, $TargetPort, $null, $null)
+            if ($attempt.AsyncWaitHandle.WaitOne(800)) { $client.EndConnect($attempt); return $true }
+        } catch { } finally { $client.Dispose() }
+    }
+    return $false
 }
 function Wait-Port([string]$ServiceName, [string]$HostName, [int]$TargetPort) {
     $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
@@ -26,6 +34,10 @@ function Wait-Http([string]$ServiceName, [string]$Url) {
     Stop-WithError "$ServiceName did not return HTTP health response at $Url within $StartupTimeoutSeconds seconds."
 }
 function Require-Path([string]$Path, [string]$Name) { if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { Stop-WithError "$Name not found: $Path" } }
+function Require-Secret([string]$Name) {
+    $value = [Environment]::GetEnvironmentVariable($Name)
+    if ([string]::IsNullOrWhiteSpace($value) -or $value -match '^(YOUR_|CHANGE_ME|PLACEHOLDER)') { Stop-WithError "$Name is missing or still contains a placeholder in .env." }
+}
 function Start-Window([string]$Dir, [string]$Command) { Start-Process powershell.exe -ArgumentList @('-NoExit', '-Command', "Set-Location -LiteralPath '$($Dir.Replace("'","''"))'; $Command") -WorkingDirectory $Dir | Out-Null }
 if (-not (Test-Path -LiteralPath $ConfigPath)) { Stop-WithError "Local config not found: $ConfigPath. Copy config/config.example.json to config/config.local.json and complete it." }
 try { $Config = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json }catch {
@@ -48,6 +60,10 @@ $ollamaPort = if ($Service -eq 'ollama' -and $PSBoundParameters.ContainsKey('Por
 $ollamaModel = if ($Service -eq 'ollama' -and $PSBoundParameters.ContainsKey('Model')) { $Model }else { [string]$Ollama.model }
 $backendDir = Join-Path $ProjectRoot $Config.paths.backend; $frontendDir = Join-Path $ProjectRoot $Config.paths.frontend
 function Start-Minio {
+	Require-Secret 'MINIO_ACCESS_KEY'; Require-Secret 'MINIO_SECRET_KEY'
+	# Modern MinIO uses the ROOT names; the backend uses ACCESS/SECRET names.
+	$env:MINIO_ROOT_USER = $env:MINIO_ACCESS_KEY
+	$env:MINIO_ROOT_PASSWORD = $env:MINIO_SECRET_KEY
     if (Test-Port $Config.minio.host ([int]$Config.minio.apiPort)) { Write-Host "MinIO already running on $($Config.minio.host):$($Config.minio.apiPort)" }
     else {
     $exe = [string]$Config.paths.minioExecutable; $data = [string]$Config.paths.minioData; Require-Path $exe 'MinIO executable'; Require-Path $data 'MinIO data directory'
@@ -64,7 +80,8 @@ function Start-Ollama {
     }
     else { Write-Host 'Ollama already running.' }
     Wait-Port 'Ollama' $Ollama.host $ollamaPort
-    try { $tags = Invoke-RestMethod -Uri "$base/api/tags" -TimeoutSec 5 }catch { Stop-WithError "Ollama is not healthy at ${base}: $($_.Exception.Message)" }
+    Wait-Http 'Ollama' "$base/api/tags"
+    try { $tags = Invoke-RestMethod -Uri "$base/api/tags" -TimeoutSec 15 }catch { Stop-WithError "Ollama is not healthy at ${base}: $($_.Exception.Message)" }
     if ($tags.models.name -notcontains $ollamaModel) { Write-Warning "Configured Ollama model not found: $ollamaModel" }else { Write-Host "Model: $ollamaModel" }
 }
 function Confirm-CloudConfiguration {
@@ -76,10 +93,10 @@ function Confirm-CloudConfiguration {
 function Start-Backend {
     if (Test-Port $Config.backend.host $backendPort) { Write-Host "Backend already running on $($Config.backend.host):$backendPort"; return }; Require-Path $backendDir 'Backend directory'; Require-Path (Join-Path $backendDir 'mvnw.cmd') 'Maven Wrapper'
     if (-not(Test-Port $Config.database.host ([int]$Config.database.port))) { Stop-WithError "PostgreSQL is not reachable at $($Config.database.host):$($Config.database.port). Check that PostgreSQL is running and accepting TCP connections." }
-    if ([string]::IsNullOrWhiteSpace($env:DB_PASSWORD)) { Stop-WithError 'DB_PASSWORD is not set. Add it to the local .env file or current PowerShell session.' }
-    if ([string]::IsNullOrWhiteSpace($env:MINIO_ACCESS_KEY) -or [string]::IsNullOrWhiteSpace($env:MINIO_SECRET_KEY)) { Stop-WithError 'MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be set before starting the backend.' }
-    if ([string]::IsNullOrWhiteSpace($env:JWT_SECRET)) { Stop-WithError 'JWT_SECRET is not set. Add it to the local .env file or current PowerShell session.' }
-    if ($env:DEMO_ADMIN_ENABLED -ne 'false' -and [string]::IsNullOrWhiteSpace($env:DEMO_ADMIN_PASSWORD)) { Stop-WithError 'DEMO_ADMIN_PASSWORD is not set. Add it to .env, or set DEMO_ADMIN_ENABLED=false before starting the backend.' }
+    Require-Secret 'DB_PASSWORD'; Require-Secret 'MINIO_ACCESS_KEY'; Require-Secret 'MINIO_SECRET_KEY'; Require-Secret 'JWT_SECRET'
+    if ($env:DEMO_ADMIN_ENABLED -ne 'false' -and ([string]::IsNullOrWhiteSpace($env:DEMO_ADMIN_PASSWORD) -or $env:DEMO_ADMIN_PASSWORD -match '^(YOUR_|CHANGE_ME|PLACEHOLDER)')) {
+        Write-Warning 'DEMO_ADMIN_PASSWORD is missing or still a placeholder. Set a real value before using the demo admin account.'
+    }
     $env:SERVER_PORT = $backendPort; $env:DB_HOST = $Config.database.host; $env:DB_PORT = $Config.database.port; $env:DB_NAME = $Config.database.database; $env:DB_USERNAME = $Config.database.username; $env:MINIO_ENDPOINT = "http://$($Config.minio.host):$($Config.minio.apiPort)"; $env:MINIO_BUCKET = $Config.minio.bucket; $env:AI_PROVIDER = $AiProvider; $env:OLLAMA_BASE_URL = "http://$($Ollama.host):$ollamaPort"; $env:OLLAMA_MODEL = $ollamaModel; $env:AI_TIMEOUT = "$($Ollama.timeoutSeconds)s"; $env:AI_CLOUD_BASE_URL = $Cloud.baseUrl; $env:AI_CLOUD_MODEL = $Cloud.model; $env:AI_CLOUD_CHAT_COMPLETIONS_PATH = $Cloud.chatCompletionsPath; $env:AI_CLOUD_TIMEOUT = "$($Cloud.timeoutSeconds)s"
     Start-Window $backendDir '& .\mvnw.cmd spring-boot:run'; Write-Host "Starting backend: http://$($Config.backend.host):$backendPort"; Wait-Port 'Backend' $Config.backend.host $backendPort; Wait-Http 'Backend' "http://$($Config.backend.host):$backendPort/swagger-ui.html"
 }

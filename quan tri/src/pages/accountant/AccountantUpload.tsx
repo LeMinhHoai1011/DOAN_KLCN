@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { CheckCircle2, FileType, Loader2, UploadCloud, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import documentService from '../../services/documentService';
-import type { AiDocumentProcessingResponse, DocumentResponse } from '../../services/documentService';
+import type { DocumentResponse } from '../../services/documentService';
 import { getCurrentUser, getEffectiveRole, getErrorMessage } from '../../services/authService';
 import PageHeader from '../../components/ui/PageHeader';
 import ErrorState from '../../components/ui/ErrorState';
@@ -22,7 +22,6 @@ const AccountantUpload = () => {
   const [file, setFile] = useState<File | null>(null);
   const [uploadState, setUploadState] = useState<UploadState>('idle');
   const [uploadResult, setUploadResult] = useState<DocumentResponse | null>(null);
-  const [processingResult, setProcessingResult] = useState<AiDocumentProcessingResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const isEmployeeView = getEffectiveRole(getCurrentUser()) === 'EMPLOYEE';
   
@@ -30,7 +29,6 @@ const AccountantUpload = () => {
     if (!selectedFile) return;
 
     setUploadResult(null);
-    setProcessingResult(null);
     setErrorMessage('');
 
     if (selectedFile.size > 10 * 1024 * 1024) {
@@ -52,11 +50,6 @@ const AccountantUpload = () => {
 
     try {
       const response = await documentService.uploadDocument(file);
-      if (file.type === 'image/jpeg' || file.type === 'image/png') {
-        setProcessingResult(await documentService.processDocument(response.id));
-      } else if (file.type === 'application/pdf') {
-        setErrorMessage('Đã upload. AI xử lý PDF đang chờ hỗ trợ chuyển đổi trang sang ảnh.');
-      }
       setUploadResult(response);
       setUploadState('completed');
     } catch (error: unknown) {
@@ -68,7 +61,6 @@ const AccountantUpload = () => {
   const handleCancel = () => {
     setFile(null);
     setUploadResult(null);
-    setProcessingResult(null);
     setUploadState('idle');
     setErrorMessage('');
   };
@@ -147,13 +139,6 @@ const AccountantUpload = () => {
                 <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
                   <div>Đã tạo chứng từ với mã: <strong>{uploadResult.id}</strong></div>
                   <div>Trạng thái: <strong>{uploadResult.status}</strong></div>
-                </div>
-              )}
-              {processingResult?.preprocessing && (
-                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                  <div className="font-medium">Tiền xử lý ảnh: {processingResult.preprocessing.applied ? 'đã áp dụng' : 'không cần áp dụng'}</div>
-                  <div className="mt-1">Góc phát hiện: {processingResult.preprocessing.detectedAngleDegrees.toFixed(2)}°, thời gian: {processingResult.preprocessing.durationMs} ms</div>
-                  <div>Kích thước: {processingResult.preprocessing.originalWidth} × {processingResult.preprocessing.originalHeight} → {processingResult.preprocessing.processedWidth} × {processingResult.preprocessing.processedHeight}</div>
                 </div>
               )}
             </div>

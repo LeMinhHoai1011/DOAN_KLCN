@@ -7,6 +7,7 @@ import com.example.invoice.dto.document.OCRResultRequest;
 import com.example.invoice.dto.document.OCRResultResponse;
 import com.example.invoice.dto.ai.AiDocumentProcessingResponse;
 import com.example.invoice.service.DocumentAiProcessingService;
+import com.example.invoice.service.DocumentUploadProcessingService;
 import com.example.invoice.dto.invoice.InvoiceResponse;
 import com.example.invoice.dto.invoice.ExtractedFieldResponse;
 import com.example.invoice.service.DocumentService;
@@ -37,6 +38,7 @@ public class DocumentController {
 	private final InvoiceService invoiceService;
 	private final OCRResultService ocrResultService;
 	private final DocumentAiProcessingService documentAiProcessingService;
+	private final DocumentUploadProcessingService documentUploadProcessingService;
 
 	@PostMapping
 	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_CREATE') or hasRole('ADMIN')")
@@ -51,7 +53,7 @@ public class DocumentController {
 	public DocumentResponse upload(
 			@RequestParam("file") MultipartFile file,
 			Authentication authentication) {
-		return documentService.createFromUpload(file, authentication);
+		return documentUploadProcessingService.uploadAndProcess(file, authentication);
 	}
 
 	@PostMapping("/{id}/versions")

@@ -37,6 +37,10 @@ public class OCRResult {
 	@Column(nullable = false, columnDefinition = "text")
 	private String rawText;
 
+	/** Page sizes and normalized word bounding boxes serialized as JSON. */
+	@Column(columnDefinition = "text")
+	private String layoutJson;
+
 	@Column(precision = 5, scale = 2)
 	private BigDecimal confidence;
 

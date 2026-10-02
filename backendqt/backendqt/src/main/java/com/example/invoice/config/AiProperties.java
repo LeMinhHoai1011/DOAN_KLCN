@@ -29,14 +29,21 @@ public class AiProperties {
 	public Ocr getOcr() { return ocr; }
 
 	public static class Ocr {
+		private boolean enabled = true;
 		private String dataPath = "";
 		private String language = "vie+eng";
+		private int maxPromptWords = 1200;
 		private int minimumTextLength = 40;
 		private java.math.BigDecimal goodConfidence = new java.math.BigDecimal("0.65");
+
+		public boolean isEnabled() { return enabled; }
+		public void setEnabled(boolean enabled) { this.enabled = enabled; }
 		public String getDataPath() { return dataPath; }
 		public void setDataPath(String dataPath) { this.dataPath = dataPath; }
 		public String getLanguage() { return language; }
 		public void setLanguage(String language) { this.language = language; }
+		public int getMaxPromptWords() { return maxPromptWords; }
+		public void setMaxPromptWords(int maxPromptWords) { this.maxPromptWords = maxPromptWords; }
 		public int getMinimumTextLength() { return minimumTextLength; }
 		public void setMinimumTextLength(int value) { this.minimumTextLength = value; }
 		public java.math.BigDecimal getGoodConfidence() { return goodConfidence; }
