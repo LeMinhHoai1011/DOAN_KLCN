@@ -3,6 +3,9 @@ package com.example.invoice.repository;
 import com.example.invoice.entity.Invoice;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
@@ -16,5 +19,8 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
 	long countByDocumentCompanyId(Long companyId);
 	long countByDocumentUploadedById(Long uploadedById);
 	Optional<Invoice> findByDocumentId(Long documentId);
+	@Modifying(flushAutomatically = true)
+	@Query("delete from Invoice invoice where invoice.document.id = :documentId and invoice.aiGenerated = true")
+	int deleteAiGeneratedByDocumentId(@Param("documentId") Long documentId);
 }
 

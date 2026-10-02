@@ -34,6 +34,22 @@ public class OCRResultService {
 		return toResponse(ocrResultRepository.save(result));
 	}
 
+	@Transactional
+	public OCRResult persistExtraction(Long documentId, DocumentTextExtractionResult extraction) {
+		Document document = documentService.load(documentId);
+		OCRResult result = new OCRResult();
+		result.setDocument(document);
+		result.setOcrEngine(extraction.engine());
+		result.setModelVersion(extraction.engineVersion());
+		result.setLanguage(extraction.language());
+		result.setSourceType(extraction.sourceType());
+		result.setRawText(extraction.text());
+		result.setConfidence(extraction.confidence());
+		result.setProcessingTime(extraction.durationMs());
+		result.setStatus(extraction.visionFallbackRecommended() ? "LOW_CONFIDENCE" : "SUCCESS");
+		return ocrResultRepository.save(result);
+	}
+
 	private OCRResultResponse toResponse(OCRResult result) {
 		return new OCRResultResponse(result.getId(), result.getDocument().getId(), result.getRawText(), result.getConfidence(), result.getProcessedAt());
 	}

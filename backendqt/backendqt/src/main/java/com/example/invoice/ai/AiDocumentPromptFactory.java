@@ -14,7 +14,8 @@ public final class AiDocumentPromptFactory {
 			String companyName, String companyTaxCode) {
 		return """
 			You are a document information extraction engine. Analyze the supplied document image once for both classification and extraction.
-			Return JSON only: no markdown, explanation, preamble, or reasoning. Do not guess any value that is not visible. Use null when unknown.
+			Return JSON only: no markdown, explanation, preamble, or reasoning. Extract only values supported by the supplied source. Do not guess, repair, complete, or infer missing identifiers or amounts. Use null when missing or uncertain.
+			Preserve [PAGE n] boundaries and inspect every page. Never discard later-page totals, tax, metadata, or invoice items. Do not duplicate the same item across pages.
 			Current company context: name=%s; taxCode=%s. Determine its role in the document using only visible evidence. Prefer an exact tax-code match over name/layout evidence; do not claim a match when the tax code is absent.
 			Document type must be exactly one of: %s. Use OTHER only when it is in that list; do not invent a type.
 			documentDirection must be one of INCOMING, OUTGOING, INTERNAL, UNKNOWN.

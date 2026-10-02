@@ -2,6 +2,8 @@ package com.example.invoice;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -34,7 +36,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest
+@SpringBootTest(properties = {"app.demo-admin.enabled=true", "app.demo-users.enabled=true"})
 @AutoConfigureMockMvc
 class InvoiceApplicationTests {
 	@Autowired
@@ -123,7 +125,7 @@ class InvoiceApplicationTests {
 
 	@Test
 	@Transactional
-	void accountantDashboardCountsDocumentsAcrossCompanies() {
+	void accountantCannotAccessDocumentsAcrossCompanies() {
 		String uniqueId = UUID.randomUUID().toString();
 		Company company = new Company();
 		company.setCompanyName("Dashboard Test Company " + uniqueId);
@@ -144,10 +146,10 @@ class InvoiceApplicationTests {
 				new UsernamePasswordAuthenticationToken("accountant", "test"));
 		try {
 			DashboardStatisticsResponse statistics = dashboardService.statistics();
-			assertEquals(documentRepository.count(), statistics.totalDocuments());
-			assertTrue(documentService.findAll().stream().anyMatch(item -> item.id().equals(document.getId())));
-			assertEquals(document.getId(), documentService.findById(document.getId()).id());
-			assertTrue(invoiceService.findAll().stream().anyMatch(item -> item.documentId().equals(document.getId())));
+			assertFalse(documentService.findAll().stream().anyMatch(item -> item.id().equals(document.getId())));
+			assertThrows(com.example.invoice.exception.ResourceNotFoundException.class,
+					() -> documentService.findById(document.getId()));
+			assertFalse(invoiceService.findAll().stream().anyMatch(item -> item.documentId().equals(document.getId())));
 		} finally {
 			SecurityContextHolder.clearContext();
 		}

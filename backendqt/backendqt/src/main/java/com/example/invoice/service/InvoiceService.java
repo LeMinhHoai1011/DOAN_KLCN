@@ -39,8 +39,12 @@ public class InvoiceService {
 	public List<InvoiceResponse> findAll() {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		User user = userService.loadCurrent(auth);
-		if (hasRole(user, "ADMIN") || hasRole(user, "ACCOUNTANT")) {
+		if (hasRole(user, "ADMIN")) {
 			return invoiceRepository.findAll().stream().map(this::toResponse).toList();
+		}
+		if (hasRole(user, "ACCOUNTANT")) {
+			if (user.getCompany() == null) return List.of();
+			return invoiceRepository.findAllByDocumentCompanyId(user.getCompany().getId()).stream().map(this::toResponse).toList();
 		}
 		if (isEmployee(user)) {
 			return invoiceRepository.findAllByDocumentUploadedById(user.getId()).stream().map(this::toResponse).toList();
@@ -58,10 +62,15 @@ public class InvoiceService {
 	public InvoiceResponse findByDocumentId(Long documentId) {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		User user = userService.loadCurrent(auth);
-		if (hasRole(user, "ADMIN") || hasRole(user, "ACCOUNTANT")) {
+		if (hasRole(user, "ADMIN")) {
 			return invoiceRepository.findByDocumentId(documentId)
 					.map(this::toResponse)
 					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
+		}
+		if (hasRole(user, "ACCOUNTANT")) {
+			if (user.getCompany() == null) throw new ResourceNotFoundException("Invoice not found for document");
+			return invoiceRepository.findByDocumentIdAndDocumentCompanyId(documentId, user.getCompany().getId())
+					.map(this::toResponse).orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
 		}
 		if (isEmployee(user)) {
 			return invoiceRepository.findByDocumentIdAndDocumentUploadedById(documentId, user.getId())
@@ -107,6 +116,7 @@ public class InvoiceService {
 		invoice.setSubtotal(request.subtotal());
 		invoice.setVatAmount(request.vatAmount());
 		invoice.setTotalAmount(request.totalAmount());
+		invoice.setAiGenerated(false);
 		invoice.getItems().clear();
 		if (request.items() != null) {
 			for (InvoiceItemRequest itemRequest : request.items()) {
@@ -124,8 +134,13 @@ public class InvoiceService {
 	private Invoice load(Long id) {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		User user = userService.loadCurrent(auth);
-		if (hasRole(user, "ADMIN") || hasRole(user, "ACCOUNTANT")) {
+		if (hasRole(user, "ADMIN")) {
 			return invoiceRepository.findById(id)
+					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+		}
+		if (hasRole(user, "ACCOUNTANT")) {
+			if (user.getCompany() == null) throw new ResourceNotFoundException("Invoice not found");
+			return invoiceRepository.findByIdAndDocumentCompanyId(id, user.getCompany().getId())
 					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
 		}
 		if (isEmployee(user)) {

@@ -24,7 +24,7 @@ public class DemoAdminInitializer implements CommandLineRunner {
 	private final PasswordEncoder passwordEncoder;
 	private final JdbcTemplate jdbcTemplate;
 
-	@Value("${app.demo-admin.enabled:true}")
+	@Value("${app.demo-admin.enabled:false}")
 	private boolean enabled;
 
 	@Value("${app.demo-admin.username:admin}")
@@ -36,12 +36,13 @@ public class DemoAdminInitializer implements CommandLineRunner {
 	@Value("${app.demo-admin.email:admin@smartinvoice.local}")
 	private String email;
 
-	@Value("${app.demo-users.enabled:true}")
+	@Value("${app.demo-users.enabled:false}")
 	private boolean demoUsersEnabled;
 
 	@Override
 	@Transactional
 	public void run(String... args) {
+		if (!enabled && !demoUsersEnabled) return;
 		allowLegacyPasswordColumnToBeEmpty();
 		allowSupportedRoles();
 

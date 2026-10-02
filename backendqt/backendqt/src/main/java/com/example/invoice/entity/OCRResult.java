@@ -31,6 +31,8 @@ public class OCRResult {
 
 	private String ocrEngine;
 	private String modelVersion;
+	private String language;
+	private String sourceType;
 
 	@Column(nullable = false, columnDefinition = "text")
 	private String rawText;

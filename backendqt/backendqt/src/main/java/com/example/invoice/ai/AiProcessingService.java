@@ -5,6 +5,7 @@ import com.example.invoice.dto.ai.AiImageRequest;
 import com.example.invoice.dto.ai.AiDocumentRequest;
 import com.example.invoice.dto.ai.AiDocumentResult;
 import com.example.invoice.dto.ai.AiProviderResponse;
+import com.example.invoice.dto.ai.AiTextRequest;
 import com.example.invoice.exception.BadRequestException;
 import java.util.List;
 import java.util.Locale;
@@ -26,6 +27,10 @@ public class AiProcessingService {
 
 	public AiDocumentResult analyzeDocument(AiDocumentRequest request) {
 		return selectedProvider().analyze(request);
+	}
+
+	public AiDocumentResult analyzeTextDocument(AiTextRequest request) {
+		return selectedProvider().analyzeTextDocument(request);
 	}
 
 	public String selectedProviderName() {

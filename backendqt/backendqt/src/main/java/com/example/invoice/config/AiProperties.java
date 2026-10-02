@@ -13,6 +13,7 @@ public class AiProperties {
 	private final DocumentProcessing document = new DocumentProcessing();
 	private final Preprocessing preprocessing = new Preprocessing();
 	private final Pdf pdf = new Pdf();
+	private final Ocr ocr = new Ocr();
 
 	public String getProvider() { return provider; }
 	public void setProvider(String provider) { this.provider = provider; }
@@ -25,6 +26,22 @@ public class AiProperties {
 	public DocumentProcessing getDocument() { return document; }
 	public Preprocessing getPreprocessing() { return preprocessing; }
 	public Pdf getPdf() { return pdf; }
+	public Ocr getOcr() { return ocr; }
+
+	public static class Ocr {
+		private String dataPath = "";
+		private String language = "vie+eng";
+		private int minimumTextLength = 40;
+		private java.math.BigDecimal goodConfidence = new java.math.BigDecimal("0.65");
+		public String getDataPath() { return dataPath; }
+		public void setDataPath(String dataPath) { this.dataPath = dataPath; }
+		public String getLanguage() { return language; }
+		public void setLanguage(String language) { this.language = language; }
+		public int getMinimumTextLength() { return minimumTextLength; }
+		public void setMinimumTextLength(int value) { this.minimumTextLength = value; }
+		public java.math.BigDecimal getGoodConfidence() { return goodConfidence; }
+		public void setGoodConfidence(java.math.BigDecimal value) { this.goodConfidence = value; }
+	}
 
 	public static class Pdf {
 		private int maxPages = 5;

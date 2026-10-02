@@ -24,7 +24,7 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler({BadRequestException.class, IllegalArgumentException.class})
 	ResponseEntity<ErrorResponse> handleBadRequest(RuntimeException ex, HttpServletRequest request) {
-		return error(HttpStatus.BAD_REQUEST, "BAD_REQUEST", ex.getMessage(), request.getRequestURI());
+		return error(HttpStatus.BAD_REQUEST, explicitCode(ex.getMessage(), "BAD_REQUEST"), ex.getMessage(), request.getRequestURI());
 	}
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)
@@ -67,7 +67,14 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(AiProviderException.class)
 	ResponseEntity<ErrorResponse> handleAiProvider(AiProviderException ex, HttpServletRequest request) {
-		return error(HttpStatus.BAD_GATEWAY, "AI_PROVIDER_ERROR", ex.getMessage(), request.getRequestURI());
+		return error(HttpStatus.BAD_GATEWAY, explicitCode(ex.getMessage(), "AI_PROVIDER_ERROR"), ex.getMessage(), request.getRequestURI());
+	}
+
+	private String explicitCode(String message, String fallback) {
+		if (message == null) return fallback;
+		int separator = message.indexOf(':');
+		String candidate = (separator < 0 ? message : message.substring(0, separator)).trim();
+		return candidate.matches("[A-Z][A-Z0-9_]{2,63}") ? candidate : fallback;
 	}
 
 	@ExceptionHandler(Exception.class)

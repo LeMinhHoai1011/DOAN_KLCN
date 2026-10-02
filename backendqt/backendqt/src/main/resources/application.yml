@@ -10,7 +10,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: true
     open-in-view: false
     properties:
@@ -23,10 +23,12 @@ server:
 
 app:
   demo-admin:
-    enabled: ${DEMO_ADMIN_ENABLED:true}
+    enabled: ${DEMO_ADMIN_ENABLED:false}
     username: ${DEMO_ADMIN_USERNAME:admin}
     password: ${DEMO_ADMIN_PASSWORD:}
     email: ${DEMO_ADMIN_EMAIL:admin@smartinvoice.local}
+  demo-users:
+    enabled: ${DEMO_USERS_ENABLED:false}
   jwt:
     secret: ${JWT_SECRET:}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
@@ -57,6 +59,11 @@ ai:
   document:
     high-confidence-threshold: ${AI_HIGH_CONFIDENCE_THRESHOLD:0.90}
     review-threshold: ${AI_REVIEW_THRESHOLD:0.75}
+  ocr:
+    data-path: ${TESSDATA_PATH:}
+    language: ${TESSERACT_LANGUAGE:vie+eng}
+    minimum-text-length: ${OCR_MINIMUM_TEXT_LENGTH:40}
+    good-confidence: ${OCR_GOOD_CONFIDENCE:0.65}
 
 springdoc:
   swagger-ui:

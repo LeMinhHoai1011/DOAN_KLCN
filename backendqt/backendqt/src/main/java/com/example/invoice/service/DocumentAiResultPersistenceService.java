@@ -81,10 +81,10 @@ public class DocumentAiResultPersistenceService {
 		document.setDocumentType(type.getCode());
 		persistIntelligence(document, result);
 
-		persistOcrWhenPresent(document, result, validated.confidence());
 		boolean requiresReview = validated.requiresReview(aiProperties.getDocument().getReviewThreshold());
-		persistClassification(document, result, validated.confidence(), validated.warnings(), requiresReview);
 		Invoice invoice = result.invoice() == null ? null : persistInvoice(document, result.invoice());
+		if (result.invoice() == null) requiresReview = removeStaleAiInvoice(document) || requiresReview;
+		persistClassification(document, result, validated.confidence(), validated.warnings(), requiresReview);
 		replaceAiExtractedFields(document, invoice, result.fields(), result.extraFields());
 
 		document.setStatus(requiresReview ? DocumentStatus.NEED_REVIEW : DocumentStatus.PROCESSED);
@@ -92,6 +92,34 @@ public class DocumentAiResultPersistenceService {
 		processingLogService.append(documentId, "AI_DOCUMENT", "PERSIST", "SUCCESS", validated.confidence(),
 				result.durationMs(), String.join("; ", validated.warnings()), result.provider(), result.model());
 		return requiresReview;
+	}
+
+	private boolean removeStaleAiInvoice(Document document) {
+		Invoice invoice = invoiceRepository.findByDocumentId(document.getId()).orElse(null);
+		if (invoice == null) return false;
+			boolean hasManualFields = extractedFieldRepository.findByDocumentId(document.getId()).stream()
+					.anyMatch(field -> field.getSource() != null && !"AI".equalsIgnoreCase(field.getSource()));
+			boolean hasCorrections = extractedFieldRepository.findByDocumentId(document.getId()).stream()
+					.anyMatch(field -> field.getCorrections() != null && !field.getCorrections().isEmpty());
+		if (!invoice.isAiGenerated() || hasManualFields || hasCorrections) {
+				processingLogService.append(document.getId(), "AI_DOCUMENT", "STALE_INVOICE", "WARNING", null, null,
+						"Previous invoice retained because manual/corrected data exists; accountant review is required");
+			return true;
+		} else {
+			// AI extracted fields may still reference the generated invoice. Remove those
+			// dependants before deleting the stale invoice and flush the deletion now so a
+			// later classification query cannot auto-flush a dangling managed association.
+			List<ExtractedField> aiFields = extractedFieldRepository.findByDocumentId(document.getId()).stream()
+					.filter(field -> "AI".equalsIgnoreCase(field.getSource()))
+					.toList();
+			extractedFieldRepository.deleteAll(aiFields);
+			extractedFieldRepository.flush();
+			invoice.getItems().clear();
+			invoiceRepository.flush();
+			document.setInvoice(null);
+			invoiceRepository.deleteAiGeneratedByDocumentId(document.getId());
+			return false;
+		}
 	}
 
 	private void persistOcrWhenPresent(Document document, AiDocumentResult result, BigDecimal confidence) {
@@ -142,6 +170,7 @@ public class DocumentAiResultPersistenceService {
 		invoice.setSubtotal(extraction.subtotal());
 		invoice.setVatAmount(extraction.vatAmount());
 		invoice.setTotalAmount(extraction.totalAmount());
+		invoice.setAiGenerated(true);
 		invoice.getItems().clear();
 		if (extraction.items() != null) {
 			for (AiDocumentResult.AiInvoiceItemExtraction item : extraction.items()) {

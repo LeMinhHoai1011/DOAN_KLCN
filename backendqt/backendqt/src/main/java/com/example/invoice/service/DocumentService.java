@@ -193,8 +193,12 @@ public class DocumentService {
 	public List<DocumentResponse> findAll() {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		User user = userService.loadCurrent(auth);
-		if (hasRole(user, "ADMIN") || hasRole(user, "ACCOUNTANT")) {
+		if (hasRole(user, "ADMIN")) {
 			return documentRepository.findAll().stream().map(this::toResponse).toList();
+		}
+		if (hasRole(user, "ACCOUNTANT")) {
+			if (user.getCompany() == null) return java.util.List.of();
+			return documentRepository.findAllByCompanyId(user.getCompany().getId()).stream().map(this::toResponse).toList();
 		}
 		if (hasRole(user, "EMPLOYEE") || hasRole(user, "USER")) {
 			return documentRepository.findAllByUploadedById(user.getId()).stream().map(this::toResponse).toList();

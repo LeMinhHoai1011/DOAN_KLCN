@@ -27,7 +27,10 @@ public class ImagePreprocessingService {
 			int height = image.getHeight();
 			if (!properties.getPreprocessing().isEnabled()) return result(source, contentType, false, 0, width, height, width, height, started, "Preprocessing is disabled");
 			double angle = detectSkewAngle(image);
-			boolean deskew = Math.abs(angle) >= properties.getPreprocessing().getMinimumDeskewAngleDegrees();
+			// PCA can mistake multi-line layout for page rotation. Only correct plausible scan skew;
+			// larger angles need an orientation detector and must not destructively rotate here.
+			boolean deskew = Math.abs(angle) >= properties.getPreprocessing().getMinimumDeskewAngleDegrees()
+					&& Math.abs(angle) <= 5.0;
 			boolean enhance = needsContrastEnhancement(image);
 			if (!deskew && !enhance) return result(source, contentType, false, angle, width, height, width, height, started, null);
 			BufferedImage processed = deskew ? rotate(image, -angle) : toArgb(image);

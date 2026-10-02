@@ -54,6 +54,9 @@ public class Invoice {
 	@Column(precision = 19, scale = 2)
 	private BigDecimal totalAmount;
 
+	@Column(nullable = false)
+	private boolean aiGenerated;
+
 	@OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
 	private List<InvoiceItem> items = new ArrayList<>();
 

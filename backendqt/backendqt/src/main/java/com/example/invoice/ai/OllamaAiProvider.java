@@ -4,9 +4,11 @@ import com.example.invoice.config.AiProperties;
 import com.example.invoice.dto.ai.AiImageRequest;
 import com.example.invoice.dto.ai.AiConnectivityResponse;
 import com.example.invoice.dto.ai.AiProviderResponse;
+import com.example.invoice.dto.ai.AiTextRequest;
 import com.example.invoice.exception.AiProviderException;
 import com.example.invoice.exception.BadRequestException;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -52,6 +54,20 @@ public class OllamaAiProvider implements AiProvider {
 			throw new BadRequestException("AI image exceeds the configured maximum size");
 		}
 
+		String prompt = request.prompt() == null || request.prompt().isBlank() ? DEFAULT_PROMPT : request.prompt();
+		String base64Image = Base64.getEncoder().encodeToString(request.imageBytes());
+		return generate(prompt, List.of(base64Image), request.imageBytes().length);
+	}
+
+	@Override
+	public AiProviderResponse analyzeText(AiTextRequest request) {
+		if (request.text() == null || request.text().isBlank()) throw new BadRequestException("AI text payload must not be empty");
+		String prompt = (request.prompt() == null || request.prompt().isBlank() ? DEFAULT_PROMPT : request.prompt())
+				+ "\n\nSOURCE TEXT (page markers are authoritative):\n" + request.text();
+		return generate(prompt, List.of(), 0);
+	}
+
+	private AiProviderResponse generate(String prompt, List<String> images, int imageBytes) {
 		String model = required(properties.getOllama().getModel(), "AI Ollama model must be configured");
 		String endpoint = required(properties.getOllama().getBaseUrl(), "AI Ollama base URL must be configured")
 				.replaceAll("/+$", "") + "/api/generate";
@@ -59,19 +75,17 @@ public class OllamaAiProvider implements AiProvider {
 			throw new BadRequestException("AI request timeout must be greater than zero");
 		}
 
-		String prompt = request.prompt() == null || request.prompt().isBlank() ? DEFAULT_PROMPT : request.prompt();
-		String base64Image = Base64.getEncoder().encodeToString(request.imageBytes());
 		String payload = serialize(new OllamaGenerateRequest(
 				model,
 				prompt,
-				List.of(base64Image),
+				images,
 				false,
 				"json",
-				properties.getOllama().isThink(),
+				properties.getOllama().isThink() ? Boolean.TRUE : null,
 				new OllamaOptions(properties.getOllama().getNumPredict())));
 		OkHttpClient client = configuredClient();
-		log.info("Ollama request provider={} endpoint={} model={} imageBytes={} base64Length={} payloadLength={} promptLength={} timeout={}",
-				providerName(), endpoint, model, request.imageBytes().length, base64Image.length(), payload.length(), prompt.length(),
+		log.info("Ollama request provider={} endpoint={} model={} imageBytes={} imageCount={} payloadLength={} promptLength={} timeout={}",
+				providerName(), endpoint, model, imageBytes, images.size(), payload.length(), prompt.length(),
 				properties.getRequestTimeout());
 		Request httpRequest = new Request.Builder()
 				.url(endpoint)
@@ -212,13 +226,14 @@ public class OllamaAiProvider implements AiProvider {
 		return value.trim();
 	}
 
+	@JsonInclude(JsonInclude.Include.NON_NULL)
 	private record OllamaGenerateRequest(
 			String model,
 			String prompt,
 			List<String> images,
 			boolean stream,
 			String format,
-			boolean think,
+			Boolean think,
 			OllamaOptions options) {
 	}
 	private record OllamaOptions(int num_predict) {}
