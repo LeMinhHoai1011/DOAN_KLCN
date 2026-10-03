@@ -29,7 +29,7 @@ public class TesseractOcrService {
 			// corrupts Vietnamese characters even though the native OCR result is valid.
 			System.setProperty("jna.encoding", "UTF-8");
 			BufferedImage image = ImageIO.read(new ByteArrayInputStream(imageBytes));
-			if (image == null) throw new BadRequestException("OCR_FAILED: image cannot be decoded");
+			if (image == null) throw new BadRequestException("OCR_FAILED: không thể giải mã ảnh");
 			Utf8Tesseract engine = new Utf8Tesseract();
 			if (!properties.getOcr().getDataPath().isBlank()) engine.setDatapath(properties.getOcr().getDataPath());
 			engine.setLanguage(properties.getOcr().getLanguage());
@@ -45,7 +45,7 @@ public class TesseractOcrService {
 		} catch (BadRequestException exception) {
 			throw exception;
 		} catch (Exception exception) {
-			throw new IllegalStateException("OCR_FAILED: unable to read image", exception);
+			throw new IllegalStateException("OCR_FAILED: không thể đọc ảnh", exception);
 		}
 	}
 

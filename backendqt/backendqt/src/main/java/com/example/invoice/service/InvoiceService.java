@@ -27,6 +27,7 @@ public class InvoiceService {
 	private final ExtractedFieldRepository extractedFieldRepository;
 	private final DocumentService documentService;
 	private final UserService userService;
+	private final OcrFieldLocator ocrFieldLocator;
 
 	@Transactional
 	public InvoiceResponse create(InvoiceRequest request) {
@@ -65,22 +66,22 @@ public class InvoiceService {
 		if (hasRole(user, "ADMIN")) {
 			return invoiceRepository.findByDocumentId(documentId)
 					.map(this::toResponse)
-					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ"));
 		}
 		if (hasRole(user, "ACCOUNTANT")) {
-			if (user.getCompany() == null) throw new ResourceNotFoundException("Invoice not found for document");
+			if (user.getCompany() == null) throw new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ");
 			return invoiceRepository.findByDocumentIdAndDocumentCompanyId(documentId, user.getCompany().getId())
-					.map(this::toResponse).orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
+					.map(this::toResponse).orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ"));
 		}
 		if (isEmployee(user)) {
 			return invoiceRepository.findByDocumentIdAndDocumentUploadedById(documentId, user.getId())
 					.map(this::toResponse)
-					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ"));
 		}
-		if (user.getCompany() == null) throw new ResourceNotFoundException("Invoice not found for document");
+		if (user.getCompany() == null) throw new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ");
 		return invoiceRepository.findByDocumentIdAndDocumentCompanyId(documentId, user.getCompany().getId())
 				.map(this::toResponse)
-				.orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ"));
 	}
 
 	@Transactional(readOnly = true)
@@ -136,20 +137,20 @@ public class InvoiceService {
 		User user = userService.loadCurrent(auth);
 		if (hasRole(user, "ADMIN")) {
 			return invoiceRepository.findById(id)
-					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn"));
 		}
 		if (hasRole(user, "ACCOUNTANT")) {
-			if (user.getCompany() == null) throw new ResourceNotFoundException("Invoice not found");
+			if (user.getCompany() == null) throw new ResourceNotFoundException("Không tìm thấy hóa đơn");
 			return invoiceRepository.findByIdAndDocumentCompanyId(id, user.getCompany().getId())
-					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn"));
 		}
 		if (isEmployee(user)) {
 			return invoiceRepository.findByIdAndDocumentUploadedById(id, user.getId())
-					.orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn"));
 		}
-		if (user.getCompany() == null) throw new ResourceNotFoundException("Invoice not found");
+		if (user.getCompany() == null) throw new ResourceNotFoundException("Không tìm thấy hóa đơn");
 		return invoiceRepository.findByIdAndDocumentCompanyId(id, user.getCompany().getId())
-				.orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn"));
 	}
 
 	private InvoiceResponse toResponse(Invoice invoice) {
@@ -164,7 +165,7 @@ public class InvoiceService {
 
 	private ExtractedFieldResponse toExtractedFieldResponse(ExtractedField field) {
 		return new ExtractedFieldResponse(field.getId(), field.getFieldName(), field.getFieldValue(), field.getSource(),
-				field.getConfidence());
+				field.getConfidence(), ocrFieldLocator.locate(field.getDocument().getId(), field.getFieldValue()));
 	}
 
 	private boolean hasRole(User user, String roleCode) {

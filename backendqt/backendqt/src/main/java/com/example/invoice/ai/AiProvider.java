@@ -13,7 +13,7 @@ public interface AiProvider {
 	AiProviderResponse analyzeImage(AiImageRequest request);
 
 	default AiProviderResponse analyzeText(AiTextRequest request) {
-		throw new UnsupportedOperationException("Provider does not support text document analysis");
+		throw new UnsupportedOperationException("Nhà cung cấp không hỗ trợ phân tích văn bản chứng từ");
 	}
 
 	default AiDocumentResult analyze(AiDocumentRequest request) {

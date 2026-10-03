@@ -22,10 +22,10 @@ public class DocumentTextExtractionService {
 	private final TesseractOcrService tesseractOcrService;
 
 	public DocumentTextExtractionResult extract(byte[] bytes, String contentType) {
-		if (bytes == null || bytes.length == 0) throw new BadRequestException("OCR_FAILED: document content is empty");
+		if (bytes == null || bytes.length == 0) throw new BadRequestException("OCR_FAILED: nội dung chứng từ bị trống");
 		if ("application/pdf".equalsIgnoreCase(contentType)) return extractPdf(bytes);
 		if (contentType != null && contentType.toLowerCase().startsWith("image/")) return extractImage(bytes, contentType);
-		throw new BadRequestException("OCR_FAILED: unsupported document content type");
+		throw new BadRequestException("OCR_FAILED: không hỗ trợ loại nội dung của chứng từ");
 	}
 
 	private DocumentTextExtractionResult extractImage(byte[] bytes, String contentType) {
@@ -64,9 +64,9 @@ public class DocumentTextExtractionService {
 
 	private List<DocumentTextExtractionResult.PageText> extractPdfTextPages(byte[] bytes) {
 		try (PDDocument document = Loader.loadPDF(bytes)) {
-			if (document.getNumberOfPages() == 0) throw new BadRequestException("PDF_EXTRACTION_FAILED: PDF has no pages");
+			if (document.getNumberOfPages() == 0) throw new BadRequestException("PDF_EXTRACTION_FAILED: tệp PDF không có trang nào");
 			if (document.getNumberOfPages() > properties.getPdf().getMaxPages())
-				throw new BadRequestException("PDF_EXTRACTION_FAILED: PDF exceeds configured page limit");
+				throw new BadRequestException("PDF_EXTRACTION_FAILED: tệp PDF vượt quá giới hạn số trang đã cấu hình");
 			PDFTextStripper stripper = new PDFTextStripper();
 			List<DocumentTextExtractionResult.PageText> pages = new ArrayList<>();
 			for (int page = 1; page <= document.getNumberOfPages(); page++) {
@@ -79,7 +79,7 @@ public class DocumentTextExtractionService {
 		} catch (BadRequestException exception) {
 			throw exception;
 		} catch (Exception exception) {
-			throw new IllegalStateException("PDF_EXTRACTION_FAILED: unable to extract PDF text", exception);
+			throw new IllegalStateException("PDF_EXTRACTION_FAILED: không thể trích xuất văn bản từ tệp PDF", exception);
 		}
 	}
 

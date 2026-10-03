@@ -48,10 +48,10 @@ public class OllamaAiProvider implements AiProvider {
 	@Override
 	public AiProviderResponse analyzeImage(AiImageRequest request) {
 		if (request.imageBytes() == null || request.imageBytes().length == 0) {
-			throw new BadRequestException("AI image payload must not be empty");
+			throw new BadRequestException("Dữ liệu ảnh gửi đến AI không được để trống");
 		}
 		if (request.imageBytes().length > properties.getMaxImageSizeBytes()) {
-			throw new BadRequestException("AI image exceeds the configured maximum size");
+			throw new BadRequestException("Ảnh gửi đến AI vượt quá kích thước tối đa đã cấu hình");
 		}
 
 		String prompt = request.prompt() == null || request.prompt().isBlank() ? DEFAULT_PROMPT : request.prompt();
@@ -61,18 +61,25 @@ public class OllamaAiProvider implements AiProvider {
 
 	@Override
 	public AiProviderResponse analyzeText(AiTextRequest request) {
-		if (request.text() == null || request.text().isBlank()) throw new BadRequestException("AI text payload must not be empty");
+		if (request.text() == null || request.text().isBlank()) throw new BadRequestException("Nội dung văn bản gửi đến AI không được để trống");
 		String prompt = (request.prompt() == null || request.prompt().isBlank() ? DEFAULT_PROMPT : request.prompt())
 				+ "\n\nSOURCE TEXT (page markers are authoritative):\n" + request.text();
 		return generate(prompt, List.of(), 0);
 	}
 
 	private AiProviderResponse generate(String prompt, List<String> images, int imageBytes) {
-		String model = required(properties.getOllama().getModel(), "AI Ollama model must be configured");
-		String endpoint = required(properties.getOllama().getBaseUrl(), "AI Ollama base URL must be configured")
+		String model = required(properties.getOllama().getModel(), "Phải cấu hình mô hình AI Ollama");
+		String endpoint = required(properties.getOllama().getBaseUrl(), "Phải cấu hình URL cơ sở của AI Ollama")
 				.replaceAll("/+$", "") + "/api/generate";
 		if (properties.getRequestTimeout().isZero() || properties.getRequestTimeout().isNegative()) {
-			throw new BadRequestException("AI request timeout must be greater than zero");
+			throw new BadRequestException("Thời gian chờ yêu cầu AI phải lớn hơn 0");
+		}
+		int estimatedInputTokens = estimateInputTokens(prompt, images.size());
+		int inputBudget = Math.max(512, properties.getOllama().getNumContext()
+				- properties.getOcr().getReservedOutputTokens());
+		if (estimatedInputTokens > inputBudget) {
+			throw new AiProviderException("AI_CONTEXT_EXCEEDED: đầu vào AI ước tính " + estimatedInputTokens
+					+ " token, vượt ngân sách " + inputBudget + " token");
 		}
 
 		String payload = serialize(new OllamaGenerateRequest(
@@ -82,10 +89,11 @@ public class OllamaAiProvider implements AiProvider {
 				false,
 				"json",
 				properties.getOllama().isThink() ? Boolean.TRUE : null,
-				new OllamaOptions(properties.getOllama().getNumPredict())));
+				new OllamaOptions(properties.getOllama().getNumPredict(), properties.getOllama().getNumContext())));
 		OkHttpClient client = configuredClient();
-		log.info("Ollama request provider={} endpoint={} model={} imageBytes={} imageCount={} payloadLength={} promptLength={} timeout={}",
-				providerName(), endpoint, model, imageBytes, images.size(), payload.length(), prompt.length(),
+		log.info("Ollama request provider={} endpoint={} model={} context={} inputBudget={} estimatedInputTokens={} imageBytes={} imageCount={} payloadLength={} promptLength={} timeout={}",
+				providerName(), endpoint, model, properties.getOllama().getNumContext(), inputBudget, estimatedInputTokens,
+				imageBytes, images.size(), payload.length(), prompt.length(),
 				properties.getRequestTimeout());
 		Request httpRequest = new Request.Builder()
 				.url(endpoint)
@@ -101,22 +109,22 @@ public class OllamaAiProvider implements AiProvider {
 					response.code(), durationMs, body.path("done").asBoolean(false), body.path("done_reason").asText(""),
 					body.path("response").asText("").length(), body.path("thinking").asText("").length());
 			if (!response.isSuccessful()) {
-				String providerError = body.path("error").asText("").replaceAll("[\\r\\n\\t]+", " ").trim();
+				String providerError = providerError(body);
 				if (providerError.length() > 500) providerError = providerError.substring(0, 500);
-				throw new AiProviderException(response.code() == 404
-						? "OLLAMA_MODEL_NOT_FOUND: configured model is unavailable"
-						: "OLLAMA_INVALID_RESPONSE: Ollama returned HTTP " + response.code()
-								+ (providerError.isBlank() ? "" : ": " + providerError));
+				throw new AiProviderException(classifyHttpFailure(response.code(), providerError)
+						+ ": Ollama returned HTTP " + response.code()
+						+ (providerError.isBlank() ? "" : ": " + providerError));
 			}
 
 			if (body.hasNonNull("error")) {
-				throw new AiProviderException("OLLAMA_INVALID_RESPONSE: " + body.get("error").asText());
+				String providerError = providerError(body);
+				throw new AiProviderException(classifyHttpFailure(response.code(), providerError) + ": " + providerError);
 			}
 			try {
 				return new AiProviderResponse(providerName(), model, selectGeneratedContent(body), rawResponse, durationMs);
 			} catch (AiProviderException exception) {
 				if ("length".equalsIgnoreCase(body.path("done_reason").asText()))
-					throw new AiProviderException("OLLAMA_TOKEN_LIMIT: generation stopped before producing complete structured JSON", exception);
+					throw new AiProviderException("OLLAMA_TOKEN_LIMIT: quá trình sinh nội dung đã dừng trước khi tạo xong JSON có cấu trúc", exception);
 				throw exception;
 			}
 		} catch (SocketTimeoutException exception) {
@@ -127,25 +135,25 @@ public class OllamaAiProvider implements AiProvider {
 	}
 
 	public AiConnectivityResponse checkConnectivity() {
-		String model = required(properties.getOllama().getModel(), "AI Ollama model must be configured");
-		String endpoint = required(properties.getOllama().getBaseUrl(), "AI Ollama base URL must be configured")
+		String model = required(properties.getOllama().getModel(), "Phải cấu hình mô hình AI Ollama");
+		String endpoint = required(properties.getOllama().getBaseUrl(), "Phải cấu hình URL cơ sở của AI Ollama")
 				.replaceAll("/+$", "") + "/api/tags";
 		Request request = new Request.Builder().url(endpoint).get().build();
 		OkHttpClient client = configuredClient();
 		try (Response response = client.newCall(request).execute()) {
 			if (!response.isSuccessful())
-				throw new AiProviderException("OLLAMA_INVALID_RESPONSE: /api/tags returned HTTP " + response.code());
+				throw new AiProviderException("OLLAMA_INVALID_RESPONSE: /api/tags trả về mã HTTP " + response.code());
 			JsonNode models = objectMapper.readTree(response.body() == null ? "" : response.body().string())
 					.path("models");
 			if (!models.isArray())
-				throw new AiProviderException("OLLAMA_INVALID_RESPONSE: /api/tags did not include models");
+				throw new AiProviderException("OLLAMA_INVALID_RESPONSE: /api/tags không chứa danh sách mô hình");
 			List<String> names = new java.util.ArrayList<>();
 			models.forEach(node -> {
 				if (node.hasNonNull("name"))
 					names.add(node.get("name").asText());
 			});
 			if (!names.contains(model))
-				throw new AiProviderException("OLLAMA_MODEL_NOT_FOUND: " + model);
+				throw new AiProviderException("OLLAMA_MODEL_NOT_FOUND: không tìm thấy mô hình " + model);
 			return new AiConnectivityResponse(providerName(), model, List.copyOf(names));
 		} catch (IOException exception) {
 			throw failed(classifyIoFailure(exception), exception, System.nanoTime());
@@ -158,8 +166,8 @@ public class OllamaAiProvider implements AiProvider {
 		String thinking = extractJsonObject(body.path("thinking").asText(""));
 		if (thinking != null) return thinking;
 		if (body.path("response").asText("").isBlank() && body.path("thinking").asText("").isBlank())
-			throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: Ollama returned no generated content");
-		throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: response and thinking did not contain a valid JSON object");
+			throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: Ollama không trả về nội dung đã sinh");
+		throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: phản hồi và nội dung suy luận không chứa đối tượng JSON hợp lệ");
 	}
 
 	private String extractJsonObject(String content) {
@@ -182,8 +190,22 @@ public class OllamaAiProvider implements AiProvider {
 		try {
 			return objectMapper.readTree(rawResponse);
 		} catch (JsonProcessingException exception) {
-			throw new AiProviderException("OLLAMA_INVALID_RESPONSE: Ollama returned malformed JSON", exception);
+			throw new AiProviderException("AI_INVALID_RESPONSE: Ollama trả về JSON phản hồi HTTP không hợp lệ", exception);
 		}
+	}
+
+	private String providerError(JsonNode body) {
+		JsonNode error = body.path("error");
+		String message = error.isObject() ? error.path("message").asText("") : error.asText("");
+		return message.replaceAll("[\\r\\n\\t]+", " ").trim();
+	}
+
+	String classifyHttpFailure(int status, String providerError) {
+		String normalized = providerError == null ? "" : providerError.toLowerCase(java.util.Locale.ROOT);
+		if (normalized.contains("context size") || normalized.contains("context length")
+				|| normalized.contains("exceed_context") || normalized.contains("too many tokens"))
+			return "AI_CONTEXT_EXCEEDED";
+		return "AI_HTTP_ERROR";
 	}
 
 	private OkHttpClient configuredClient() {
@@ -197,14 +219,19 @@ public class OllamaAiProvider implements AiProvider {
 	}
 
 	private String classifyIoFailure(IOException exception) {
-		if (exception instanceof ConnectException) return "OLLAMA_CONNECT_TIMEOUT";
-		if (exception instanceof InterruptedIOException) return "OLLAMA_CALL_TIMEOUT";
-		return "OLLAMA_UNREACHABLE";
+		if (exception instanceof ConnectException) return "AI_CONNECTION_ERROR";
+		if (exception instanceof InterruptedIOException) return "OLLAMA_TIMEOUT";
+		return "AI_CONNECTION_ERROR";
 	}
 
 	private String classifySocketTimeout(SocketTimeoutException exception) {
 		String message = exception.getMessage() == null ? "" : exception.getMessage().toLowerCase(java.util.Locale.ROOT);
-		return message.contains("connect") ? "OLLAMA_CONNECT_TIMEOUT" : "OLLAMA_READ_TIMEOUT";
+		return message.contains("connect") ? "AI_CONNECTION_ERROR" : "OLLAMA_TIMEOUT";
+	}
+
+	private int estimateInputTokens(String prompt, int imageCount) {
+		int textTokens = (int) Math.ceil((prompt == null ? 0 : prompt.length()) / 3.0);
+		return textTokens + Math.max(0, imageCount) * 1200;
 	}
 
 	private AiProviderException failed(String code, Exception exception, long startedAt) {
@@ -218,7 +245,7 @@ public class OllamaAiProvider implements AiProvider {
 		try {
 			return objectMapper.writeValueAsString(request);
 		} catch (JsonProcessingException exception) {
-			throw new AiProviderException("Could not create Ollama request", exception);
+			throw new AiProviderException("Không thể tạo yêu cầu gửi đến Ollama", exception);
 		}
 	}
 
@@ -239,5 +266,5 @@ public class OllamaAiProvider implements AiProvider {
 			Boolean think,
 			OllamaOptions options) {
 	}
-	private record OllamaOptions(int num_predict) {}
+	private record OllamaOptions(int num_predict, int num_ctx) {}
 }

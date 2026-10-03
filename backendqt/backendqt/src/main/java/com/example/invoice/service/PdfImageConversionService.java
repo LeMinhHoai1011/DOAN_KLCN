@@ -22,8 +22,8 @@ public class PdfImageConversionService {
 	public List<PdfPageImage> convert(byte[] pdfBytes) {
 		try (PDDocument document = Loader.loadPDF(pdfBytes)) {
 			int pageCount = document.getNumberOfPages();
-			if (pageCount == 0) throw new BadRequestException("PDF does not contain pages");
-			if (pageCount > properties.getPdf().getMaxPages()) throw new BadRequestException("PDF has " + pageCount + " pages; configured maximum is " + properties.getPdf().getMaxPages());
+			if (pageCount == 0) throw new BadRequestException("Tệp PDF không có trang nào");
+			if (pageCount > properties.getPdf().getMaxPages()) throw new BadRequestException("Tệp PDF có " + pageCount + " trang; số trang tối đa đã cấu hình là " + properties.getPdf().getMaxPages());
 			PDFRenderer renderer = new PDFRenderer(document);
 			List<PdfPageImage> pages = new ArrayList<>();
 			for (int index = 0; index < pageCount; index++) {
@@ -36,7 +36,7 @@ public class PdfImageConversionService {
 		} catch (BadRequestException exception) {
 			throw exception;
 		} catch (Exception exception) {
-			throw new BadRequestException("PDF could not be converted to images");
+			throw new BadRequestException("Không thể chuyển tệp PDF thành ảnh");
 		}
 	}
 }

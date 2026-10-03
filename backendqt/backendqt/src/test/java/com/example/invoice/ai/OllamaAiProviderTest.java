@@ -30,4 +30,11 @@ class OllamaAiProviderTest {
 		assertThrows(AiProviderException.class, () -> provider.selectGeneratedContent(
 				objectMapper.readTree("{\"response\":\"\",\"thinking\":\"reasoning text\"}")));
 	}
+
+	@Test
+	void classifiesContextOverflowSeparatelyFromOtherHttpErrors() {
+		assertEquals("AI_CONTEXT_EXCEEDED", provider.classifyHttpFailure(400,
+				"request (4665 tokens) exceeds the available context size (4096 tokens)"));
+		assertEquals("AI_HTTP_ERROR", provider.classifyHttpFailure(400, "bad request"));
+	}
 }

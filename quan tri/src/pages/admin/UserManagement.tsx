@@ -33,7 +33,7 @@ const UserManagement = () => {
       setUsers(usersRes.data)
       setRoles(rolesRes.data)
     } catch {
-      setError('Khong the tai danh sach nguoi dung hoac vai tro')
+      setError('Không thể tải danh sách người dùng hoặc vai trò')
     } finally {
       setIsLoading(false)
     }
@@ -87,7 +87,7 @@ const UserManagement = () => {
       }
       await loadData()
     } catch {
-      setError('Khong the cap nhat quyen')
+      setError('Không thể cập nhật quyền')
     }
   }
 

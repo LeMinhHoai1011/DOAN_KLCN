@@ -64,6 +64,9 @@ export interface OCRResultResponse {
   rawText: string
   /** JSON array of pages and normalized 0..1 OCR word bounding boxes. */
   layoutJson: string | null
+  language: string | null
+  sourceType: string | null
+  ocrEngine: string | null
   confidence: number | null
   processedAt: string
 }
@@ -74,6 +77,7 @@ export interface ExtractedFieldResponse {
   fieldValue: string | null
   source: string | null
   confidence: number | null
+  locations?: Array<{ page: number; x: number; y: number; width: number; height: number }>
 }
 
 export interface AiDocumentProcessingResponse {
@@ -91,6 +95,15 @@ export interface AiDocumentProcessingResponse {
     durationMs: number
     warning: string | null
   } | null
+}
+
+export interface DocumentUploadResponse {
+  success: boolean
+  documentId: number
+  processingStatus: DocumentStatus
+  reviewStatus: DocumentResponse['reviewStatus']
+  message: string
+  error: { code: string; message: string; retryable: boolean } | null
 }
 
 export interface DocumentListItem {
@@ -177,7 +190,7 @@ const uploadDocument = async (file: File) => {
   const formData = new FormData()
   formData.append('file', file)
 
-  const { data } = await api.post<DocumentResponse>('/api/v1/documents/upload', formData)
+  const { data } = await api.post<DocumentUploadResponse>('/api/v1/documents/upload', formData)
   return data
 }
 

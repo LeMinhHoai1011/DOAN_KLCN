@@ -22,7 +22,7 @@ public class ImagePreprocessingService {
 		long started = System.nanoTime();
 		try {
 			BufferedImage image = ImageIO.read(new ByteArrayInputStream(source));
-			if (image == null) throw new BadRequestException("Uploaded image cannot be decoded");
+			if (image == null) throw new BadRequestException("Không thể giải mã ảnh đã tải lên");
 			int width = image.getWidth();
 			int height = image.getHeight();
 			if (!properties.getPreprocessing().isEnabled()) return result(source, contentType, false, 0, width, height, width, height, started, "Preprocessing is disabled");
@@ -42,7 +42,7 @@ public class ImagePreprocessingService {
 		} catch (BadRequestException exception) {
 			throw exception;
 		} catch (Exception exception) {
-			throw new IllegalStateException("Image preprocessing failed", exception);
+			throw new IllegalStateException("Tiền xử lý ảnh thất bại", exception);
 		}
 	}
 

@@ -64,7 +64,7 @@ public class FinancialTransactionService {
 	public FinancialTransactionResponse update(Long id, FinancialTransactionRequest request, Authentication authentication) {
 		FinancialTransaction transaction = loadForCompany(id, userService.loadCurrent(authentication));
 		if (request.companyId() != null && !transaction.getCompany().getId().equals(request.companyId())) {
-			throw new BadRequestException("A transaction cannot be moved to another company");
+			throw new BadRequestException("Không thể chuyển giao dịch sang công ty khác");
 		}
 		apply(transaction, request);
 		return toResponse(transaction);
@@ -77,15 +77,15 @@ public class FinancialTransactionService {
 
 	private void apply(FinancialTransaction transaction, FinancialTransactionRequest request) {
 		Document document = request.documentId() == null ? null : documentRepository.findById(request.documentId())
-				.orElseThrow(() -> new ResourceNotFoundException("Document not found"));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chứng từ"));
 		Invoice invoice = request.invoiceId() == null ? null : invoiceRepository.findById(request.invoiceId())
-				.orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
-		if (document != null && invoice != null) throw new BadRequestException("Link either a document or an invoice, not both");
-		if (document != null && !document.getCompany().getId().equals(transaction.getCompany().getId())) throw new BadRequestException("Document belongs to another company");
-		if (invoice != null && !invoice.getDocument().getCompany().getId().equals(transaction.getCompany().getId())) throw new BadRequestException("Invoice belongs to another company");
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn"));
+		if (document != null && invoice != null) throw new BadRequestException("Chỉ được liên kết chứng từ hoặc hóa đơn, không được chọn cả hai");
+		if (document != null && !document.getCompany().getId().equals(transaction.getCompany().getId())) throw new BadRequestException("Chứng từ thuộc công ty khác");
+		if (invoice != null && !invoice.getDocument().getCompany().getId().equals(transaction.getCompany().getId())) throw new BadRequestException("Hóa đơn thuộc công ty khác");
 		AccountingCategory category = request.categoryId() == null ? null : categoryRepository.findById(request.categoryId())
-				.orElseThrow(() -> new ResourceNotFoundException("Accounting category not found"));
-		if (category != null && category.getCompany() != null && !category.getCompany().getId().equals(transaction.getCompany().getId())) throw new BadRequestException("Category belongs to another company");
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy danh mục kế toán"));
+		if (category != null && category.getCompany() != null && !category.getCompany().getId().equals(transaction.getCompany().getId())) throw new BadRequestException("Danh mục thuộc công ty khác");
 		transaction.setTransactionType(request.transactionType());
 		transaction.setAmount(request.amount());
 		transaction.setTransactionDate(request.transactionDate());
@@ -97,20 +97,20 @@ public class FinancialTransactionService {
 	}
 
 	private FinancialTransaction loadForCompany(Long id, User user) {
-		FinancialTransaction transaction = transactionRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Financial transaction not found"));
-		if (!isAdmin(user) && (user.getCompany() == null || !transaction.getCompany().getId().equals(user.getCompany().getId()))) throw new ResourceNotFoundException("Financial transaction not found");
+		FinancialTransaction transaction = transactionRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy giao dịch tài chính"));
+		if (!isAdmin(user) && (user.getCompany() == null || !transaction.getCompany().getId().equals(user.getCompany().getId()))) throw new ResourceNotFoundException("Không tìm thấy giao dịch tài chính");
 		return transaction;
 	}
 
 	private Long resolveCompanyId(User user, Long requestedCompanyId) {
 		if (isAdmin(user) && requestedCompanyId != null) return requestedCompanyId;
-		if (user.getCompany() == null) throw new BadRequestException("The current user is not assigned to a company");
-		if (requestedCompanyId != null && !requestedCompanyId.equals(user.getCompany().getId())) throw new BadRequestException("You cannot access another company");
+		if (user.getCompany() == null) throw new BadRequestException("Người dùng hiện tại chưa được gán vào công ty");
+		if (requestedCompanyId != null && !requestedCompanyId.equals(user.getCompany().getId())) throw new BadRequestException("Bạn không thể truy cập công ty khác");
 		return user.getCompany().getId();
 	}
 
 	private Company loadCompany(Long companyId) {
-		return companyRepository.findById(companyId).orElseThrow(() -> new ResourceNotFoundException("Company not found"));
+		return companyRepository.findById(companyId).orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công ty"));
 	}
 
 	private boolean isAdmin(User user) {

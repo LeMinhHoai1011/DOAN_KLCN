@@ -3,6 +3,7 @@ package com.example.invoice.controller;
 import com.example.invoice.dto.document.DocumentCreateRequest;
 import com.example.invoice.dto.document.DocumentResponse;
 import com.example.invoice.dto.document.DocumentUpdateRequest;
+import com.example.invoice.dto.document.DocumentUploadResponse;
 import com.example.invoice.dto.document.OCRResultRequest;
 import com.example.invoice.dto.document.OCRResultResponse;
 import com.example.invoice.dto.ai.AiDocumentProcessingResponse;
@@ -50,7 +51,7 @@ public class DocumentController {
 	@PostMapping("/upload")
 	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_CREATE') or hasRole('ADMIN')")
 	@ResponseStatus(HttpStatus.CREATED)
-	public DocumentResponse upload(
+	public DocumentUploadResponse upload(
 			@RequestParam("file") MultipartFile file,
 			Authentication authentication) {
 		return documentUploadProcessingService.uploadAndProcess(file, authentication);

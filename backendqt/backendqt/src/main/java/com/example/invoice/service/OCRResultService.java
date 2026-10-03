@@ -20,7 +20,7 @@ public class OCRResultService {
 	public OCRResultResponse findByDocumentId(Long documentId) {
         documentService.load(documentId); // Add IDOR check via DocumentService
 		return toResponse(ocrResultRepository.findFirstByDocumentIdOrderByProcessedAtDesc(documentId)
-				.orElseThrow(() -> new ResourceNotFoundException("OCR result not found")));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy kết quả OCR")));
 	}
 
 	@Transactional
@@ -51,7 +51,8 @@ public class OCRResultService {
 	}
 
 	private OCRResultResponse toResponse(OCRResult result) {
-		return new OCRResultResponse(result.getId(), result.getDocument().getId(), result.getRawText(), result.getLayoutJson(), result.getConfidence(), result.getProcessedAt());
+		return new OCRResultResponse(result.getId(), result.getDocument().getId(), result.getRawText(), result.getLayoutJson(),
+				result.getLanguage(), result.getSourceType(), result.getOcrEngine(), result.getConfidence(), result.getProcessedAt());
 	}
 }
 

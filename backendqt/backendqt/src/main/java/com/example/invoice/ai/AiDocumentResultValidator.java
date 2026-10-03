@@ -19,7 +19,7 @@ public class AiDocumentResultValidator {
 
 	public ValidatedAiDocumentResult validate(AiDocumentResult result, Set<String> allowedTypes) {
 		if (result.documentType() == null || !allowedTypes.contains(result.documentType())) {
-			throw new AiProviderException("AI_INVALID_RESPONSE: document type is not in the backend allowlist");
+			throw new AiProviderException("AI_INVALID_RESPONSE: loại chứng từ không nằm trong danh sách được backend cho phép");
 		}
 		List<String> warnings = new ArrayList<>(result.warnings() == null ? List.of() : result.warnings());
 		BigDecimal confidence = normalizeConfidence(result.classificationConfidence(), warnings);
@@ -36,7 +36,7 @@ public class AiDocumentResultValidator {
 			return BigDecimal.ZERO;
 		}
 		if (value.compareTo(BigDecimal.ZERO) < 0 || value.compareTo(BigDecimal.ONE) > 0) {
-			throw new AiProviderException("AI_INVALID_RESPONSE: confidence must be between 0.0 and 1.0");
+			throw new AiProviderException("AI_INVALID_RESPONSE: độ tin cậy phải nằm trong khoảng từ 0,0 đến 1,0");
 		}
 		return value;
 	}
@@ -58,7 +58,7 @@ public class AiDocumentResultValidator {
 		}
 		if (invoice.subtotal() != null && invoice.vatAmount() != null && invoice.totalAmount() != null
 				&& invoice.subtotal().add(invoice.vatAmount()).subtract(invoice.totalAmount()).abs().compareTo(MONEY_TOLERANCE) > 0) {
-			warnings.add("Subtotal plus VAT does not match total amount");
+			warnings.add("Tổng tiền trước thuế cộng VAT không khớp với tổng thanh toán");
 		}
 	}
 
@@ -79,7 +79,7 @@ public class AiDocumentResultValidator {
 			}
 			if (field.confidence() != null && (field.confidence().compareTo(BigDecimal.ZERO) < 0
 					|| field.confidence().compareTo(BigDecimal.ONE) > 0))
-				warnings.add("AI returned an extra field with invalid confidence; it will be skipped");
+				warnings.add("AI trả về trường bổ sung có độ tin cậy không hợp lệ; trường này sẽ bị bỏ qua");
 		}
 	}
 

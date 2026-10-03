@@ -44,7 +44,7 @@ public class RoleService {
 	@Transactional
 	public RoleResponse createRole(RoleCreateRequest request) {
 		if (roleRepository.findByCode(request.code().toUpperCase()).isPresent()) {
-			throw new BadRequestException("Role code already exists: " + request.code());
+			throw new BadRequestException("Mã vai trò đã tồn tại: " + request.code());
 		}
 		Role role = new Role();
 		role.setCode(request.code().toUpperCase());
@@ -60,7 +60,7 @@ public class RoleService {
 		// If code changed, check uniqueness
 		if (!role.getCode().equalsIgnoreCase(request.code())) {
 			if (roleRepository.findByCode(request.code().toUpperCase()).isPresent()) {
-				throw new BadRequestException("Role code already exists: " + request.code());
+				throw new BadRequestException("Mã vai trò đã tồn tại: " + request.code());
 			}
 			role.setCode(request.code().toUpperCase());
 		}
@@ -75,7 +75,7 @@ public class RoleService {
 		Role role = loadRole(id);
 		// Prevent deleting built-in system roles
 		if (Set.of("ADMIN", "ACCOUNTANT", "EMPLOYEE", "USER").contains(role.getCode())) {
-			throw new BadRequestException("Cannot delete built-in system role: " + role.getCode());
+			throw new BadRequestException("Không thể xóa vai trò hệ thống mặc định: " + role.getCode());
 		}
 		roleRepository.delete(role);
 	}
@@ -95,7 +95,7 @@ public class RoleService {
 		Role role = loadRole(roleId);
 		List<Permission> permissions = permissionRepository.findAllById(request.permissionIds());
 		if (permissions.size() != request.permissionIds().size()) {
-			throw new BadRequestException("One or more permission IDs are invalid");
+			throw new BadRequestException("Một hoặc nhiều mã quyền không hợp lệ");
 		}
 		role.getRolePermissions().clear();
 		for (Permission permission : permissions) {
@@ -131,7 +131,7 @@ public class RoleService {
 
 	private Role loadRole(Long id) {
 		return roleRepository.findById(id)
-				.orElseThrow(() -> new ResourceNotFoundException("Role not found"));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy vai trò"));
 	}
 
 	private RoleResponse toRoleResponse(Role role) {

@@ -31,6 +31,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Persists a validated result after the remote AI request has completed. */
@@ -85,8 +86,8 @@ public class DocumentAiResultPersistenceService {
 		Document document = documentService.load(documentId);
 		AiDocumentResult result = validated.result();
 		DocumentType type = documentTypeRepository.findByCode(result.documentType())
-				.orElseThrow(() -> new IllegalStateException("Validated document type no longer exists"));
-		if (!type.isActive()) throw new IllegalStateException("Validated document type is no longer active");
+				.orElseThrow(() -> new IllegalStateException("Loại chứng từ đã xác thực không còn tồn tại"));
+		if (!type.isActive()) throw new IllegalStateException("Loại chứng từ đã xác thực không còn hoạt động");
 		document.setType(type);
 		document.setDocumentType(type.getCode());
 		persistIntelligence(document, result);
@@ -94,6 +95,8 @@ public class DocumentAiResultPersistenceService {
 		persistOcrWhenPresent(document, result, validated.confidence(), tessOcr);
 		boolean requiresReview = validated.requiresReview(aiProperties.getDocument().getReviewThreshold());
 		persistClassification(document, result, validated.confidence(), validated.warnings(), requiresReview);
+		processingLogService.append(documentId, "CLASSIFICATION", "CLASSIFY", "SUCCESS", validated.confidence(),
+				result.durationMs(), "documentType=" + result.documentType(), result.provider(), result.model());
 		Invoice invoice = null;
 		if (isInvoiceType(type.getCode()) && result.invoice() != null) {
 			invoice = persistInvoice(document, result.invoice());
@@ -104,18 +107,31 @@ public class DocumentAiResultPersistenceService {
 
 		document.setStatus(requiresReview ? DocumentStatus.NEED_REVIEW : DocumentStatus.PROCESSED);
 		document.setReviewStatus(ReviewStatus.PENDING);
-		processingLogService.append(documentId, "AI_DOCUMENT", "PERSIST", "SUCCESS", validated.confidence(),
+		processingLogService.append(documentId, "PERSISTENCE", "PERSIST", "SUCCESS", validated.confidence(),
 				result.durationMs(), String.join("; ", validated.warnings()), result.provider(), result.model());
 		return requiresReview;
 	}
 
+	/** Commits OCR independently so later AI or validation failures cannot roll it back. */
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void persistOcr(Long documentId, OcrDocumentResult tessOcr) {
+		if (tessOcr == null || !tessOcr.successful()) return;
+		Document document = documentService.load(documentId);
+		persistOcrWhenPresent(document, null,
+				BigDecimal.valueOf(tessOcr.confidence()).movePointLeft(2), tessOcr);
+	}
+
 	private void persistOcrWhenPresent(Document document, AiDocumentResult result, BigDecimal confidence, OcrDocumentResult tessOcr) {
-		String rawText = tessOcr != null && tessOcr.successful() ? tessOcr.rawText() : result.rawText();
+		String rawText = tessOcr != null && tessOcr.successful() ? tessOcr.rawText() : result == null ? null : result.rawText();
 		if (rawText == null || rawText.isBlank()) return;
 		OCRResult ocr = ocrResultRepository.findFirstByDocumentIdOrderByProcessedAtDesc(document.getId()).orElseGet(OCRResult::new);
 		ocr.setDocument(document);
 		ocr.setOcrEngine(tessOcr != null && tessOcr.successful() ? "tesseract" : result.provider());
 		ocr.setModelVersion(tessOcr != null && tessOcr.successful() ? aiProperties.getOcr().getLanguage() : result.model());
+		ocr.setLanguage(tessOcr != null && tessOcr.successful()
+				? tessOcr.pages().stream().map(OcrPageResult::language).filter(java.util.Objects::nonNull).findFirst().orElse(aiProperties.getOcr().getLanguage())
+				: null);
+		ocr.setSourceType(tessOcr != null && tessOcr.successful() ? "TESS4J_WORD_LAYOUT" : "AI");
 		ocr.setRawText(rawText);
 		ocr.setConfidence(tessOcr != null && tessOcr.successful() ? BigDecimal.valueOf(tessOcr.confidence()).movePointLeft(2) : confidence);
 		ocr.setProcessingTime(tessOcr != null && tessOcr.successful() ? tessOcr.durationMs() : result.durationMs());
@@ -125,8 +141,20 @@ public class DocumentAiResultPersistenceService {
 	}
 
 	private String serializeLayout(OcrDocumentResult result) {
-		try { return objectMapper.writeValueAsString(result.pages()); }
-		catch (JsonProcessingException exception) { throw new IllegalStateException("Could not serialize OCR layout", exception); }
+		try {
+			List<Map<String, Object>> pages = result.pages().stream().map(page -> {
+				List<Map<String, Object>> words = page.words().stream().map(word -> Map.<String, Object>of(
+						"id", word.id(), "text", word.text(), "confidence", word.confidence(),
+						"x", Math.round(word.x() * page.imageWidth()), "y", Math.round(word.y() * page.imageHeight()),
+						"width", Math.round(word.width() * page.imageWidth()), "height", Math.round(word.height() * page.imageHeight()))).toList();
+				Map<String, Object> value = new LinkedHashMap<>();
+				value.put("page", page.pageNumber()); value.put("width", page.imageWidth()); value.put("height", page.imageHeight());
+				value.put("language", page.language()); value.put("words", words);
+				return value;
+			}).toList();
+			return objectMapper.writeValueAsString(Map.of("version", 1, "pages", pages));
+		}
+		catch (JsonProcessingException exception) { throw new IllegalStateException("Không thể tuần tự hóa bố cục OCR", exception); }
 	}
 
 	private void persistClassification(Document document, AiDocumentResult result, BigDecimal confidence, List<String> warnings, boolean requiresReview) {

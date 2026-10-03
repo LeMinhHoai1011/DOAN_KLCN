@@ -87,7 +87,7 @@ const FinancialTransactions = () => {
   const exportReport = async () => {
     setExporting(true)
     try { await exportService.exportFinancialReport({ fromDate: dateFrom || undefined, toDate: dateTo || undefined }) }
-    catch (requestError: unknown) { setError(getErrorMessage(requestError, 'Export failed.')) }
+    catch (requestError: unknown) { setError(getErrorMessage(requestError, 'Không thể xuất dữ liệu.')) }
     finally { setExporting(false) }
   }
 

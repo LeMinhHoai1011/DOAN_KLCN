@@ -34,10 +34,10 @@ public class AuthService {
 	@Transactional
 	public UserResponse register(RegisterRequest request) {
 		if (userRepository.existsByUsername(request.username())) {
-			throw new BadRequestException("Username already exists");
+			throw new BadRequestException("Tên đăng nhập đã tồn tại");
 		}
 		if (userRepository.existsByEmail(request.email())) {
-			throw new BadRequestException("Email already exists");
+			throw new BadRequestException("Email đã tồn tại");
 		}
 
 		User user = new User();

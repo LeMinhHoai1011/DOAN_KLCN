@@ -45,7 +45,7 @@ const Documents = ({ basePath = '/accountant' }: { basePath?: string }) => {
   const handleExport = async () => {
     setIsExporting(true);
     try { await exportService.exportInvoices({ search: searchTerm || undefined }); }
-    catch { setError('KhÃ´ng thá»ƒ xuáº¥t dá»¯ liá»‡u.'); }
+    catch { setError('Không thể xuất dữ liệu.'); }
     finally { setIsExporting(false); }
   };
 

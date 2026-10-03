@@ -35,7 +35,7 @@ public class ExcelExportService {
 			header(sheet, headers); int n = 1;
 			for (InvoiceResponse i : rows) { Row r = sheet.createRow(n); number(r, 0, n++); text(r,1,i.invoiceNumber()); date(r,2,i.invoiceDate()); text(r,3,i.sellerName()); text(r,4,i.sellerTaxCode()); text(r,5,i.buyerName()); text(r,6,i.buyerTaxCode()); money(r,7,i.subtotal()); money(r,8,i.vatAmount()); money(r,9,i.totalAmount()); }
 			widths(sheet, headers.length); book.write(out); return out.toByteArray();
-		} catch (Exception e) { throw new IllegalStateException("Could not create invoice Excel export", e); }
+		} catch (Exception e) { throw new IllegalStateException("Không thể tạo tệp Excel xuất hóa đơn", e); }
 	}
 
 	@Transactional(readOnly = true)
@@ -46,7 +46,7 @@ public class ExcelExportService {
 		try (Workbook book = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 			Sheet summary=book.createSheet("Tong quan"); header(summary,new String[]{"Tu ngay","Den ngay","Tong thu","Tong chi","Dong tien","So giao dich"}); Row s=summary.createRow(1); date(s,0,fromDate);date(s,1,toDate);money(s,2,income);money(s,3,expense);money(s,4,income.subtract(expense));number(s,5,rows.size()); widths(summary,6);
 			Sheet details=book.createSheet("Thu chi"); header(details,new String[]{"STT","Ngay","Loai","So tien","Nhom chi phi","Mo ta","Trang thai"}); int n=1; for(FinancialTransactionResponse r:rows){Row row=details.createRow(n);number(row,0,n++);date(row,1,r.transactionDate());text(row,2,r.transactionType());money(row,3,r.amount());text(row,4,r.categoryName());text(row,5,r.description());text(row,6,r.status());} widths(details,7); book.write(out); return out.toByteArray();
-		} catch (Exception e) { throw new IllegalStateException("Could not create financial Excel export", e); }
+		} catch (Exception e) { throw new IllegalStateException("Không thể tạo tệp Excel báo cáo tài chính", e); }
 	}
 	private boolean matches(InvoiceResponse i,String q){if(q==null||q.isBlank())return true;String x=q.toLowerCase();return join(i.invoiceNumber(),i.sellerName(),i.sellerTaxCode(),i.buyerName(),i.buyerTaxCode()).toLowerCase().contains(x);}
 	private String join(String... v){return String.join(" ",java.util.Arrays.stream(v).map(x->x==null?"":x).toList());}

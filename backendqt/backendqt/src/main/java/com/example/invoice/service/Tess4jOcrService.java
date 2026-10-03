@@ -6,6 +6,8 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import javax.imageio.ImageIO;
 import lombok.RequiredArgsConstructor;
 import net.sourceforge.tess4j.ITessAPI;
@@ -30,12 +32,14 @@ public class Tess4jOcrService {
 			BufferedImage image = ImageIO.read(new ByteArrayInputStream(imageBytes));
 			if (image == null) return OcrPageResult.unavailable(pageNumber, "Image format could not be decoded for OCR", elapsed(started));
 			try {
-				return recognize(image, pageNumber, properties.getOcr().getLanguage(), null, started);
+				LanguagePlan plan = resolveLanguage();
+				return recognize(image, pageNumber, plan.language(), plan.warning(), started, plan.dataPath());
 			} catch (Exception | LinkageError primary) {
 				String configured = properties.getOcr().getLanguage();
 				if (configured != null && configured.contains("eng") && !"eng".equals(configured.trim())) {
 					String fallbackWarning = "Configured OCR language unavailable; fell back to bundled English: " + safe(primary.getMessage());
-					try { return recognize(image, pageNumber, "eng", fallbackWarning, started); }
+					try { return recognize(image, pageNumber, "eng", fallbackWarning, started,
+							LoadLibs.extractTessResources("tessdata").getAbsolutePath()); }
 					catch (Exception | LinkageError ignored) { /* report the primary deployment error below */ }
 				}
 				throw primary;
@@ -48,13 +52,14 @@ public class Tess4jOcrService {
 		}
 	}
 
-	private OcrPageResult recognize(BufferedImage image, int pageNumber, String language, String warning, long started) {
+	private OcrPageResult recognize(BufferedImage image, int pageNumber, String language, String warning, long started, String dataPath) {
 		Tesseract tesseract = new Tesseract();
-		String dataPath = properties.getOcr().getDataPath();
-		tesseract.setDatapath(dataPath != null && !dataPath.isBlank()
-				? dataPath.trim() : LoadLibs.extractTessResources("tessdata").getAbsolutePath());
+		tesseract.setDatapath(dataPath);
 		tesseract.setLanguage(language);
 		tesseract.setPageSegMode(ITessAPI.TessPageSegMode.PSM_AUTO);
+		// Uploads frequently carry a bogus 1-DPI metadata value. This affects Tesseract only;
+		// the bitmap and therefore all returned word coordinates remain unchanged.
+		tesseract.setVariable("user_defined_dpi", "300");
 		List<Word> detected = tesseract.getWords(image, ITessAPI.TessPageIteratorLevel.RIL_WORD);
 			List<OcrWord> words = new ArrayList<>();
 			float confidenceTotal = 0;
@@ -73,10 +78,26 @@ public class Tess4jOcrService {
 			}
 			float confidence = words.isEmpty() ? 0 : confidenceTotal / words.size();
 		return new OcrPageResult(pageNumber, image.getWidth(), image.getHeight(), text.toString(), confidence,
-				List.copyOf(words), elapsed(started), words.isEmpty() ? "Tess4J found no text" : warning);
+				List.copyOf(words), elapsed(started), words.isEmpty() ? "Tess4J không nhận diện được văn bản" : warning, language);
+	}
+
+	private LanguagePlan resolveLanguage() {
+		String configuredLanguage = properties.getOcr().getLanguage() == null ? "eng" : properties.getOcr().getLanguage().trim();
+		String configuredPath = properties.getOcr().getDataPath();
+		Path path = Path.of(configuredPath == null || configuredPath.isBlank() ? "./tessdata" : configuredPath).toAbsolutePath().normalize();
+		List<String> missing = java.util.Arrays.stream(configuredLanguage.split("\\+"))
+				.filter(language -> !Files.isRegularFile(path.resolve(language + ".traineddata"))).toList();
+		if (missing.isEmpty()) return new LanguagePlan(path.toString(), configuredLanguage, null);
+		String warning = "OCR_LANGUAGE_DATA_MISSING: thiếu " + String.join(", ", missing)
+				+ ".traineddata tại " + path;
+		log.warn("{}; fallback=eng", warning);
+		String bundled = LoadLibs.extractTessResources("tessdata").getAbsolutePath();
+		if (configuredLanguage.contains("eng")) return new LanguagePlan(bundled, "eng", warning + "; đã dùng eng");
+		throw new IllegalStateException(warning);
 	}
 
 	private static double ratio(int value, int total) { return total == 0 ? 0 : (double) value / total; }
 	private static long elapsed(long started) { return (System.nanoTime() - started) / 1_000_000; }
 	private static String safe(String value) { return value == null ? "unknown error" : value.replaceAll("[\\r\\n]+", " "); }
+	private record LanguagePlan(String dataPath, String language, String warning) {}
 }

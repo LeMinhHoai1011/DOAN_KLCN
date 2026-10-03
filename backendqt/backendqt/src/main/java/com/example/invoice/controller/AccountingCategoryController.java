@@ -28,8 +28,8 @@ public class AccountingCategoryController {
 		User user = userService.loadCurrent(authentication);
 		Long targetCompany = companyId == null ? (user.getCompany() == null ? null : user.getCompany().getId()) : companyId;
 		boolean admin = user.getUserRoles().stream().anyMatch(role -> "ADMIN".equals(role.getRole().getCode()));
-		if (targetCompany == null) throw new BadRequestException("A company is required");
-		if (!admin && (user.getCompany() == null || !targetCompany.equals(user.getCompany().getId()))) throw new BadRequestException("You cannot access another company");
+		if (targetCompany == null) throw new BadRequestException("Vui lòng chọn công ty");
+		if (!admin && (user.getCompany() == null || !targetCompany.equals(user.getCompany().getId()))) throw new BadRequestException("Bạn không thể truy cập công ty khác");
 		return categoryRepository.findByCompanyId(targetCompany).stream().filter(AccountingCategory::isActive)
 				.map(category -> new AccountingCategoryResponse(category.getId(), category.getCategoryCode(), category.getCategoryName(), category.getDescription())).toList();
 	}

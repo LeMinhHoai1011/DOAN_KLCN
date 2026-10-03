@@ -14,9 +14,12 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 	@ExceptionHandler(ResourceNotFoundException.class)
 	ResponseEntity<ErrorResponse> handleNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
 		return error(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", ex.getMessage(), request.getRequestURI());
@@ -37,7 +40,7 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(BadCredentialsException.class)
 	ResponseEntity<ErrorResponse> handleBadCredentials(BadCredentialsException ex, HttpServletRequest request) {
-		return error(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid username or password", request.getRequestURI());
+		return error(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Tên đăng nhập hoặc mật khẩu không đúng", request.getRequestURI());
 	}
 
 	@ExceptionHandler(DisabledException.class)
@@ -47,22 +50,29 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(AccessDeniedException.class)
 	ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex, HttpServletRequest request) {
-		return error(HttpStatus.FORBIDDEN, "FORBIDDEN", "Access denied", request.getRequestURI());
+		return error(HttpStatus.FORBIDDEN, "FORBIDDEN", "Bạn không có quyền truy cập", request.getRequestURI());
 	}
 
 	@ExceptionHandler(DataAccessException.class)
 	ResponseEntity<ErrorResponse> handleDatabase(DataAccessException ex, HttpServletRequest request) {
-		return error(HttpStatus.INTERNAL_SERVER_ERROR, "DATABASE_ERROR", "Database operation failed", request.getRequestURI());
+		log.error("Database operation failed method={} path={} rootCause={}", request.getMethod(),
+				request.getRequestURI(), mostSpecificMessage(ex), ex);
+		return error(HttpStatus.INTERNAL_SERVER_ERROR, "DATABASE_ERROR", "Thao tác với cơ sở dữ liệu thất bại", request.getRequestURI());
+	}
+
+	private String mostSpecificMessage(DataAccessException exception) {
+		Throwable cause = exception.getMostSpecificCause();
+		return cause == null || cause.getMessage() == null ? exception.getMessage() : cause.getMessage();
 	}
 
 	@ExceptionHandler(MissingServletRequestPartException.class)
 	ResponseEntity<ErrorResponse> handleMissingMultipartPart(MissingServletRequestPartException ex, HttpServletRequest request) {
-		return error(HttpStatus.BAD_REQUEST, "MISSING_MULTIPART_FILE", "An image file is required", request.getRequestURI());
+		return error(HttpStatus.BAD_REQUEST, "MISSING_MULTIPART_FILE", "Vui lòng chọn một tệp ảnh", request.getRequestURI());
 	}
 
 	@ExceptionHandler(MaxUploadSizeExceededException.class)
 	ResponseEntity<ErrorResponse> handleMaxUploadSize(MaxUploadSizeExceededException ex, HttpServletRequest request) {
-		return error(HttpStatus.PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "Uploaded file exceeds the 10 MB server limit", request.getRequestURI());
+		return error(HttpStatus.PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "Tệp tải lên vượt quá giới hạn 10 MB của máy chủ", request.getRequestURI());
 	}
 
 	@ExceptionHandler(AiProviderException.class)
@@ -79,7 +89,8 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(Exception.class)
 	ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, HttpServletRequest request) {
-		return error(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", "Unexpected server error", request.getRequestURI());
+		log.error("Unexpected server error method={} path={}", request.getMethod(), request.getRequestURI(), ex);
+		return error(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", "Máy chủ gặp lỗi không mong muốn", request.getRequestURI());
 	}
 
 	private ResponseEntity<ErrorResponse> error(HttpStatus status, String code, String message, String path) {

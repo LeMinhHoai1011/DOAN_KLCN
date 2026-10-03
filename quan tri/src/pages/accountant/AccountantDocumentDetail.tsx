@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, FileText, Save } from 'lucide-react';
+import { ArrowLeft, Download, Save } from 'lucide-react';
 import clsx from 'clsx';
 import StatusBadge from '../../components/StatusBadge';
 import classificationService from '../../services/classificationService';
@@ -13,6 +13,7 @@ import { getEffectiveRole } from '../../services/authService';
 import ErrorState from '../../components/ui/ErrorState';
 import LoadingState from '../../components/ui/LoadingState';
 import DataTable from '../../components/ui/DataTable';
+import OcrDocumentPreview from '../../components/OcrDocumentPreview';
 
 interface InvoiceFormData {
   supplier: string;
@@ -79,6 +80,19 @@ const companyRoleLabels: Record<string, string> = { SELLER: 'Người bán', BUY
 const directionLabels: Record<string, string> = { INCOMING: 'Chứng từ đầu vào', OUTGOING: 'Chứng từ đầu ra', INTERNAL: 'Nội bộ', UNKNOWN: 'Chưa xác định' };
 const assessmentLabels: Record<string, string> = { INCOME: 'Thu', EXPENSE: 'Chi', TRANSFER: 'Chuyển khoản nội bộ', NON_FINANCIAL: 'Không phát sinh tài chính', UNKNOWN: 'Chưa xác định' };
 
+const hasCompletedPipeline = (status: DocumentResponse['status']) => (
+  status === 'PROCESSED' || status === 'NEED_REVIEW' || status === 'COMPLETED'
+);
+
+const isInvoiceDocument = (documentType: string | null) => {
+  const normalized = documentType?.trim().toUpperCase().replace(/[- ]/g, '_');
+  return normalized === 'INVOICE' || normalized === 'VAT_INVOICE' || Boolean(normalized?.endsWith('_INVOICE'));
+};
+
+const optionalRequest = <T,>(enabled: boolean, request: () => Promise<T>, fallback: T) => (
+  enabled ? request() : Promise.resolve(fallback)
+);
+
 const AccountantDocumentDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -116,37 +130,46 @@ const AccountantDocumentDetail = () => {
     }
 
     const loadDocumentDetail = async () => {
-      const [documentResult, ocrResult, classificationResult, invoiceResult, extractedFieldsResult] = await Promise.allSettled([
-        documentService.getDocumentById(documentId),
-        documentService.getDocumentOCR(documentId),
-        classificationService.getClassification(documentId),
-        invoiceService.getInvoiceByDocumentId(documentId),
-        documentService.getDocumentExtractedFields(documentId),
-      ]);
-
-      if (!isMounted) return;
-
-      if (documentResult.status === 'rejected') {
-        setError('Không thể tải thông tin chứng từ');
-        setIsLoading(false);
+      let loadedDocument: DocumentResponse;
+      try {
+        loadedDocument = await documentService.getDocumentById(documentId);
+      } catch {
+        if (isMounted) {
+          setError('Không thể tải thông tin chứng từ');
+          setIsLoading(false);
+        }
         return;
       }
+      if (!isMounted) return;
 
-      setDocument(documentResult.value);
+      setDocument(loadedDocument);
+      const completed = hasCompletedPipeline(loadedDocument.status);
+      const shouldLoadOcr = loadedDocument.status !== 'UPLOADED';
+      const shouldLoadInvoice = completed && isInvoiceDocument(loadedDocument.documentType);
+      const [ocrResult, classificationResult, invoiceResult, extractedFieldsResult] = await Promise.allSettled([
+        optionalRequest(shouldLoadOcr, () => documentService.getDocumentOCR(documentId), null),
+        optionalRequest(completed, () => classificationService.getClassification(documentId), null),
+        optionalRequest(shouldLoadInvoice, () => invoiceService.getInvoiceByDocumentId(documentId), null),
+        optionalRequest(completed, () => documentService.getDocumentExtractedFields(documentId), []),
+      ]);
+      if (!isMounted) return;
 
-      if (ocrResult.status === 'fulfilled') setOcr(ocrResult.value);
-      else setSectionErrors((current) => [...current, 'Không thể tải kết quả OCR.']);
+      if (ocrResult.status === 'fulfilled' && ocrResult.value) setOcr(ocrResult.value);
+      else if (completed) setSectionErrors((current) => [...current, 'Không thể tải kết quả OCR.']);
       if (classificationResult.status === 'fulfilled') {
-        setClassification(classificationResult.value);
-        setClassificationValue(classificationResult.value.category || '');
+        if (classificationResult.value) {
+          setClassification(classificationResult.value);
+          setClassificationValue(classificationResult.value.category || '');
+        }
       }
-      if (invoiceResult.status === 'fulfilled') {
+      else if (completed) setSectionErrors((current) => [...current, 'Không thể tải kết quả phân loại.']);
+      if (invoiceResult.status === 'fulfilled' && invoiceResult.value) {
         setInvoice(invoiceResult.value);
         setInvoiceForm(toInvoiceForm(invoiceResult.value));
       }
-      else setSectionErrors((current) => [...current, 'Không thể tải dữ liệu hóa đơn.']);
+      else if (shouldLoadInvoice) setSectionErrors((current) => [...current, 'Không thể tải dữ liệu hóa đơn.']);
       if (extractedFieldsResult.status === 'fulfilled') setExtractedFields(extractedFieldsResult.value);
-      else setSectionErrors((current) => [...current, 'Không thể tải các trường trích xuất bổ sung.']);
+      else if (completed) setSectionErrors((current) => [...current, 'Không thể tải các trường trích xuất bổ sung.']);
 
       setIsLoading(false);
     };
@@ -289,12 +312,7 @@ const AccountantDocumentDetail = () => {
         <div className="bg-slate-800 rounded-2xl flex flex-col overflow-hidden border border-slate-300 shadow-sm relative">
           <div className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-xs backdrop-blur-md">1 / 1</div>
           <div className="flex-1 flex items-center justify-center p-8 overflow-auto">
-            <div className="bg-white w-full max-w-lg aspect-[1/1.4] shadow-2xl relative">
-              <div className="w-full h-full flex items-center justify-center text-slate-300">
-                <FileText size={64} className="opacity-20" />
-                <span className="absolute mt-24 text-sm opacity-50">Bản xem trước tài liệu</span>
-              </div>
-            </div>
+            <OcrDocumentPreview documentId={document.id} fileType={document.fileType} ocr={ocr} fields={dynamicFields} />
           </div>
         </div>
 
@@ -347,7 +365,9 @@ const AccountantDocumentDetail = () => {
               <h3 className="text-lg font-semibold text-slate-800">Dữ liệu invoice</h3>
               <span className="text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-md font-medium">API backend</span>
             </div>
-            {invoice ? (
+            {!isInvoiceDocument(document.documentType) ? (
+              <p className="text-sm text-slate-500">Không áp dụng cho loại chứng từ này.</p>
+            ) : invoice ? (
               <div className="space-y-4">
                 <InputField label="Nhà cung cấp" value={invoiceForm.supplier} field="supplier" />
                 <InputField label="Mã số thuế" value={invoiceForm.taxCode} field="taxCode" />

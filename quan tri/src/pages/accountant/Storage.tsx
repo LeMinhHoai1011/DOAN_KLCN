@@ -32,7 +32,7 @@ export default function Storage() {
         setItems(page.content)
         setTotal(page.totalElements)
       })
-      .catch(() => setError('Khong the tai kho luu tru.'))
+      .catch(() => setError('Không thể tải kho lưu trữ.'))
       .finally(() => setLoading(false))
   }, [dateFrom, dateTo])
 
@@ -47,7 +47,7 @@ export default function Storage() {
       const url = await documentService.downloadDocument(id, preview)
       window.open(url, '_blank', 'noopener')
     } catch {
-      setError('Khong the mo file.')
+      setError('Không thể mở tệp.')
     }
   }
 
@@ -73,7 +73,7 @@ export default function Storage() {
           <input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} className="rounded border px-3 py-2" />
         </label>
       </div>
-      {loading ? <LoadingState /> : error ? <ErrorState message={error} /> : visible.length === 0 ? <EmptyState title="Chua co file" /> : <div className="overflow-x-auto">
+      {loading ? <LoadingState /> : error ? <ErrorState message={error} /> : visible.length === 0 ? <EmptyState title="Chưa có tệp" /> : <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead><tr className="bg-slate-50 text-left"><th className="p-3">File</th><th>Loai</th><th>Ngay</th><th>Xu ly</th><th /></tr></thead>
           <tbody>{visible.map(item => <tr key={item.id} className="border-t">

@@ -43,12 +43,12 @@ public class AiProcessingService {
 				.filter(provider -> selected.equals(normalizeProviderName(provider.providerName())))
 				.findFirst()
 				.orElseThrow(() -> new BadRequestException(
-						"AI provider '" + selected + "' is not available. Configure a supported provider."));
+						"Nhà cung cấp AI '" + selected + "' không khả dụng. Hãy cấu hình một nhà cung cấp được hỗ trợ."));
 	}
 
 	private String normalizeProviderName(String providerName) {
 		if (providerName == null || providerName.isBlank()) {
-			throw new BadRequestException("AI provider must be configured");
+			throw new BadRequestException("Phải cấu hình nhà cung cấp AI");
 		}
 		return providerName.trim().toLowerCase(Locale.ROOT);
 	}

@@ -45,19 +45,19 @@ public class ExternalAiProvider implements AiProvider {
 	@Override
 	public AiProviderResponse analyzeImage(AiImageRequest request) {
 		if (request.imageBytes() == null || request.imageBytes().length == 0) {
-			throw new BadRequestException("AI image payload must not be empty");
+			throw new BadRequestException("Dữ liệu ảnh gửi đến AI không được để trống");
 		}
 		if (request.imageBytes().length > properties.getMaxImageSizeBytes()) {
-			throw new BadRequestException("AI image exceeds the configured maximum size");
+			throw new BadRequestException("Ảnh gửi đến AI vượt quá kích thước tối đa đã cấu hình");
 		}
 
 		AiProperties.Cloud cloud = properties.getCloud();
-		String baseUrl = required(cloud.getBaseUrl(), "Cloud AI provider selected but AI_CLOUD_BASE_URL is missing.");
-		String apiKey = required(cloud.getApiKey(), "Cloud AI provider selected but AI_CLOUD_API_KEY is missing.");
-		String model = required(cloud.getModel(), "Cloud AI provider selected but AI_CLOUD_MODEL is missing.");
-		String path = required(cloud.getChatCompletionsPath(), "AI cloud chat-completions path must be configured");
+		String baseUrl = required(cloud.getBaseUrl(), "Đã chọn AI đám mây nhưng thiếu AI_CLOUD_BASE_URL.");
+		String apiKey = required(cloud.getApiKey(), "Đã chọn AI đám mây nhưng thiếu AI_CLOUD_API_KEY.");
+		String model = required(cloud.getModel(), "Đã chọn AI đám mây nhưng thiếu AI_CLOUD_MODEL.");
+		String path = required(cloud.getChatCompletionsPath(), "Phải cấu hình đường dẫn chat-completions của AI đám mây");
 		if (cloud.getTimeout().isZero() || cloud.getTimeout().isNegative()) {
-			throw new BadRequestException("AI_CLOUD_TIMEOUT must be greater than zero");
+			throw new BadRequestException("AI_CLOUD_TIMEOUT phải lớn hơn 0");
 		}
 
 		String mimeType = request.contentType() == null || request.contentType().isBlank()
@@ -86,17 +86,17 @@ public class ExternalAiProvider implements AiProvider {
 			String rawResponse = response.body() == null ? "" : response.body().string();
 			long durationMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
 			if (!response.isSuccessful()) {
-				throw new AiProviderException("External AI returned HTTP " + response.code());
+				throw new AiProviderException("Dịch vụ AI bên ngoài trả về mã HTTP " + response.code());
 			}
 
 			JsonNode body = objectMapper.readTree(rawResponse);
 			JsonNode content = body.path("choices").path(0).path("message").path("content");
 			if (content.isMissingNode() || content.isNull()) {
-				throw new AiProviderException("External AI response did not include generated content");
+				throw new AiProviderException("Phản hồi của dịch vụ AI bên ngoài không chứa nội dung đã sinh");
 			}
 			return new AiProviderResponse(providerName(), model, content.asText(), rawResponse, durationMs);
 		} catch (IOException exception) {
-			throw new AiProviderException("Could not connect to external AI at " + endpoint, exception);
+			throw new AiProviderException("Không thể kết nối đến dịch vụ AI bên ngoài tại " + endpoint, exception);
 		}
 	}
 
@@ -104,7 +104,7 @@ public class ExternalAiProvider implements AiProvider {
 		try {
 			return objectMapper.writeValueAsString(request);
 		} catch (JsonProcessingException exception) {
-			throw new AiProviderException("Could not create external AI request", exception);
+			throw new AiProviderException("Không thể tạo yêu cầu gửi đến dịch vụ AI bên ngoài", exception);
 		}
 	}
 

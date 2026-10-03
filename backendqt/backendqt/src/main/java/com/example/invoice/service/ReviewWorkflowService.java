@@ -42,7 +42,7 @@ public class ReviewWorkflowService {
 	@Transactional
 	public DocumentReview completeReview(Long reviewId, ReviewStatus status, String note) {
 		DocumentReview review = documentReviewRepository.findById(reviewId)
-				.orElseThrow(() -> new com.example.invoice.exception.ResourceNotFoundException("Review not found"));
+				.orElseThrow(() -> new com.example.invoice.exception.ResourceNotFoundException("Không tìm thấy lượt duyệt"));
 		review.setReviewStatus(status);
 		review.setReviewNote(note);
 		review.setReviewedAt(LocalDateTime.now());
@@ -65,45 +65,45 @@ public class ReviewWorkflowService {
 		case "SUBMIT" -> {
 			requireEmployee(actor);
 			require(document.getStatus() == DocumentStatus.UPLOADED && document.getReviewStatus() == ReviewStatus.PENDING,
-					"Only an uploaded document awaiting review can be submitted");
+					"Chỉ có thể gửi chứng từ đã tải lên và đang chờ duyệt");
 			append(document, actor, ReviewStatus.PENDING, "SUBMIT", note);
 		}
 		case "START_REVIEW" -> {
 			requireReviewer(actor);
 			require(document.getStatus() == DocumentStatus.PROCESSED || document.getStatus() == DocumentStatus.NEED_REVIEW,
-					"Only a processed document can enter review");
+					"Chỉ có thể đưa chứng từ đã xử lý vào quy trình duyệt");
 			document.setStatus(DocumentStatus.NEED_REVIEW);
 			append(document, actor, ReviewStatus.PENDING, "START_REVIEW", note);
 		}
 		case "APPROVE" -> {
 			requireReviewer(actor);
 			require(document.getStatus() == DocumentStatus.PROCESSED || document.getStatus() == DocumentStatus.NEED_REVIEW,
-					"Only a processed document can be approved");
+					"Chỉ có thể phê duyệt chứng từ đã xử lý");
 			document.setReviewStatus(ReviewStatus.APPROVED); document.setStatus(DocumentStatus.COMPLETED);
 			append(document, actor, ReviewStatus.APPROVED, "APPROVE", note);
 		}
 		case "REJECT" -> {
-			requireReviewer(actor); requireNote(note, "A rejection reason is required");
+			requireReviewer(actor); requireNote(note, "Vui lòng nhập lý do từ chối");
 			require(document.getStatus() == DocumentStatus.PROCESSED || document.getStatus() == DocumentStatus.NEED_REVIEW,
-					"Only a processed document can be rejected");
+					"Chỉ có thể từ chối chứng từ đã xử lý");
 			document.setReviewStatus(ReviewStatus.REJECTED); document.setStatus(DocumentStatus.NEED_REVIEW);
 			append(document, actor, ReviewStatus.REJECTED, "REJECT", note);
 		}
 		case "REQUEST_INFO" -> {
-			requireReviewer(actor); requireNote(note, "A request-information reason is required");
+			requireReviewer(actor); requireNote(note, "Vui lòng nhập lý do yêu cầu bổ sung thông tin");
 			require(document.getStatus() == DocumentStatus.PROCESSED || document.getStatus() == DocumentStatus.NEED_REVIEW,
-					"Only a processed document can require additional information");
+					"Chỉ có thể yêu cầu bổ sung thông tin cho chứng từ đã xử lý");
 			document.setReviewStatus(ReviewStatus.CORRECTED); document.setStatus(DocumentStatus.NEED_REVIEW);
 			append(document, actor, ReviewStatus.CORRECTED, "REQUEST_INFO", note);
 		}
 		case "RESUBMIT" -> {
 			requireEmployee(actor);
 			require(document.getStatus() == DocumentStatus.NEED_REVIEW && (document.getReviewStatus() == ReviewStatus.REJECTED || document.getReviewStatus() == ReviewStatus.CORRECTED),
-					"Only a rejected or information-requested document can be resubmitted");
+					"Chỉ có thể gửi lại chứng từ đã bị từ chối hoặc được yêu cầu bổ sung thông tin");
 			document.setReviewStatus(ReviewStatus.PENDING); document.setStatus(DocumentStatus.UPLOADED);
 			append(document, actor, ReviewStatus.PENDING, "RESUBMIT", note);
 		}
-		default -> throw new BadRequestException("Unsupported workflow action");
+		default -> throw new BadRequestException("Thao tác quy trình không được hỗ trợ");
 		}
 		return documentService.toResponse(document);
 	}
@@ -116,8 +116,8 @@ public class ReviewWorkflowService {
 		review.setReviewedAt(LocalDateTime.now()); documentReviewRepository.save(review);
 	}
 
-	private void requireEmployee(User user) { require(hasRole(user, "EMPLOYEE") || hasRole(user, "USER"), "Only the document owner can perform this action"); }
-	private void requireReviewer(User user) { require(hasRole(user, "ACCOUNTANT") || hasRole(user, "ADMIN"), "Only an accountant or administrator can perform this action"); }
+	private void requireEmployee(User user) { require(hasRole(user, "EMPLOYEE") || hasRole(user, "USER"), "Chỉ chủ sở hữu chứng từ mới có thể thực hiện thao tác này"); }
+	private void requireReviewer(User user) { require(hasRole(user, "ACCOUNTANT") || hasRole(user, "ADMIN"), "Chỉ kế toán hoặc quản trị viên mới có thể thực hiện thao tác này"); }
 	private void requireNote(String note, String message) { require(note != null && !note.trim().isBlank(), message); }
 	private void require(boolean condition, String message) { if (!condition) throw new BadRequestException(message); }
 	private boolean hasRole(User user, String role) { return user.getUserRoles().stream().anyMatch(item -> role.equals(item.getRole().getCode())); }

@@ -60,7 +60,7 @@ public class ClassificationService {
 	private Classification loadByDocumentId(Long documentId) {
 		documentService.load(documentId);
 		return classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(documentId)
-				.orElseThrow(() -> new ResourceNotFoundException("Classification not found"));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy kết quả phân loại"));
 	}
 
 	private void apply(Classification classification, ClassificationUpdateRequest request) {

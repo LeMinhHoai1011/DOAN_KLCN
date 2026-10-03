@@ -26,7 +26,7 @@ public class CustomUserDetailsService implements UserDetailsService {
 	@Transactional(readOnly = true)
 	public UserDetails loadUserByUsername(String username) {
 		com.example.invoice.entity.User user = userRepository.findByUsername(username)
-				.orElseThrow(() -> new UsernameNotFoundException("User not found"));
+				.orElseThrow(() -> new UsernameNotFoundException("Không tìm thấy người dùng"));
 		
 		List<GrantedAuthority> authorities = new ArrayList<>();
 		

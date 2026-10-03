@@ -17,7 +17,7 @@ public final class AiDocumentResultParser {
 			return OBJECT_MAPPER.readValue(stripFence(content), AiDocumentResult.class)
 					.withMetadata(provider, model, rawResponse, durationMs);
 		} catch (JsonProcessingException exception) {
-			throw new AiProviderException("AI_INVALID_RESPONSE: provider did not return valid structured JSON", exception);
+			throw new AiProviderException("AI_JSON_PARSE_ERROR: nhà cung cấp không trả về JSON có cấu trúc hợp lệ", exception);
 		}
 	}
 

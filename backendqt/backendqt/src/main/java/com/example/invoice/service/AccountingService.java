@@ -35,7 +35,7 @@ public class AccountingService {
 			LocalDate entryDate, Authentication authentication) {
 		Document document = documentService.load(documentId);
 		AccountingCategory category = categoryRepository.findById(categoryId)
-				.orElseThrow(() -> new com.example.invoice.exception.ResourceNotFoundException("Category not found"));
+				.orElseThrow(() -> new com.example.invoice.exception.ResourceNotFoundException("Không tìm thấy danh mục"));
 		User createdBy = authentication == null ? null : userService.loadCurrent(authentication);
 		AccountingEntry entry = new AccountingEntry();
 		entry.setDocument(document);

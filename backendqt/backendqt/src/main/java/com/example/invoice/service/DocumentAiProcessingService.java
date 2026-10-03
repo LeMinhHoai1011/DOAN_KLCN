@@ -46,6 +46,7 @@ public class DocumentAiProcessingService {
 	private final PdfImageConversionService pdfImageConversionService;
 	private final Tess4jOcrService tess4jOcrService;
 	private final AiProperties aiProperties;
+	private final OcrTextNormalizer ocrTextNormalizer;
 
 	@Autowired
 	public DocumentAiProcessingService(DocumentService documentService, DocumentTypeRepository documentTypeRepository,
@@ -53,7 +54,7 @@ public class DocumentAiProcessingService {
 			AiDocumentResultValidator resultValidator, DocumentAiResultPersistenceService persistenceService,
 			ProcessingLogService processingLogService, ImagePreprocessingService imagePreprocessingService,
 			PdfImageConversionService pdfImageConversionService, Tess4jOcrService tess4jOcrService,
-			AiProperties aiProperties) {
+			AiProperties aiProperties, OcrTextNormalizer ocrTextNormalizer) {
 		this.documentService = documentService;
 		this.documentTypeRepository = documentTypeRepository;
 		this.accountingCategoryRepository = accountingCategoryRepository;
@@ -65,6 +66,7 @@ public class DocumentAiProcessingService {
 		this.pdfImageConversionService = pdfImageConversionService;
 		this.tess4jOcrService = tess4jOcrService;
 		this.aiProperties = aiProperties;
+		this.ocrTextNormalizer = ocrTextNormalizer;
 	}
 
 	/** Compatibility constructor retained for the text-first PDF fallback tests. */
@@ -74,20 +76,21 @@ public class DocumentAiProcessingService {
 			AiDocumentResultValidator resultValidator, DocumentAiResultPersistenceService persistenceService,
 			ProcessingLogService processingLogService, PdfImageConversionService pdfImageConversionService) {
 		this(documentService, documentTypeRepository, accountingCategoryRepository, aiProcessingService, resultValidator,
-				persistenceService, processingLogService, null, pdfImageConversionService, null, new AiProperties());
+				persistenceService, processingLogService, null, pdfImageConversionService, null, new AiProperties(), null);
 	}
 
 	public AiDocumentProcessingResponse process(Long documentId, boolean reprocess) {
 		Document document = documentService.load(documentId);
 		if (document.getStatus() == DocumentStatus.PROCESSING)
-			throw new BadRequestException("Document is already being processed");
+			throw new BadRequestException("Chứng từ đang được xử lý");
 		if (!reprocess && document.getStatus() != DocumentStatus.UPLOADED)
-			throw new BadRequestException("Document has already been processed; use reprocess to run AI again");
+			throw new BadRequestException("Chứng từ đã được xử lý; hãy dùng chức năng xử lý lại để chạy AI lần nữa");
 		if (!isSupportedImage(document.getFileType()) && !isPdf(document.getFileType()))
-			throw new BadRequestException("Only application/pdf, image/jpeg and image/png are supported");
+			throw new BadRequestException("Chỉ hỗ trợ tệp PDF, JPEG và PNG");
 
+		try {
 		List<DocumentType> types = documentTypeRepository.findByActiveTrue();
-		if (types.isEmpty()) throw new BadRequestException("No active document types are configured for AI classification");
+		if (types.isEmpty()) throw new BadRequestException("Chưa cấu hình loại chứng từ đang hoạt động để AI phân loại");
 		List<String> typeCodes = types.stream().map(DocumentType::getCode).toList();
 		Set<String> allowedTypes = Set.copyOf(typeCodes);
 		Company company = document.getCompany();
@@ -97,33 +100,43 @@ public class DocumentAiProcessingService {
 						.map(com.example.invoice.entity.AccountingCategory::getCategoryCode).toList();
 
 		byte[] bytes = documentService.loadFileBytes(documentId);
-		if (bytes.length == 0) throw new BadRequestException("Document content loaded from MinIO is empty");
+		if (bytes.length == 0) throw new BadRequestException("Nội dung chứng từ tải từ MinIO bị trống");
 		if (document.getFileSize() != null && document.getFileSize() != bytes.length)
-			throw new BadRequestException("Document content size does not match stored metadata");
+			throw new BadRequestException("Kích thước nội dung chứng từ không khớp với siêu dữ liệu đã lưu");
 
 		documentService.updateProcessingStatus(documentId, DocumentStatus.PROCESSING);
 		processingLogService.append(documentId, "AI_DOCUMENT", "START", "PROCESSING", null, null,
 				reprocess ? "AI reprocess requested" : "AI process requested");
 
-		try {
 			return isPdf(document.getFileType())
 					? processPdf(documentId, document, bytes, typeCodes, categoryCodes, allowedTypes, company)
 					: processImage(documentId, document, bytes, typeCodes, categoryCodes, allowedTypes, company);
 		} catch (RuntimeException exception) {
-			documentService.updateProcessingStatus(documentId, DocumentStatus.FAILED);
-			processingLogService.append(documentId, "DOCUMENT_PIPELINE", errorCode(exception), "FAILED",
-					BigDecimal.ZERO, null, sanitize(exception.getMessage()));
+			try {
+				documentService.updateProcessingStatus(documentId, DocumentStatus.FAILED);
+			} catch (RuntimeException statusException) {
+				log.error("Could not mark failed documentId={}", documentId, statusException);
+			}
+			try {
+				processingLogService.append(documentId, "DOCUMENT_PIPELINE", errorCode(exception), "FAILED",
+						BigDecimal.ZERO, null, sanitize(exception.getMessage()));
+			} catch (RuntimeException logException) {
+				log.error("Could not persist failure log documentId={} originalError={}", documentId,
+						exception.getMessage(), logException);
+			}
 			throw exception;
 		}
 	}
 
 	private AiDocumentProcessingResponse processPdf(Long documentId, Document document, byte[] bytes,
 			List<String> typeCodes, List<String> categoryCodes, Set<String> allowedTypes, Company company) {
-		List<PageAnalysis> analyzedPages = analyzePdfPages(document.getOriginalFileName(), bytes, typeCodes, categoryCodes, company);
+		List<PageAnalysis> analyzedPages = analyzePdfPages(documentId, document.getOriginalFileName(), bytes, typeCodes, categoryCodes, company);
 		AiDocumentResult result = resolveCompanyRole(aggregatePageResults(
 				analyzedPages.stream().map(PageAnalysis::aiResult).toList()), company);
 		OcrDocumentResult ocr = aggregateOcr(analyzedPages.stream().map(PageAnalysis::ocr).toList());
 		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes);
+		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
+				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);
 		List<String> warnings = new ArrayList<>(validated.warnings());
 		warnings.addAll(ocr.warnings());
@@ -148,9 +161,9 @@ public class DocumentAiProcessingService {
 								preprocessing.processedWidth(), preprocessing.processedHeight(), objectKey));
 			}
 		} catch (RuntimeException exception) {
-			warnings.add("Image preprocessing failed; original image was sent to OCR and AI");
+			warnings.add("Tiền xử lý ảnh thất bại; ảnh gốc đã được gửi đến OCR và AI");
 			processingLogService.append(documentId, "IMAGE_PREPROCESSING", "NORMALIZE", "WARNING", null, null,
-					"Preprocessing failed: " + sanitize(exception.getMessage()));
+					"Tiền xử lý thất bại: " + sanitize(exception.getMessage()));
 		}
 
 		log.info("AI input documentId={} mimeType={} bytes={} allowedTypeCount={}",
@@ -158,9 +171,12 @@ public class DocumentAiProcessingService {
 		OcrPageResult pageOcr = tess4jOcrService.recognize(bytes, 1);
 		logOcr(documentId, pageOcr);
 		OcrDocumentResult ocr = aggregateOcr(List.of(pageOcr));
+		persistenceService.persistOcr(documentId, ocr);
 		AiDocumentResult result = resolveCompanyRole(analyzeSingleImage(document.getOriginalFileName(), contentType,
 				bytes, typeCodes, categoryCodes, company, pageOcr), company);
 		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes);
+		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
+				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);
 		warnings.addAll(validated.warnings());
 		warnings.addAll(ocr.warnings());
@@ -178,16 +194,31 @@ public class DocumentAiProcessingService {
 
 	private AiDocumentResult analyzeSingleImage(String fileName, String contentType, byte[] bytes,
 			List<String> documentTypes, List<String> categoryCodes, Company company, OcrPageResult ocr) {
+		String normalizedText = normalizeOcrText(ocr == null ? null : ocr.text());
 		String prompt = AiDocumentPromptFactory.create(documentTypes, categoryCodes,
-				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), promptContext(ocr));
+				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
+		boolean reliableOcr = ocr != null && ocr.successful()
+				&& BigDecimal.valueOf(ocr.confidence()).movePointLeft(2).compareTo(aiProperties.getOcr().getGoodConfidence()) >= 0;
+		if (reliableOcr && !normalizedText.isBlank()) {
+			log.info("AI text input file={} ocrChars={} ocrWords={} confidence={} context={} reservedOutput={}",
+					fileName, normalizedText.length(), ocr.words().size(), ocr.confidence(),
+					aiProperties.getOllama().getNumContext(), aiProperties.getOcr().getReservedOutputTokens());
+			return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText, prompt));
+		}
+		log.info("AI vision fallback file={} reason={} imageBytes={}", fileName,
+				ocr == null ? "OCR_UNAVAILABLE" : "OCR_LOW_CONFIDENCE", bytes.length);
 		return aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt));
 	}
 
-	private List<PageAnalysis> analyzePdfPages(String fileName, byte[] pdfBytes, List<String> documentTypes,
+	private List<PageAnalysis> analyzePdfPages(Long documentId, String fileName, byte[] pdfBytes, List<String> documentTypes,
 			List<String> categoryCodes, Company company) {
 		List<PageAnalysis> results = new ArrayList<>();
+		List<OcrPageResult> recognizedPages = new ArrayList<>();
 		for (PdfPageImage page : pdfImageConversionService.convert(pdfBytes)) {
 			OcrPageResult ocr = tess4jOcrService.recognize(page.bytes(), page.pageNumber());
+			logOcr(documentId, ocr);
+			recognizedPages.add(ocr);
+			persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
 			results.add(new PageAnalysis(analyzeSingleImage(fileName + "#page-" + page.pageNumber(), page.contentType(),
 					page.bytes(), documentTypes, categoryCodes, company, ocr), ocr));
 		}
@@ -213,14 +244,9 @@ public class DocumentAiProcessingService {
 		return aiProcessingService.analyzeTextDocument(new AiTextRequest(document.getOriginalFileName(), combined, prompt));
 	}
 
-	private String promptContext(OcrPageResult page) {
-		if (page == null || !page.successful()) return null;
-		StringBuilder context = new StringBuilder("page=").append(page.pageNumber()).append("; words:\n");
-		page.words().stream().limit(Math.max(1, aiProperties.getOcr().getMaxPromptWords())).forEach(word ->
-				context.append(word.id()).append('|').append(word.text().replace('|', ' ')).append('|')
-						.append("x=%.5f,y=%.5f,w=%.5f,h=%.5f,c=%.1f%n".formatted(
-								word.x(), word.y(), word.width(), word.height(), word.confidence())));
-		return context.toString();
+	String normalizeOcrText(String value) {
+		if (ocrTextNormalizer != null) return ocrTextNormalizer.normalizeAndCompact(value);
+		return value == null ? "" : value.replaceAll("[ \\t]+", " ").replaceAll("(?m)^\\s*$\\R", "").trim();
 	}
 
 	private OcrDocumentResult aggregateOcr(List<OcrPageResult> pages) {
@@ -234,7 +260,7 @@ public class DocumentAiProcessingService {
 	}
 
 	private AiDocumentResult aggregatePageResults(List<AiDocumentResult> pages) {
-		if (pages == null || pages.isEmpty()) throw new BadRequestException("PDF has no analyzable pages");
+		if (pages == null || pages.isEmpty()) throw new BadRequestException("Tệp PDF không có trang nào có thể phân tích");
 		AiDocumentResult first = pages.getFirst();
 		List<BigDecimal> confidences = pages.stream().map(AiDocumentResult::classificationConfidence).filter(Objects::nonNull).toList();
 		BigDecimal confidence = confidences.isEmpty() ? BigDecimal.ZERO : confidences.stream().reduce(BigDecimal.ZERO, BigDecimal::add)
@@ -296,8 +322,9 @@ public class DocumentAiProcessingService {
 
 	private String errorCode(RuntimeException exception) {
 		String message = exception.getMessage() == null ? "" : exception.getMessage().toUpperCase(Locale.ROOT);
-		for (String code : List.of("PDF_EXTRACTION_FAILED", "OCR_LOW_CONFIDENCE", "OCR_FAILED", "AI_TIMEOUT",
-				"AI_INVALID_RESPONSE", "AI_EXTRACTION_FAILED", "OLLAMA_CONNECT_TIMEOUT", "OLLAMA_READ_TIMEOUT",
+		for (String code : List.of("PDF_EXTRACTION_FAILED", "OCR_LOW_CONFIDENCE", "OCR_FAILED", "AI_CONTEXT_EXCEEDED",
+				"AI_CONNECTION_ERROR", "AI_TIMEOUT", "AI_HTTP_ERROR", "AI_INVALID_RESPONSE", "AI_JSON_PARSE_ERROR",
+				"AI_EXTRACTION_FAILED", "OLLAMA_CONNECT_TIMEOUT", "OLLAMA_READ_TIMEOUT",
 				"OLLAMA_CALL_TIMEOUT", "OLLAMA_UNREACHABLE", "OLLAMA_INVALID_RESPONSE", "OLLAMA_EMPTY_RESPONSE",
 				"OLLAMA_MODEL_NOT_FOUND", "OLLAMA_TOKEN_LIMIT", "VALIDATION_FAILED", "PERSISTENCE_FAILED"))
 			if (message.contains(code)) return code;
@@ -305,8 +332,8 @@ public class DocumentAiProcessingService {
 	}
 
 	private String sanitize(String message) {
-		String value = message == null || message.isBlank() ? "Document processing failed" : message;
-		return value.substring(0, Math.min(500, value.length()));
+		String value = message == null || message.isBlank() ? "Xử lý chứng từ thất bại" : message;
+		return value.substring(0, Math.min(255, value.length()));
 	}
 
 	private record PageAnalysis(AiDocumentResult aiResult, OcrPageResult ocr) {}

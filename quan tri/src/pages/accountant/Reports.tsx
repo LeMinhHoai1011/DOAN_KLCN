@@ -32,7 +32,7 @@ export default function Reports() {
         setFinancial(financialDashboard)
         setStatistics(dashboardStatistics)
       })
-      .catch(() => setError('Khong the tai bao cao.'))
+      .catch(() => setError('Không thể tải báo cáo.'))
       .finally(() => setLoading(false))
   }
 
@@ -43,9 +43,9 @@ export default function Reports() {
     setExportFeedback(null)
     try {
       await exportService.exportInvoices(filters())
-      setExportFeedback({ tone: 'success', message: 'Xuat hoa don Excel thanh cong.' })
+      setExportFeedback({ tone: 'success', message: 'Xuất hóa đơn Excel thành công.' })
     } catch {
-      setExportFeedback({ tone: 'error', message: 'Khong the xuat hoa don. Vui long thu lai.' })
+      setExportFeedback({ tone: 'error', message: 'Không thể xuất hóa đơn. Vui lòng thử lại.' })
     } finally {
       setExportingInvoices(false)
     }
@@ -56,9 +56,9 @@ export default function Reports() {
     setExportFeedback(null)
     try {
       await exportService.exportFinancialReport(filters())
-      setExportFeedback({ tone: 'success', message: 'Xuat bao cao thanh cong.' })
+      setExportFeedback({ tone: 'success', message: 'Xuất báo cáo thành công.' })
     } catch {
-      setExportFeedback({ tone: 'error', message: 'Khong the xuat bao cao. Vui long thu lai.' })
+      setExportFeedback({ tone: 'error', message: 'Không thể xuất báo cáo. Vui lòng thử lại.' })
     } finally {
       setExportingFinancialReport(false)
     }

@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.never;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.example.invoice.ai.AiDocumentResultValidator;
 import com.example.invoice.config.AiProperties;
@@ -12,6 +13,7 @@ import com.example.invoice.dto.ai.AiDocumentResult;
 import com.example.invoice.entity.Document;
 import com.example.invoice.entity.DocumentType;
 import com.example.invoice.entity.Invoice;
+import com.example.invoice.entity.OCRResult;
 import com.example.invoice.repository.ClassificationRepository;
 import com.example.invoice.repository.DocumentTypeRepository;
 import com.example.invoice.repository.ExtractedFieldRepository;
@@ -25,6 +27,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.Mock;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 @ExtendWith(MockitoExtension.class)
 class DocumentAiResultPersistenceServiceTest {
@@ -35,6 +39,26 @@ class DocumentAiResultPersistenceServiceTest {
 	@Mock private InvoiceRepository invoiceRepository;
 	@Mock private ExtractedFieldRepository extractedFieldRepository;
 	@Mock private ProcessingLogService processingLogService;
+
+	@Test
+	void successfulOcrUsesAnIndependentTransactionAndUpsertsTheExistingRow() throws Exception {
+		Transactional transaction = DocumentAiResultPersistenceService.class
+				.getMethod("persistOcr", Long.class, OcrDocumentResult.class)
+				.getAnnotation(Transactional.class);
+		assertEquals(Propagation.REQUIRES_NEW, transaction.propagation());
+
+		Document document = new Document(); document.setId(9L);
+		OCRResult existing = new OCRResult(); existing.setId(21L);
+		when(documentService.load(9L)).thenReturn(document);
+		when(ocrResultRepository.findFirstByDocumentIdOrderByProcessedAtDesc(9L)).thenReturn(Optional.of(existing));
+		when(ocrResultRepository.save(any(OCRResult.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		DocumentAiResultPersistenceService service = new DocumentAiResultPersistenceService(documentService,
+				documentTypeRepository, ocrResultRepository, classificationRepository, invoiceRepository,
+				extractedFieldRepository, processingLogService, new AiProperties());
+		service.persistOcr(9L, new OcrDocumentResult("recognized", 92f, List.of(), 15L, List.of()));
+
+		verify(ocrResultRepository).save(same(existing));
+	}
 
 	@Test
 	void reprocessUpdatesTheExistingInvoiceInsteadOfCreatingAnotherOne() {

@@ -81,7 +81,7 @@ public class DocumentService {
 	@Transactional
 	public DocumentResponse createFromUpload(MultipartFile file, Authentication authentication) {
 		if (file.isEmpty()) {
-			throw new IllegalArgumentException("Uploaded file must not be empty");
+			throw new IllegalArgumentException("Tệp tải lên không được để trống");
 		}
 
 		String originalFileName = storageService.sanitizeFileName(file.getOriginalFilename());
@@ -120,7 +120,7 @@ public class DocumentService {
 
 	@Transactional
 	public DocumentResponse uploadNewVersion(Long id, MultipartFile file, Authentication authentication) {
-		if (file.isEmpty()) throw new IllegalArgumentException("Uploaded file must not be empty");
+		if (file.isEmpty()) throw new IllegalArgumentException("Tệp tải lên không được để trống");
 		
 		Document document = load(id);
 		User user = userService.loadCurrent(authentication);
@@ -167,7 +167,7 @@ public class DocumentService {
 					.build());
 			return new InputStreamResource(stream);
 		} catch (Exception e) {
-			throw new IllegalStateException("Could not download file from MinIO", e);
+			throw new IllegalStateException("Không thể tải tệp xuống từ MinIO", e);
 		}
 	}
 
@@ -180,7 +180,7 @@ public class DocumentService {
 				.build())) {
 			return stream.readAllBytes();
 		} catch (Exception exception) {
-			throw new IllegalStateException("Could not load document content from MinIO", exception);
+			throw new IllegalStateException("Không thể tải nội dung chứng từ từ MinIO", exception);
 		}
 	}
 
@@ -217,7 +217,7 @@ public class DocumentService {
 			minioClient.putObject(PutObjectArgs.builder().bucket(bucket).object(objectKey).stream(input, bytes.length, -1).contentType(contentType).build());
 			return objectKey;
 		} catch (Exception exception) {
-			throw new IllegalStateException("Unable to store preprocessed image", exception);
+			throw new IllegalStateException("Không thể lưu ảnh đã tiền xử lý", exception);
 		}
 	}
 
@@ -280,20 +280,20 @@ public class DocumentService {
 		User user = userService.loadCurrent(auth);
 		if (hasRole(user, "ADMIN")) {
 			return documentRepository.findById(id)
-					.orElseThrow(() -> new ResourceNotFoundException("Document not found"));
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chứng từ"));
 		}
 		if (hasRole(user, "ACCOUNTANT")) {
-			if (user.getCompany() == null) throw new ResourceNotFoundException("Document not found");
+			if (user.getCompany() == null) throw new ResourceNotFoundException("Không tìm thấy chứng từ");
 			return documentRepository.findByIdAndCompanyId(id, user.getCompany().getId())
-					.orElseThrow(() -> new ResourceNotFoundException("Document not found"));
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chứng từ"));
 		}
 		if (hasRole(user, "EMPLOYEE") || hasRole(user, "USER")) {
 			return documentRepository.findByIdAndUploadedById(id, user.getId())
-					.orElseThrow(() -> new ResourceNotFoundException("Document not found"));
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chứng từ"));
 		}
-		if (user.getCompany() == null) throw new ResourceNotFoundException("Document not found");
+		if (user.getCompany() == null) throw new ResourceNotFoundException("Không tìm thấy chứng từ");
 		return documentRepository.findByIdAndCompanyId(id, user.getCompany().getId())
-				.orElseThrow(() -> new ResourceNotFoundException("Document not found"));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chứng từ"));
 	}
 
 	public DocumentResponse toResponse(Document document) {
@@ -312,11 +312,11 @@ public class DocumentService {
 					: (root, query, builder) -> builder.equal(root.get("company").get("id"), requestedCompanyId);
 		}
 		if (hasRole(user, "EMPLOYEE") || hasRole(user, "USER")) {
-			if (requestedCompanyId != null && (user.getCompany() == null || !requestedCompanyId.equals(user.getCompany().getId()))) throw new IllegalArgumentException("You cannot access another company");
+			if (requestedCompanyId != null && (user.getCompany() == null || !requestedCompanyId.equals(user.getCompany().getId()))) throw new IllegalArgumentException("Bạn không thể truy cập công ty khác");
 			return (root, query, builder) -> builder.equal(root.get("uploadedBy").get("id"), user.getId());
 		}
 		if (user.getCompany() == null) return (root, query, builder) -> builder.disjunction();
-		if (requestedCompanyId != null && !requestedCompanyId.equals(user.getCompany().getId())) throw new IllegalArgumentException("You cannot access another company");
+		if (requestedCompanyId != null && !requestedCompanyId.equals(user.getCompany().getId())) throw new IllegalArgumentException("Bạn không thể truy cập công ty khác");
 		return (root, query, builder) -> builder.equal(root.get("company").get("id"), user.getCompany().getId());
 	}
 	
@@ -332,7 +332,7 @@ public class DocumentService {
 					.contentType(file.getContentType())
 					.build());
 		} catch (Exception exception) {
-			throw new IllegalStateException("Unable to upload file to MinIO", exception);
+			throw new IllegalStateException("Không thể tải tệp lên MinIO", exception);
 		}
 	}
 

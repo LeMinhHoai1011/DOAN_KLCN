@@ -44,20 +44,20 @@ public class AiTestController {
 			return aiProcessingService.analyzeImage(new AiImageRequest(
 					file.getOriginalFilename(), file.getContentType(), file.getBytes(), prompt));
 		} catch (IOException exception) {
-			throw new BadRequestException("Could not read the uploaded image");
+			throw new BadRequestException("Không thể đọc ảnh đã tải lên");
 		}
 	}
 
 	private void validate(MultipartFile file) {
 		if (file == null || file.isEmpty()) {
-			throw new BadRequestException("An image file is required");
+			throw new BadRequestException("Vui lòng chọn một tệp ảnh");
 		}
 		String contentType = file.getContentType();
 		if (contentType == null || !contentType.toLowerCase(java.util.Locale.ROOT).startsWith("image/")) {
-			throw new BadRequestException("Only image files are supported for AI testing");
+			throw new BadRequestException("Chỉ hỗ trợ tệp ảnh khi kiểm thử AI");
 		}
 		if (file.getSize() > properties.getMaxImageSizeBytes()) {
-			throw new BadRequestException("Image exceeds the configured maximum size");
+			throw new BadRequestException("Ảnh vượt quá kích thước tối đa đã cấu hình");
 		}
 	}
 }

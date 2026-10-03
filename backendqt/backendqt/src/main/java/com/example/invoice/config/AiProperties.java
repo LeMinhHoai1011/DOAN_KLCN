@@ -30,11 +30,12 @@ public class AiProperties {
 
 	public static class Ocr {
 		private boolean enabled = true;
-		private String dataPath = "";
+		private String dataPath = "./tessdata";
 		private String language = "vie+eng";
 		private int maxPromptWords = 1200;
 		private int minimumTextLength = 40;
 		private java.math.BigDecimal goodConfidence = new java.math.BigDecimal("0.65");
+		private int reservedOutputTokens = 2048;
 
 		public boolean isEnabled() { return enabled; }
 		public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -48,6 +49,8 @@ public class AiProperties {
 		public void setMinimumTextLength(int value) { this.minimumTextLength = value; }
 		public java.math.BigDecimal getGoodConfidence() { return goodConfidence; }
 		public void setGoodConfidence(java.math.BigDecimal value) { this.goodConfidence = value; }
+		public int getReservedOutputTokens() { return reservedOutputTokens; }
+		public void setReservedOutputTokens(int value) { this.reservedOutputTokens = value; }
 	}
 
 	public static class Pdf {
@@ -76,7 +79,8 @@ public class AiProperties {
 		private String baseUrl = "http://localhost:11434";
 		private String model = "";
 		private boolean think = false;
-		private int numPredict = 4096;
+		private int numPredict = 2048;
+		private int numContext = 8192;
 
 		public String getBaseUrl() { return baseUrl; }
 		public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
@@ -86,6 +90,8 @@ public class AiProperties {
 		public void setThink(boolean think) { this.think = think; }
 		public int getNumPredict() { return numPredict; }
 		public void setNumPredict(int numPredict) { this.numPredict = numPredict; }
+		public int getNumContext() { return numContext; }
+		public void setNumContext(int numContext) { this.numContext = numContext; }
 	}
 
 	public static class Cloud {

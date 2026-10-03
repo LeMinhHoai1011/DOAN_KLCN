@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { CheckCircle2, FileType, Loader2, UploadCloud, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import documentService from '../../services/documentService';
-import type { DocumentResponse } from '../../services/documentService';
+import type { DocumentUploadResponse } from '../../services/documentService';
 import { getCurrentUser, getEffectiveRole, getErrorMessage } from '../../services/authService';
 import PageHeader from '../../components/ui/PageHeader';
 import ErrorState from '../../components/ui/ErrorState';
@@ -21,7 +21,7 @@ const AccountantUpload = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [uploadState, setUploadState] = useState<UploadState>('idle');
-  const [uploadResult, setUploadResult] = useState<DocumentResponse | null>(null);
+  const [uploadResult, setUploadResult] = useState<DocumentUploadResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const isEmployeeView = getEffectiveRole(getCurrentUser()) === 'EMPLOYEE';
   
@@ -51,7 +51,8 @@ const AccountantUpload = () => {
     try {
       const response = await documentService.uploadDocument(file);
       setUploadResult(response);
-      setUploadState('completed');
+      setUploadState(response.success ? 'completed' : 'error');
+      if (response.error) setErrorMessage(`${response.error.code}: ${response.error.message}`);
     } catch (error: unknown) {
       setUploadState('error');
       setErrorMessage(getErrorMessage(error, 'Upload hoặc xử lý AI thất bại. Vui lòng thử lại.'));
@@ -137,8 +138,8 @@ const AccountantUpload = () => {
 
               {uploadResult && (
                 <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                  <div>Đã tạo chứng từ với mã: <strong>{uploadResult.id}</strong></div>
-                  <div>Trạng thái: <strong>{uploadResult.status}</strong></div>
+                  <div>Đã tạo chứng từ với mã: <strong>{uploadResult.documentId}</strong></div>
+                  <div>Trạng thái: <strong>{uploadResult.processingStatus}</strong></div>
                 </div>
               )}
             </div>
@@ -155,8 +156,8 @@ const AccountantUpload = () => {
           <button onClick={handleCancel} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">
             Hủy
           </button>
-          {uploadState === 'completed' ? (
-            <button onClick={() => navigate(`${getBasePath()}/documents/${uploadResult?.id}`)} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors font-medium">
+          {uploadResult ? (
+            <button onClick={() => navigate(`${getBasePath()}/documents/${uploadResult?.documentId}`)} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors font-medium">
               Xem chứng từ
             </button>
           ) : (

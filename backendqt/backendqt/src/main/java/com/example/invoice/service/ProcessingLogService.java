@@ -31,14 +31,19 @@ public class ProcessingLogService {
 		Document document = documentService.load(documentId);
 		ProcessingLog log = new ProcessingLog();
 		log.setDocument(document);
-		log.setProcessType(processType);
-		log.setAgentStep(agentStep);
-		log.setStatus(status);
+		log.setProcessType(limit(processType));
+		log.setAgentStep(limit(agentStep));
+		log.setStatus(limit(status));
 		log.setConfidence(confidence);
 		log.setExecutionTime(executionTime);
-		log.setMessage(message);
-		log.setModelName(modelName);
-		log.setModelVersion(modelVersion);
+		log.setMessage(limit(message));
+		log.setModelName(limit(modelName));
+		log.setModelVersion(limit(modelVersion));
 		return processingLogRepository.save(log);
+	}
+
+	private String limit(String value) {
+		if (value == null || value.length() <= 255) return value;
+		return value.substring(0, 255);
 	}
 }

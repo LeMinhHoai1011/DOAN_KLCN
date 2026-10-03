@@ -8,7 +8,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 public record FinancialTransactionRequest(
-		@NotBlank @Pattern(regexp = "INCOME|EXPENSE", message = "transactionType must be INCOME or EXPENSE") String transactionType,
+		@NotBlank @Pattern(regexp = "INCOME|EXPENSE", message = "Loại giao dịch phải là INCOME hoặc EXPENSE") String transactionType,
 		@NotNull @DecimalMin(value = "0.01") BigDecimal amount,
 		@NotNull LocalDate transactionDate,
 		String description,

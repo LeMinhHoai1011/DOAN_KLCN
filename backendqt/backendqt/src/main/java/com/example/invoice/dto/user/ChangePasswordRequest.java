@@ -8,7 +8,7 @@ public record ChangePasswordRequest(
 		@NotBlank String currentPassword,
 		@NotBlank
 		@Size(min = 8, max = 100)
-		@Pattern(regexp = ".*\\d.*", message = "New password must contain at least one number")
-		@Pattern(regexp = ".*[A-Za-z].*", message = "New password must contain at least one letter")
+		@Pattern(regexp = ".*\\d.*", message = "Mật khẩu mới phải chứa ít nhất một chữ số")
+		@Pattern(regexp = ".*[A-Za-z].*", message = "Mật khẩu mới phải chứa ít nhất một chữ cái")
 		String newPassword) {
 }

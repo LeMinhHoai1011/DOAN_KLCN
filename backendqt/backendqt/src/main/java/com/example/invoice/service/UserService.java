@@ -44,10 +44,10 @@ public class UserService {
 	@Transactional
 	public UserResponse createByAdmin(AdminCreateUserRequest request) {
 		if (userRepository.existsByUsername(request.username())) {
-			throw new BadRequestException("Username already exists");
+			throw new BadRequestException("Tên đăng nhập đã tồn tại");
 		}
 		if (userRepository.existsByEmail(request.email())) {
-			throw new BadRequestException("Email already exists");
+			throw new BadRequestException("Email đã tồn tại");
 		}
 
 		User user = new User();
@@ -61,7 +61,7 @@ public class UserService {
 
 		if (request.role() != null) {
 			Role role = roleRepository.findByCode(request.role().name())
-					.orElseThrow(() -> new ResourceNotFoundException("Role not found"));
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy vai trò"));
 			replaceRoleAssignments(user, List.of(role));
 		}
 
@@ -71,14 +71,14 @@ public class UserService {
 	@Transactional
 	public UserResponse updateByAdmin(Long id, AdminUpdateUserRequest request) {
 		User user = userRepository.findById(id)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
 		if (request.status() != null) user.setStatus(request.status());
 		if (request.companyId() != null) user.setCompany(loadCompany(request.companyId()));
 
 		if (request.role() != null) {
 			user.setRole(request.role()); // Legacy enum
 			Role role = roleRepository.findByCode(request.role().name())
-					.orElseThrow(() -> new ResourceNotFoundException("Role not found"));
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy vai trò"));
 			boolean alreadyAssigned = user.getUserRoles().stream()
 					.anyMatch(assignment -> assignment.getRole().getId().equals(role.getId()));
 			if (!alreadyAssigned) {
@@ -103,10 +103,10 @@ public class UserService {
 	public void changePassword(Authentication authentication, ChangePasswordRequest request) {
 		User user = loadCurrent(authentication);
 		if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
-			throw new BadRequestException("Current password is incorrect");
+			throw new BadRequestException("Mật khẩu hiện tại không đúng");
 		}
 		if (passwordEncoder.matches(request.newPassword(), user.getPassword())) {
-			throw new BadRequestException("New password must be different from the current password");
+			throw new BadRequestException("Mật khẩu mới phải khác mật khẩu hiện tại");
 		}
 		user.setPassword(passwordEncoder.encode(request.newPassword()));
 	}
@@ -114,10 +114,10 @@ public class UserService {
 	@Transactional
 	public UserResponse assignRoles(Long userId, AssignRolesRequest request) {
 		User user = userRepository.findById(userId)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
 		List<Role> roles = roleRepository.findAllById(request.roleIds());
 		if (roles.size() != request.roleIds().size()) {
-			throw new BadRequestException("One or more role IDs are invalid");
+			throw new BadRequestException("Một hoặc nhiều mã vai trò không hợp lệ");
 		}
 		replaceRoleAssignments(user, roles);
 		// Sync legacy enum with the primary role (first role in set)
@@ -143,7 +143,7 @@ public class UserService {
 
 	public User loadCurrent(Authentication authentication) {
 		return userRepository.findByUsername(authentication.getName())
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
 	}
 
 	private Company loadCompany(Long companyId) {
@@ -151,6 +151,6 @@ public class UserService {
 			return null;
 		}
 		return companyRepository.findById(companyId)
-				.orElseThrow(() -> new ResourceNotFoundException("Company not found"));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công ty"));
 	}
 }
