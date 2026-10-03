@@ -7,6 +7,13 @@ import org.junit.jupiter.api.Test;
 
 class OcrTextNormalizerTest {
 	@Test
+	void enforcesConfiguredMaximumWordCount() {
+		AiProperties properties = new AiProperties();
+		properties.getOcr().setMaxPromptWords(3);
+		String result = new OcrTextNormalizer(properties).normalizeAndCompact("one two three four five");
+		assertThat(result.split("\\s+")).hasSize(3);
+	}
+	@Test
 	void removesDuplicateLinesAndOcrNoise() {
 		OcrTextNormalizer normalizer = new OcrTextNormalizer(new AiProperties());
 		String result = normalizer.normalizeAndCompact("  HÓA   ĐƠN  \n\nHÓA   ĐƠN\nTổng::::::: 1.100.000\u0000");

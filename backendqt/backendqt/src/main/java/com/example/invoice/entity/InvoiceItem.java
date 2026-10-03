@@ -27,12 +27,13 @@ public class InvoiceItem {
 	@JoinColumn(name = "invoice_id", nullable = false)
 	private Invoice invoice;
 
-	@Column(name = "item_name", nullable = false)
+	@Column(name = "item_name", nullable = false, columnDefinition = "text")
 	private String productName;
 
 	@Column(precision = 19, scale = 2)
 	private BigDecimal quantity;
 
+	@Column(length = 100)
 	private String unit;
 
 	@Column(precision = 19, scale = 2)

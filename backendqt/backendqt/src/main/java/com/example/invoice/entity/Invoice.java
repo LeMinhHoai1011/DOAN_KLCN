@@ -35,14 +35,22 @@ public class Invoice {
 	@JoinColumn(name = "document_id", nullable = false, unique = true)
 	private Document document;
 
+	@Column(length = 255)
 	private String invoiceNumber;
+	@Column(length = 255)
 	private String invoiceSeries;
 	private LocalDate invoiceDate;
+	@Column(columnDefinition = "text")
 	private String sellerName;
+	@Column(length = 255)
 	private String sellerTaxCode;
+	@Column(columnDefinition = "text")
 	private String sellerAddress;
+	@Column(columnDefinition = "text")
 	private String buyerName;
+	@Column(length = 255)
 	private String buyerTaxCode;
+	@Column(columnDefinition = "text")
 	private String buyerAddress;
 
 	@Column(name = "total_before_tax", precision = 19, scale = 2)

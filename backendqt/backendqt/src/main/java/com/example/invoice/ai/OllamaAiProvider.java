@@ -68,6 +68,7 @@ public class OllamaAiProvider implements AiProvider {
 	}
 
 	private AiProviderResponse generate(String prompt, List<String> images, int imageBytes) {
+		validateTokenConfiguration();
 		String model = required(properties.getOllama().getModel(), "Phải cấu hình mô hình AI Ollama");
 		String endpoint = required(properties.getOllama().getBaseUrl(), "Phải cấu hình URL cơ sở của AI Ollama")
 				.replaceAll("/+$", "") + "/api/generate";
@@ -75,8 +76,7 @@ public class OllamaAiProvider implements AiProvider {
 			throw new BadRequestException("Thời gian chờ yêu cầu AI phải lớn hơn 0");
 		}
 		int estimatedInputTokens = estimateInputTokens(prompt, images.size());
-		int inputBudget = Math.max(512, properties.getOllama().getNumContext()
-				- properties.getOcr().getReservedOutputTokens());
+		int inputBudget = properties.getOllama().getNumContext() - properties.getOcr().getReservedOutputTokens();
 		if (estimatedInputTokens > inputBudget) {
 			throw new AiProviderException("AI_CONTEXT_EXCEEDED: đầu vào AI ước tính " + estimatedInputTokens
 					+ " token, vượt ngân sách " + inputBudget + " token");
@@ -88,11 +88,13 @@ public class OllamaAiProvider implements AiProvider {
 				images,
 				false,
 				"json",
-				properties.getOllama().isThink() ? Boolean.TRUE : null,
+				properties.getOllama().isThink(),
 				new OllamaOptions(properties.getOllama().getNumPredict(), properties.getOllama().getNumContext())));
 		OkHttpClient client = configuredClient();
-		log.info("Ollama request provider={} endpoint={} model={} context={} inputBudget={} estimatedInputTokens={} imageBytes={} imageCount={} payloadLength={} promptLength={} timeout={}",
-				providerName(), endpoint, model, properties.getOllama().getNumContext(), inputBudget, estimatedInputTokens,
+		String requestMode = images.isEmpty() ? "TEXT" : "VISION";
+		log.info("Ollama request provider={} endpoint={} model={} requestMode={} numContext={} numPredict={} reservedOutputTokens={} inputBudget={} estimatedInputTokens={} imageBytes={} imageCount={} payloadLength={} promptLength={} timeout={}",
+				providerName(), endpoint, model, requestMode, properties.getOllama().getNumContext(),
+				properties.getOllama().getNumPredict(), properties.getOcr().getReservedOutputTokens(), inputBudget, estimatedInputTokens,
 				imageBytes, images.size(), payload.length(), prompt.length(),
 				properties.getRequestTimeout());
 		Request httpRequest = new Request.Builder()
@@ -108,6 +110,8 @@ public class OllamaAiProvider implements AiProvider {
 			log.info("Ollama response status={} durationMs={} done={} doneReason={} responseLength={} thinkingLength={}",
 					response.code(), durationMs, body.path("done").asBoolean(false), body.path("done_reason").asText(""),
 					body.path("response").asText("").length(), body.path("thinking").asText("").length());
+			log.debug("Ollama response preview={} thinkingPreview={}", preview(body.path("response").asText("")),
+					preview(body.path("thinking").asText("")));
 			if (!response.isSuccessful()) {
 				String providerError = providerError(body);
 				if (providerError.length() > 500) providerError = providerError.substring(0, 500);
@@ -161,29 +165,77 @@ public class OllamaAiProvider implements AiProvider {
 	}
 
 	String selectGeneratedContent(JsonNode body) {
-		String response = extractJsonObject(body.path("response").asText(""));
-		if (response != null) return response;
-		String thinking = extractJsonObject(body.path("thinking").asText(""));
-		if (thinking != null) return thinking;
-		if (body.path("response").asText("").isBlank() && body.path("thinking").asText("").isBlank())
+		String generated = body.path("response").asText("");
+		String thinking = body.path("thinking").asText("");
+		if (!generated.isBlank()) {
+			String trimmed = generated.trim();
+			try {
+				JsonNode parsed = objectMapper.readTree(trimmed);
+				if (parsed.isObject()) return trimmed;
+			} catch (JsonProcessingException ignored) {
+				// Compatibility path for models that wrap JSON in prose or a code fence.
+			}
+			String extracted = extractJsonObject(trimmed);
+			if (extracted != null) return extracted;
+		}
+		if (generated.isBlank() && !thinking.isBlank()) {
+			try {
+				String compatibilityContent = thinking.trim();
+				if (objectMapper.readTree(compatibilityContent).isObject()) {
+					log.warn("Ollama compatibility fallback accepted a JSON object from thinking because response was blank");
+					return compatibilityContent;
+				}
+			} catch (JsonProcessingException ignored) {
+				// Reasoning text is never treated as business output.
+			}
+		}
+		if (generated.isBlank() && thinking.isBlank())
 			throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: Ollama không trả về nội dung đã sinh");
-		throw new AiProviderException("OLLAMA_EMPTY_RESPONSE: phản hồi và nội dung suy luận không chứa đối tượng JSON hợp lệ");
+		throw new AiProviderException("OLLAMA_INVALID_JSON: response của Ollama không chứa đối tượng JSON hợp lệ");
 	}
 
 	private String extractJsonObject(String content) {
 		if (content == null || content.isBlank()) return null;
-		int start = content.indexOf('{'), depth = 0;
-		if (start < 0) return null;
-		for (int index = start; index < content.length(); index++) {
+		for (int start = content.indexOf('{'); start >= 0; start = content.indexOf('{', start + 1)) {
+			int depth = 0;
+			boolean inString = false;
+			boolean escaped = false;
+			for (int index = start; index < content.length(); index++) {
 			char value = content.charAt(index);
-			if (value == '{') depth++;
-			else if (value == '}' && --depth == 0) {
-				String candidate = content.substring(start, index + 1);
-				try { return objectMapper.readTree(candidate).isObject() ? candidate : null; }
-				catch (JsonProcessingException ignored) { return null; }
+				if (inString) {
+					if (escaped) escaped = false;
+					else if (value == '\\') escaped = true;
+					else if (value == '"') inString = false;
+					continue;
+				}
+				if (value == '"') inString = true;
+				else if (value == '{') depth++;
+				else if (value == '}' && --depth == 0) {
+					String candidate = content.substring(start, index + 1);
+					try {
+						if (objectMapper.readTree(candidate).isObject()) return candidate;
+					} catch (JsonProcessingException ignored) {
+						break;
+					}
+				}
 			}
 		}
 		return null;
+	}
+
+	private void validateTokenConfiguration() {
+		int context = properties.getOllama().getNumContext();
+		int predict = properties.getOllama().getNumPredict();
+		int reserved = properties.getOcr().getReservedOutputTokens();
+		if (context <= 0 || predict <= 0 || reserved <= 0 || context <= reserved || reserved > predict) {
+			throw new BadRequestException("Cấu hình token AI không hợp lệ: numContext và numPredict phải dương, "
+					+ "0 < reservedOutputTokens <= numPredict và reservedOutputTokens < numContext");
+		}
+	}
+
+	private String preview(String value) {
+		String sanitized = value == null ? "" : value.replaceAll("[\\r\\n\\t\\p{Cntrl}]", " ").trim();
+		return sanitized.substring(0, Math.min(400, sanitized.length()));
 	}
 
 	private JsonNode parseResponse(String rawResponse) {
@@ -202,6 +254,7 @@ public class OllamaAiProvider implements AiProvider {
 
 	String classifyHttpFailure(int status, String providerError) {
 		String normalized = providerError == null ? "" : providerError.toLowerCase(java.util.Locale.ROOT);
+		if (normalized.contains("model") && normalized.contains("not found")) return "OLLAMA_MODEL_NOT_FOUND";
 		if (normalized.contains("context size") || normalized.contains("context length")
 				|| normalized.contains("exceed_context") || normalized.contains("too many tokens"))
 			return "AI_CONTEXT_EXCEEDED";

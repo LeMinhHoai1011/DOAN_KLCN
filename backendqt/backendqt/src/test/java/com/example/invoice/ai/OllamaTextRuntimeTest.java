@@ -17,7 +17,6 @@ class OllamaTextRuntimeTest {
 		properties.getOllama().setBaseUrl("http://localhost:11434");
 		properties.getOllama().setModel(System.getenv("OLLAMA_RUNTIME_MODEL"));
 		properties.getOllama().setThink(false);
-		properties.getOllama().setNumPredict(256);
 		properties.setRequestTimeout(java.time.Duration.ofMinutes(2));
 		OllamaAiProvider provider = new OllamaAiProvider(properties, new ObjectMapper(), new OkHttpClient());
 		var response = provider.analyzeText(new AiTextRequest("runtime.txt",

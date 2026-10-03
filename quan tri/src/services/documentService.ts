@@ -77,7 +77,10 @@ export interface ExtractedFieldResponse {
   fieldValue: string | null
   source: string | null
   confidence: number | null
-  locations?: Array<{ page: number; x: number; y: number; width: number; height: number }>
+  locations?: Array<{
+    page: number; x: number; y: number; width: number; height: number
+    pageWidth: number; pageHeight: number; matchConfidence: number
+  }>
 }
 
 export interface AiDocumentProcessingResponse {

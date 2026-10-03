@@ -2,6 +2,7 @@ package com.example.invoice.service;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -10,6 +11,7 @@ import com.example.invoice.ai.AiProcessingService;
 import com.example.invoice.dto.ai.AiDocumentRequest;
 import com.example.invoice.dto.ai.AiDocumentResult;
 import com.example.invoice.entity.Document;
+import com.example.invoice.exception.AiProviderException;
 import com.example.invoice.repository.AccountingCategoryRepository;
 import com.example.invoice.repository.DocumentTypeRepository;
 import java.math.BigDecimal;
@@ -18,6 +20,41 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 class DocumentVisionFallbackPageSelectionTest {
+	@Test
+	void invalidTextOutputRetriesOnceThenSucceedsWithoutVision() {
+		Fixture fixture = fixture(1);
+		AiDocumentResult result = result();
+		when(fixture.ai.analyzeTextDocument(any()))
+				.thenThrow(new AiProviderException("OLLAMA_INVALID_JSON: invalid"))
+				.thenReturn(result);
+		AiDocumentResult actual = fixture.service.analyzeSingleImage("invoice.png", "image/png", new byte[] {1},
+				List.of("INVOICE"), List.of(), null, reliableOcr());
+		assertEquals(result, actual);
+		verify(fixture.ai, times(2)).analyzeTextDocument(any());
+		verify(fixture.ai, never()).analyzeDocument(any());
+	}
+
+	@Test
+	void twoInvalidTextOutputsFallBackToVisionWithoutAThirdTextRequest() {
+		Fixture fixture = fixture(1);
+		AiDocumentResult vision = result();
+		when(fixture.ai.analyzeTextDocument(any())).thenThrow(new AiProviderException("OLLAMA_INVALID_JSON: invalid"));
+		when(fixture.ai.analyzeDocument(any())).thenReturn(vision);
+		assertEquals(vision, fixture.service.analyzeSingleImage("invoice.png", "image/png", new byte[] {1},
+				List.of("INVOICE"), List.of(), null, reliableOcr()));
+		verify(fixture.ai, times(2)).analyzeTextDocument(any());
+		verify(fixture.ai, times(1)).analyzeDocument(any());
+	}
+
+	@Test
+	void connectionFailureIsNotRetriedAndDoesNotFallBackToVision() {
+		Fixture fixture = fixture(1);
+		when(fixture.ai.analyzeTextDocument(any())).thenThrow(new AiProviderException("AI_CONNECTION_ERROR: refused"));
+		assertThrows(AiProviderException.class, () -> fixture.service.analyzeSingleImage("invoice.png", "image/png",
+				new byte[] {1}, List.of("INVOICE"), List.of(), null, reliableOcr()));
+		verify(fixture.ai, times(1)).analyzeTextDocument(any());
+		verify(fixture.ai, never()).analyzeDocument(any());
+	}
 	@Test
 	void goodPageOneLowPageTwoSendsPageTwo() {
 		Fixture fixture = fixture(2);
@@ -68,6 +105,15 @@ class DocumentVisionFallbackPageSelectionTest {
 				mock(OCRResultService.class), ai, mock(AiDocumentResultValidator.class), mock(DocumentAiResultPersistenceService.class),
 				mock(ProcessingLogService.class), pdf);
 		return new Fixture(service, ai, document);
+	}
+
+	private AiDocumentResult result() {
+		return new AiDocumentResult("ollama", "vision", "INVOICE", BigDecimal.ONE,
+				null, null, List.of(), List.of(), "{}", 1);
+	}
+
+	private OcrPageResult reliableOcr() {
+		return new OcrPageResult(1, 100, 100, "invoice 41NVNO036", 95f, List.of(), 1L, null, "vie+eng");
 	}
 
 	private DocumentTextExtractionResult extraction(DocumentTextExtractionResult.PageText... pages) {

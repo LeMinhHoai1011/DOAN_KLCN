@@ -15,6 +15,24 @@ public final class AiDocumentPromptFactory {
 		return create(allowedDocumentTypes, allowedAccountingCategories, companyName, companyTaxCode, null);
 	}
 
+	public static String forTextExtraction(String prompt) {
+		return prompt + """
+
+			TEXT-FIRST RULES:
+			rawText must be null. Do not copy or reproduce SOURCE TEXT/OCR context into rawText.
+			Use invoice only for the standard invoice schema. Use fields only for required core fields and extraFields only for other visible document-specific values.
+			Never duplicate one value across invoice, fields, and extraFields. Prefer the invoice schema for invoice values.
+			Keep reasons and warnings concise. Do not repeat source text or extracted information. Return every visible invoice item exactly once without evidence or explanation text.
+			""";
+	}
+
+	public static String strictRetry(String textPrompt) {
+		return textPrompt + """
+
+			RETRY REQUIREMENT: Return exactly one valid JSON object matching the required schema. No markdown, explanation, reasoning, or repeated OCR source text.
+			""";
+	}
+
 	public static String create(List<String> allowedDocumentTypes, List<String> allowedAccountingCategories,
 			String companyName, String companyTaxCode, String ocrContext) {
 		return """

@@ -58,6 +58,12 @@ if ($AiProvider -notin @('ollama', 'cloud')) { Stop-WithError "Unsupported AI pr
 $Ollama = $Config.ai.ollama; $Cloud = $Config.ai.cloud
 $ollamaPort = if ($Service -eq 'ollama' -and $PSBoundParameters.ContainsKey('Port')) { $Port }else { [int]$Ollama.port }
 $ollamaModel = if ($Service -eq 'ollama' -and $PSBoundParameters.ContainsKey('Model')) { $Model }else { [string]$Ollama.model }
+$ollamaNumContext = if ($null -ne $Ollama.numContext) { [int]$Ollama.numContext }else { 8192 }
+$ollamaNumPredict = if ($null -ne $Ollama.numPredict) { [int]$Ollama.numPredict }else { 3072 }
+$aiReservedOutputTokens = if ($null -ne $Ollama.reservedOutputTokens) { [int]$Ollama.reservedOutputTokens }else { 3072 }
+if ($ollamaNumContext -le 0 -or $ollamaNumPredict -le 0 -or $aiReservedOutputTokens -le 0 -or $aiReservedOutputTokens -gt $ollamaNumPredict -or $aiReservedOutputTokens -ge $ollamaNumContext) {
+    Stop-WithError 'Invalid AI token configuration: numContext and numPredict must be positive, 0 < reservedOutputTokens <= numPredict, and reservedOutputTokens < numContext.'
+}
 $backendDir = Join-Path $ProjectRoot $Config.paths.backend; $frontendDir = Join-Path $ProjectRoot $Config.paths.frontend
 function Start-Minio {
 	Require-Secret 'MINIO_ACCESS_KEY'; Require-Secret 'MINIO_SECRET_KEY'
@@ -97,7 +103,7 @@ function Start-Backend {
     if ($env:DEMO_ADMIN_ENABLED -ne 'false' -and ([string]::IsNullOrWhiteSpace($env:DEMO_ADMIN_PASSWORD) -or $env:DEMO_ADMIN_PASSWORD -match '^(YOUR_|CHANGE_ME|PLACEHOLDER)')) {
         Write-Warning 'DEMO_ADMIN_PASSWORD is missing or still a placeholder. Set a real value before using the demo admin account.'
     }
-    $env:SERVER_PORT = $backendPort; $env:DB_HOST = $Config.database.host; $env:DB_PORT = $Config.database.port; $env:DB_NAME = $Config.database.database; $env:DB_USERNAME = $Config.database.username; $env:MINIO_ENDPOINT = "http://$($Config.minio.host):$($Config.minio.apiPort)"; $env:MINIO_BUCKET = $Config.minio.bucket; $env:AI_PROVIDER = $AiProvider; $env:OLLAMA_BASE_URL = "http://$($Ollama.host):$ollamaPort"; $env:OLLAMA_MODEL = $ollamaModel; $env:AI_TIMEOUT = "$($Ollama.timeoutSeconds)s"; $env:AI_CLOUD_BASE_URL = $Cloud.baseUrl; $env:AI_CLOUD_MODEL = $Cloud.model; $env:AI_CLOUD_CHAT_COMPLETIONS_PATH = $Cloud.chatCompletionsPath; $env:AI_CLOUD_TIMEOUT = "$($Cloud.timeoutSeconds)s"
+    $env:SERVER_PORT = $backendPort; $env:DB_HOST = $Config.database.host; $env:DB_PORT = $Config.database.port; $env:DB_NAME = $Config.database.database; $env:DB_USERNAME = $Config.database.username; $env:MINIO_ENDPOINT = "http://$($Config.minio.host):$($Config.minio.apiPort)"; $env:MINIO_BUCKET = $Config.minio.bucket; $env:AI_PROVIDER = $AiProvider; $env:OLLAMA_BASE_URL = "http://$($Ollama.host):$ollamaPort"; $env:OLLAMA_MODEL = $ollamaModel; $env:AI_TIMEOUT = "$($Ollama.timeoutSeconds)s"; $env:OLLAMA_NUM_CONTEXT = $ollamaNumContext; $env:OLLAMA_NUM_PREDICT = $ollamaNumPredict; $env:AI_RESERVED_OUTPUT_TOKENS = $aiReservedOutputTokens; $env:AI_CLOUD_BASE_URL = $Cloud.baseUrl; $env:AI_CLOUD_MODEL = $Cloud.model; $env:AI_CLOUD_CHAT_COMPLETIONS_PATH = $Cloud.chatCompletionsPath; $env:AI_CLOUD_TIMEOUT = "$($Cloud.timeoutSeconds)s"
     Start-Window $backendDir '& .\mvnw.cmd spring-boot:run'; Write-Host "Starting backend: http://$($Config.backend.host):$backendPort"; Wait-Port 'Backend' $Config.backend.host $backendPort; Wait-Http 'Backend' "http://$($Config.backend.host):$backendPort/swagger-ui.html"
 }
 function Start-Frontend {

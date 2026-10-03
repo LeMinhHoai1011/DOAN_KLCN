@@ -16,6 +16,12 @@ public class AiDocumentResultValidator {
 	private static final Pattern TAX_CODE = Pattern.compile("\\d{10}(?:-\\d{3})?");
 	private static final Pattern EXTRA_FIELD_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9]*");
 	private static final BigDecimal MONEY_TOLERANCE = new BigDecimal("0.01");
+	public static final int MAX_INVOICE_NUMBER_LENGTH = 255;
+	public static final int MAX_INVOICE_SERIES_LENGTH = 255;
+	public static final int MAX_TAX_CODE_LENGTH = 255;
+	private static final int MAX_REASONABLE_NAME_LENGTH = 1000;
+	private static final int MAX_REASONABLE_ADDRESS_LENGTH = 4000;
+	private static final int MAX_REASONABLE_ITEM_NAME_LENGTH = 2000;
 
 	public ValidatedAiDocumentResult validate(AiDocumentResult result, Set<String> allowedTypes) {
 		if (result.documentType() == null || !allowedTypes.contains(result.documentType())) {
@@ -23,11 +29,22 @@ public class AiDocumentResultValidator {
 		}
 		List<String> warnings = new ArrayList<>(result.warnings() == null ? List.of() : result.warnings());
 		BigDecimal confidence = normalizeConfidence(result.classificationConfidence(), warnings);
+		if (isInvoiceType(result.documentType()) && result.invoice() == null) {
+			warnings.add("AI classified the document as INVOICE but structured invoice extraction is missing.");
+		}
 		validateInvoice(result.invoice(), warnings);
 		validateTransactionAssessment(result.transactionAssessment(), warnings);
 		validateCompanyRole(result.companyRole(), warnings);
 		validateExtraFields(result.extraFields(), warnings);
 		return new ValidatedAiDocumentResult(result, confidence, List.copyOf(warnings));
+	}
+
+	private boolean isInvoiceType(String typeCode) {
+		if (typeCode == null) return false;
+		String normalized = typeCode.trim().toUpperCase(java.util.Locale.ROOT)
+				.replace('-', '_').replace(' ', '_');
+		return "INVOICE".equals(normalized) || "VAT_INVOICE".equals(normalized)
+				|| normalized.endsWith("_INVOICE");
 	}
 
 	private BigDecimal normalizeConfidence(BigDecimal value, List<String> warnings) {
@@ -43,6 +60,18 @@ public class AiDocumentResultValidator {
 
 	private void validateInvoice(AiDocumentResult.AiInvoiceExtraction invoice, List<String> warnings) {
 		if (invoice == null) return;
+		warnLength(invoice.invoiceNumber(), MAX_INVOICE_NUMBER_LENGTH, "INVOICE_NUMBER_INVALID_LENGTH", warnings);
+		warnLength(invoice.invoiceSeries(), MAX_INVOICE_SERIES_LENGTH, "INVOICE_SERIES_INVALID_LENGTH", warnings);
+		warnLength(invoice.sellerTaxCode(), MAX_TAX_CODE_LENGTH, "SELLER_TAX_CODE_INVALID_LENGTH", warnings);
+		warnLength(invoice.buyerTaxCode(), MAX_TAX_CODE_LENGTH, "BUYER_TAX_CODE_INVALID_LENGTH", warnings);
+		warnLength(invoice.sellerName(), MAX_REASONABLE_NAME_LENGTH, "SELLER_NAME_ABNORMAL_LENGTH", warnings);
+		warnLength(invoice.buyerName(), MAX_REASONABLE_NAME_LENGTH, "BUYER_NAME_ABNORMAL_LENGTH", warnings);
+		warnLength(invoice.sellerAddress(), MAX_REASONABLE_ADDRESS_LENGTH, "SELLER_ADDRESS_ABNORMAL_LENGTH", warnings);
+		warnLength(invoice.buyerAddress(), MAX_REASONABLE_ADDRESS_LENGTH, "BUYER_ADDRESS_ABNORMAL_LENGTH", warnings);
+		if (invoice.items() != null) invoice.items().forEach(item -> {
+			if (item != null) warnLength(item.productName(), MAX_REASONABLE_ITEM_NAME_LENGTH,
+					"INVOICE_ITEM_NAME_ABNORMAL_LENGTH", warnings);
+		});
 		if (invoice.sellerTaxCode() != null && !TAX_CODE.matcher(invoice.sellerTaxCode().trim()).matches()) {
 			warnings.add("Seller tax code has an unexpected format");
 		}
@@ -60,6 +89,10 @@ public class AiDocumentResultValidator {
 				&& invoice.subtotal().add(invoice.vatAmount()).subtract(invoice.totalAmount()).abs().compareTo(MONEY_TOLERANCE) > 0) {
 			warnings.add("Tổng tiền trước thuế cộng VAT không khớp với tổng thanh toán");
 		}
+	}
+
+	private void warnLength(String value, int maximum, String code, List<String> warnings) {
+		if (value != null && value.length() > maximum) warnings.add(code + ": length=" + value.length() + ", max=" + maximum);
 	}
 
 	private void validateTransactionAssessment(AiDocumentResult.AiTransactionAssessment assessment, List<String> warnings) {

@@ -22,6 +22,7 @@
     "chart.js": "^4.5.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.45.0",
+    "pdfjs-dist": "^6.3.289",
     "postcss": "^8.5.28",
     "react": "^19.3.0",
     "react-chartjs-2": "^5.3.1",

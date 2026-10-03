@@ -51,7 +51,8 @@ public class DocumentUploadProcessingService {
 	private String errorCode(RuntimeException exception) {
 		String message = exception.getMessage() == null ? "" : exception.getMessage().toUpperCase(java.util.Locale.ROOT);
 		for (String code : java.util.List.of("OCR_LANGUAGE_DATA_MISSING", "OCR_FAILED", "AI_CONTEXT_EXCEEDED",
-				"OLLAMA_TIMEOUT", "AI_CONNECTION_ERROR", "AI_INVALID_RESPONSE", "PERSISTENCE_FAILED"))
+				"OLLAMA_TIMEOUT", "OLLAMA_EMPTY_RESPONSE", "OLLAMA_INVALID_JSON", "OLLAMA_TOKEN_LIMIT",
+				"OLLAMA_MODEL_NOT_FOUND", "AI_CONNECTION_ERROR", "AI_INVALID_RESPONSE", "PERSISTENCE_FAILED"))
 			if (message.contains(code)) return code;
 		return "AI_PROCESSING_FAILED";
 	}

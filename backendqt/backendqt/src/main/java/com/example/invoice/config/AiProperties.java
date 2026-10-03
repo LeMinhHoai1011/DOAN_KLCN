@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "ai")
 public class AiProperties {
 	private String provider = "ollama";
-	private Duration requestTimeout = Duration.ofSeconds(60);
+	private Duration requestTimeout = Duration.ofSeconds(120);
 	private long maxImageSizeBytes = 10 * 1024 * 1024;
 	private final Ollama ollama = new Ollama();
 	private final Cloud cloud = new Cloud();
@@ -32,10 +32,10 @@ public class AiProperties {
 		private boolean enabled = true;
 		private String dataPath = "./tessdata";
 		private String language = "vie+eng";
-		private int maxPromptWords = 1200;
+		private int maxPromptWords = 600;
 		private int minimumTextLength = 40;
 		private java.math.BigDecimal goodConfidence = new java.math.BigDecimal("0.65");
-		private int reservedOutputTokens = 2048;
+		private int reservedOutputTokens = 3072;
 
 		public boolean isEnabled() { return enabled; }
 		public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -79,7 +79,7 @@ public class AiProperties {
 		private String baseUrl = "http://localhost:11434";
 		private String model = "";
 		private boolean think = false;
-		private int numPredict = 2048;
+		private int numPredict = 3072;
 		private int numContext = 8192;
 
 		public String getBaseUrl() { return baseUrl; }

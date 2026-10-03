@@ -6,7 +6,15 @@
   "minio": { "host": "localhost", "apiPort": 9000, "consolePort": 9001, "bucket": "invoices" },
   "ai": {
     "provider": "ollama",
-    "ollama": { "host": "localhost", "port": 11434, "model": "qwen3-vl:8b", "timeoutSeconds": 120 },
+    "ollama": {
+      "host": "localhost",
+      "port": 11434,
+      "model": "qwen3-vl:8b",
+      "timeoutSeconds": 120,
+      "numContext": 8192,
+      "numPredict": 3072,
+      "reservedOutputTokens": 3072
+    },
     "cloud": { "baseUrl": "", "model": "", "chatCompletionsPath": "/chat/completions", "timeoutSeconds": 120 }
   }
 }

@@ -15,6 +15,7 @@ import com.example.invoice.entity.Document;
 import com.example.invoice.entity.DocumentStatus;
 import com.example.invoice.entity.DocumentType;
 import com.example.invoice.exception.BadRequestException;
+import com.example.invoice.exception.AiProviderException;
 import com.example.invoice.repository.AccountingCategoryRepository;
 import com.example.invoice.repository.DocumentTypeRepository;
 import java.math.BigDecimal;
@@ -192,7 +193,7 @@ public class DocumentAiProcessingService {
 		return new AiDocumentProcessingResponse(documentId, status, requiresReview, List.copyOf(warnings), metadata);
 	}
 
-	private AiDocumentResult analyzeSingleImage(String fileName, String contentType, byte[] bytes,
+	AiDocumentResult analyzeSingleImage(String fileName, String contentType, byte[] bytes,
 			List<String> documentTypes, List<String> categoryCodes, Company company, OcrPageResult ocr) {
 		String normalizedText = normalizeOcrText(ocr == null ? null : ocr.text());
 		String prompt = AiDocumentPromptFactory.create(documentTypes, categoryCodes,
@@ -203,11 +204,35 @@ public class DocumentAiProcessingService {
 			log.info("AI text input file={} ocrChars={} ocrWords={} confidence={} context={} reservedOutput={}",
 					fileName, normalizedText.length(), ocr.words().size(), ocr.confidence(),
 					aiProperties.getOllama().getNumContext(), aiProperties.getOcr().getReservedOutputTokens());
-			return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText, prompt));
+			String textPrompt = AiDocumentPromptFactory.forTextExtraction(prompt);
+			try {
+				log.info("AI structured extraction file={} requestMode=TEXT retryAttempt=0", fileName);
+				return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText, textPrompt));
+			} catch (AiProviderException firstFailure) {
+				if (!isStructuredOutputFailure(firstFailure)) throw firstFailure;
+				try {
+					log.warn("AI structured extraction retry file={} requestMode=TEXT retryAttempt=1 code={}",
+							fileName, errorCode(firstFailure));
+					return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText,
+							AiDocumentPromptFactory.strictRetry(textPrompt)));
+				} catch (AiProviderException retryFailure) {
+					if (!isStructuredOutputFailure(retryFailure)) throw retryFailure;
+					log.warn("AI text extraction exhausted; falling back to vision file={} requestMode=VISION retryAttempt=0 code={}",
+							fileName, errorCode(retryFailure));
+					return aiProcessingService.analyzeDocument(new AiDocumentRequest(
+							fileName, contentType, bytes, documentTypes, prompt));
+				}
+			}
 		}
 		log.info("AI vision fallback file={} reason={} imageBytes={}", fileName,
 				ocr == null ? "OCR_UNAVAILABLE" : "OCR_LOW_CONFIDENCE", bytes.length);
 		return aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt));
+	}
+
+	private boolean isStructuredOutputFailure(AiProviderException exception) {
+		String message = exception.getMessage() == null ? "" : exception.getMessage().toUpperCase(Locale.ROOT);
+		return message.contains("OLLAMA_EMPTY_RESPONSE") || message.contains("OLLAMA_INVALID_JSON")
+				|| message.contains("OLLAMA_TOKEN_LIMIT") || message.contains("AI_JSON_PARSE_ERROR");
 	}
 
 	private List<PageAnalysis> analyzePdfPages(Long documentId, String fileName, byte[] pdfBytes, List<String> documentTypes,
@@ -269,13 +294,9 @@ public class DocumentAiProcessingService {
 				.collect(Collectors.joining("\n\n"));
 		List<AiDocumentResult.AiInvoiceItemExtraction> items = pages.stream()
 				.filter(page -> page.invoice() != null && page.invoice().items() != null)
-				.flatMap(page -> page.invoice().items().stream()).toList();
-		AiDocumentResult.AiInvoiceExtraction invoice = first.invoice() == null ? null
-				: new AiDocumentResult.AiInvoiceExtraction(first.invoice().invoiceNumber(), first.invoice().invoiceSeries(),
-						first.invoice().invoiceDate(), first.invoice().sellerName(), first.invoice().sellerTaxCode(),
-						first.invoice().sellerAddress(), first.invoice().buyerName(), first.invoice().buyerTaxCode(),
-						first.invoice().buyerAddress(), first.invoice().subtotal(), first.invoice().vatAmount(),
-						first.invoice().totalAmount(), items);
+				.flatMap(page -> page.invoice().items().stream()).distinct().toList();
+		AiDocumentResult.AiInvoiceExtraction invoice = pages.stream().map(AiDocumentResult::invoice)
+				.filter(Objects::nonNull).reduce((left, right) -> mergeInvoice(left, right, items)).orElse(null);
 		return new AiDocumentResult(first.provider(), first.model(), first.documentType(), confidence,
 				first.accountingCategoryCode(), first.accountingAccount(), rawText, invoice,
 				pages.stream().flatMap(page -> page.fields() == null ? java.util.stream.Stream.empty() : page.fields().stream()).toList(),
@@ -284,6 +305,22 @@ public class DocumentAiProcessingService {
 				first.documentDirection(), first.transactionAssessment(),
 				pages.stream().flatMap(page -> page.extraFields() == null ? java.util.stream.Stream.empty() : page.extraFields().stream()).toList(),
 				first.companyRole());
+	}
+
+	private AiDocumentResult.AiInvoiceExtraction mergeInvoice(AiDocumentResult.AiInvoiceExtraction left,
+			AiDocumentResult.AiInvoiceExtraction right, List<AiDocumentResult.AiInvoiceItemExtraction> items) {
+		return new AiDocumentResult.AiInvoiceExtraction(firstPresent(left.invoiceNumber(), right.invoiceNumber()),
+				firstPresent(left.invoiceSeries(), right.invoiceSeries()), firstPresent(left.invoiceDate(), right.invoiceDate()),
+				firstPresent(left.sellerName(), right.sellerName()), firstPresent(left.sellerTaxCode(), right.sellerTaxCode()),
+				firstPresent(left.sellerAddress(), right.sellerAddress()), firstPresent(left.buyerName(), right.buyerName()),
+				firstPresent(left.buyerTaxCode(), right.buyerTaxCode()), firstPresent(left.buyerAddress(), right.buyerAddress()),
+				left.subtotal() != null ? left.subtotal() : right.subtotal(),
+				left.vatAmount() != null ? left.vatAmount() : right.vatAmount(),
+				left.totalAmount() != null ? left.totalAmount() : right.totalAmount(), items);
+	}
+
+	private String firstPresent(String left, String right) {
+		return left != null && !left.isBlank() ? left : right;
 	}
 
 	private AiDocumentResult resolveCompanyRole(AiDocumentResult result, Company company) {
@@ -326,7 +363,7 @@ public class DocumentAiProcessingService {
 				"AI_CONNECTION_ERROR", "AI_TIMEOUT", "AI_HTTP_ERROR", "AI_INVALID_RESPONSE", "AI_JSON_PARSE_ERROR",
 				"AI_EXTRACTION_FAILED", "OLLAMA_CONNECT_TIMEOUT", "OLLAMA_READ_TIMEOUT",
 				"OLLAMA_CALL_TIMEOUT", "OLLAMA_UNREACHABLE", "OLLAMA_INVALID_RESPONSE", "OLLAMA_EMPTY_RESPONSE",
-				"OLLAMA_MODEL_NOT_FOUND", "OLLAMA_TOKEN_LIMIT", "VALIDATION_FAILED", "PERSISTENCE_FAILED"))
+				"OLLAMA_MODEL_NOT_FOUND", "OLLAMA_INVALID_JSON", "OLLAMA_TOKEN_LIMIT", "VALIDATION_FAILED", "PERSISTENCE_FAILED"))
 			if (message.contains(code)) return code;
 		return message.contains("OLLAMA") || message.contains("AI_") ? "AI_PROVIDER_ERROR" : "PERSISTENCE_FAILED";
 	}

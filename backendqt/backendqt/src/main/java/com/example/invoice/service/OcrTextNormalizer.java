@@ -29,9 +29,41 @@ public class OcrTextNormalizer {
 				- properties.getOcr().getReservedOutputTokens() - PROMPT_OVERHEAD_TOKENS);
 		int charBudget = tokenBudget * 3;
 		String normalized = String.join("\n", lines);
-		if (normalized.length() <= charBudget) return normalized;
-		return compactSections(lines, charBudget);
+		String compacted = normalized.length() <= charBudget ? normalized : compactSections(lines, charBudget);
+		return limitWords(compacted, properties.getOcr().getMaxPromptWords());
 	}
+
+	private String limitWords(String value, int maximumWords) {
+		if (maximumWords <= 0) throw new IllegalArgumentException("OCR max prompt words must be greater than 0");
+		String[] words = value.split("\\s+");
+		if (words.length <= maximumWords) return value;
+		List<String> lines = List.of(value.split("\\R"));
+		List<String> selectedHead = new ArrayList<>(), selectedTail = new ArrayList<>();
+		int headBudget = Math.max(1, maximumWords * 2 / 3), used = 0;
+		for (String line : lines) {
+			int count = wordCount(line);
+			if (used + count > headBudget) break;
+			selectedHead.add(line); used += count;
+		}
+		int remaining = maximumWords - used;
+		for (int index = lines.size() - 1; index >= selectedHead.size(); index--) {
+			String line = lines.get(index);
+			int count = wordCount(line);
+			if (count <= remaining) { selectedTail.add(0, line); remaining -= count; }
+		}
+		String result = String.join("\n", java.util.stream.Stream.concat(selectedHead.stream(), selectedTail.stream()).toList());
+		if (result.isEmpty()) {
+			StringBuilder partial = new StringBuilder();
+			for (int index = 0; index < maximumWords; index++) {
+				if (!partial.isEmpty()) partial.append(' ');
+				partial.append(words[index]);
+			}
+			return partial.toString();
+		}
+		return result;
+	}
+
+	private int wordCount(String value) { return value.isBlank() ? 0 : value.trim().split("\\s+").length; }
 
 	private String compactSections(List<String> lines, int budget) {
 		if (lines.isEmpty()) return "";

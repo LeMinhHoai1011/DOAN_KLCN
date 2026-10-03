@@ -11,5 +11,6 @@ public record ExtractedFieldResponse(
 		String source,
 		BigDecimal confidence,
 		List<FieldLocation> locations) {
-	public record FieldLocation(int page, int x, int y, int width, int height) {}
+	public record FieldLocation(int page, int x, int y, int width, int height,
+			int pageWidth, int pageHeight, BigDecimal matchConfidence) {}
 }

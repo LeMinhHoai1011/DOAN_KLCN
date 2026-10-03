@@ -54,12 +54,15 @@ class RuntimePersistenceVerificationTest {
 		Invoice invoice = invoices.findByDocumentId(document.getId()).orElseThrow();
 		assertEquals("tesseract", ocr.getOcrEngine()); assertEquals(new BigDecimal("0.94"), ocr.getConfidence());
 		assertEquals("IMAGE_OCR", ocr.getSourceType()); assertEquals(2, invoice.getItems().size());
-		assertTrue(invoice.isAiGenerated()); assertFalse(extractedFields.findByDocumentId(document.getId()).isEmpty());
+		assertTrue(invoice.isAiGenerated());
+		assertTrue(extractedFields.findByDocumentId(document.getId()).stream().noneMatch(f -> "invoiceNumber".equals(f.getFieldName())));
 		assertTrue(classifications.findFirstByDocumentIdOrderByCreatedAtDesc(document.getId()).isPresent());
 
 		persist(document.getId(), invoiceResult("VAT_INVOICE"));
 		assertEquals(invoice.getId(), invoices.findByDocumentId(document.getId()).orElseThrow().getId());
 		assertEquals(2, invoices.findByDocumentId(document.getId()).orElseThrow().getItems().size());
+		persist(document.getId(), invoiceResult("VAT_INVOICE"));
+		assertEquals(0, extractedFields.findByDocumentId(document.getId()).stream().filter(f -> "invoiceNumber".equals(f.getFieldName())).count());
 
 		persist(document.getId(), nonInvoiceResult());
 		assertTrue(invoices.findByDocumentId(document.getId()).isEmpty());
@@ -70,7 +73,72 @@ class RuntimePersistenceVerificationTest {
 				null, null, null, null, null, new BigDecimal("1200000"), List.of()));
 		persist(document.getId(), nonInvoiceResult());
 		assertEquals("MANUAL-1", invoices.findByDocumentId(document.getId()).orElseThrow().getInvoiceNumber());
+		assertEquals(DocumentStatus.PROCESSED, documents.findById(document.getId()).orElseThrow().getStatus());
+	}
+
+	@Test
+	void actualPostgresAllowsDocumentFieldWithoutInvoiceAndKeepsForeignKeysValid() {
+		Company company = company("RUNTIME-NULL-INVOICE");
+		Document document = document(company, "document-field.png");
+		ExtractedField field = new ExtractedField();
+		field.setDocument(document);
+		field.setInvoice(null);
+		field.setFieldName("receiptNumber");
+		field.setFieldValue("R-NULL-INVOICE");
+		field.setSource("AI");
+		ExtractedField saved = extractedFields.saveAndFlush(field);
+		assertNotNull(saved.getId());
+		assertNull(extractedFields.findById(saved.getId()).orElseThrow().getInvoice());
+	}
+
+	@Test
+	void actualPostgresPreservesLongInvoiceFreeTextAndReprocessesWithoutDuplicates() {
+		as("admin");
+		Company company = company("RUNTIME-LONG-TEXT");
+		Document document = document(company, "long-address.png");
+		String sellerName = "Seller ".repeat(50);
+		String buyerName = "Buyer ".repeat(55);
+		String sellerAddress = "123 Long Seller Address, Ward 1, District 1; ".repeat(12);
+		String buyerAddress = "456 Long Buyer Address, Ward 2, District 2; ".repeat(12);
+		String productName = "Detailed product description ".repeat(15);
+		AiDocumentResult result = longTextInvoice(sellerName, buyerName, sellerAddress, buyerAddress, productName,
+				"INV-LONG-1", "0312345678");
+
+		persist(document.getId(), result);
+		Invoice first = invoices.findByDocumentId(document.getId()).orElseThrow();
+		invoices.flush();
+		assertEquals(sellerName, first.getSellerName());
+		assertEquals(buyerName, first.getBuyerName());
+		assertEquals(sellerAddress, first.getSellerAddress());
+		assertEquals(buyerAddress, first.getBuyerAddress());
+		assertEquals(productName, first.getItems().getFirst().getProductName());
+
+		persist(document.getId(), result);
+		Invoice reprocessed = invoices.findByDocumentId(document.getId()).orElseThrow();
+		assertEquals(first.getId(), reprocessed.getId());
+		assertEquals(1, reprocessed.getItems().size());
+		assertEquals(sellerAddress, reprocessed.getSellerAddress());
+	}
+
+	@Test
+	void actualPostgresKeepsAbnormalIdentifiersForReviewWithoutSqlFailureOrTruncation() {
+		as("admin");
+		Company company = company("RUNTIME-BAD-ID");
+		Document document = document(company, "bad-identifier.png");
+		String invoiceNumber = "I".repeat(400);
+		String taxCode = "T".repeat(500);
+		AiDocumentResult result = longTextInvoice("Seller", "Buyer", "Address", "Address", "Item",
+				invoiceNumber, taxCode);
+
+		persist(document.getId(), result);
+		Invoice invoice = invoices.findByDocumentId(document.getId()).orElseThrow();
+		assertNull(invoice.getInvoiceNumber());
+		assertNull(invoice.getSellerTaxCode());
 		assertEquals(DocumentStatus.NEED_REVIEW, documents.findById(document.getId()).orElseThrow().getStatus());
+		assertEquals(invoiceNumber, extractedFields.findByDocumentId(document.getId()).stream()
+				.filter(f -> "invoiceNumber".equals(f.getFieldName())).findFirst().orElseThrow().getFieldValue());
+		assertEquals(taxCode, extractedFields.findByDocumentId(document.getId()).stream()
+				.filter(f -> "sellerTaxCode".equals(f.getFieldName())).findFirst().orElseThrow().getFieldValue());
 	}
 
 	@Test
@@ -106,4 +174,13 @@ class RuntimePersistenceVerificationTest {
 			List.of(new AiDocumentResult.AiExtractedField("invoiceNumber", "INV-RUNTIME-1", new BigDecimal("0.95"))), List.of(), "{}", 20); }
 	private AiDocumentResult nonInvoiceResult() { return new AiDocumentResult("ollama", "qwen3.5:9b", "OTHER", new BigDecimal("0.95"),
 			"receipt", null, List.of(new AiDocumentResult.AiExtractedField("receiptNumber", "R-1", new BigDecimal("0.9"))), List.of(), "{}", 20); }
+	private AiDocumentResult longTextInvoice(String sellerName, String buyerName, String sellerAddress, String buyerAddress,
+			String productName, String invoiceNumber, String sellerTaxCode) {
+		return new AiDocumentResult("ollama", "qwen3.5:9b", "VAT_INVOICE", new BigDecimal("0.95"), null,
+				new AiDocumentResult.AiInvoiceExtraction(invoiceNumber, "SERIES", "2026-10-03", sellerName, sellerTaxCode,
+						sellerAddress, buyerName, "0311111111", buyerAddress, BigDecimal.TEN, BigDecimal.ONE,
+						new BigDecimal("11"), List.of(new AiDocumentResult.AiInvoiceItemExtraction(productName,
+								BigDecimal.ONE, "unit", BigDecimal.TEN, null, BigDecimal.ONE, new BigDecimal("11")))),
+				List.of(), List.of(), "{}", 20);
+	}
 }

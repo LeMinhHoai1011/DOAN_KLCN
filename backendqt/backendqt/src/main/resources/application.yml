@@ -55,15 +55,15 @@ ai:
     enabled: ${OCR_ENABLED:true}
     data-path: ${TESSDATA_PATH:./tessdata}
     language: ${OCR_LANGUAGE:${TESSERACT_LANGUAGE:vie+eng}}
-    max-prompt-words: ${OCR_MAX_PROMPT_WORDS:1200}
+    max-prompt-words: ${OCR_MAX_PROMPT_WORDS:600}
     minimum-text-length: ${OCR_MINIMUM_TEXT_LENGTH:40}
     good-confidence: ${OCR_GOOD_CONFIDENCE:0.65}
-    reserved-output-tokens: ${AI_RESERVED_OUTPUT_TOKENS:2048}
+    reserved-output-tokens: ${AI_RESERVED_OUTPUT_TOKENS:3072}
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     model: ${OLLAMA_MODEL:qwen3-vl:8b}
     think: ${OLLAMA_THINK:false}
-    num-predict: ${OLLAMA_NUM_PREDICT:8192}
+    num-predict: ${OLLAMA_NUM_PREDICT:3072}
     num-context: ${OLLAMA_NUM_CONTEXT:8192}
   cloud:
     base-url: ${AI_CLOUD_BASE_URL:}
