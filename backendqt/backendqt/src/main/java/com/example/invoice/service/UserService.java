@@ -1,14 +1,20 @@
 package com.example.invoice.service;
 
+import com.example.invoice.dto.user.AssignRolesRequest;
 import com.example.invoice.dto.user.ChangePasswordRequest;
 import com.example.invoice.dto.user.AdminCreateUserRequest;
 import com.example.invoice.dto.user.AdminUpdateUserRequest;
 import com.example.invoice.dto.user.UpdateUserRequest;
 import com.example.invoice.dto.user.UserResponse;
+import com.example.invoice.entity.Role;
 import com.example.invoice.entity.User;
+import com.example.invoice.entity.UserRoleAssignment;
+import com.example.invoice.entity.Company;
 import com.example.invoice.exception.BadRequestException;
 import com.example.invoice.exception.ResourceNotFoundException;
+import com.example.invoice.repository.RoleRepository;
 import com.example.invoice.repository.UserRepository;
+import com.example.invoice.repository.CompanyRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -20,13 +26,17 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserService {
 	private final UserRepository userRepository;
+	private final RoleRepository roleRepository;
+	private final CompanyRepository companyRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final UserMapper userMapper;
 
+	@Transactional(readOnly = true)
 	public UserResponse currentUser(Authentication authentication) {
 		return userMapper.toResponse(loadCurrent(authentication));
 	}
 
+	@Transactional(readOnly = true)
 	public List<UserResponse> findAll() {
 		return userRepository.findAll().stream().map(userMapper::toResponse).toList();
 	}
@@ -34,10 +44,10 @@ public class UserService {
 	@Transactional
 	public UserResponse createByAdmin(AdminCreateUserRequest request) {
 		if (userRepository.existsByUsername(request.username())) {
-			throw new BadRequestException("Username already exists");
+			throw new BadRequestException("Tên đăng nhập đã tồn tại");
 		}
 		if (userRepository.existsByEmail(request.email())) {
-			throw new BadRequestException("Email already exists");
+			throw new BadRequestException("Email đã tồn tại");
 		}
 
 		User user = new User();
@@ -46,16 +56,36 @@ public class UserService {
 		user.setFullName(request.fullName());
 		user.setEmail(request.email());
 		user.setPhone(request.phone());
-		user.setRole(request.role());
+		user.setRole(request.role()); // Legacy enum
+		user.setCompany(loadCompany(request.companyId()));
+
+		if (request.role() != null) {
+			Role role = roleRepository.findByCode(request.role().name())
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy vai trò"));
+			replaceRoleAssignments(user, List.of(role));
+		}
+
 		return userMapper.toResponse(userRepository.save(user));
 	}
 
 	@Transactional
 	public UserResponse updateByAdmin(Long id, AdminUpdateUserRequest request) {
 		User user = userRepository.findById(id)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
-		user.setRole(request.role());
-		user.setStatus(request.status());
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
+		if (request.status() != null) user.setStatus(request.status());
+		if (request.companyId() != null) user.setCompany(loadCompany(request.companyId()));
+
+		if (request.role() != null) {
+			user.setRole(request.role()); // Legacy enum
+			Role role = roleRepository.findByCode(request.role().name())
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy vai trò"));
+			boolean alreadyAssigned = user.getUserRoles().stream()
+					.anyMatch(assignment -> assignment.getRole().getId().equals(role.getId()));
+			if (!alreadyAssigned) {
+				replaceRoleAssignments(user, List.of(role));
+			}
+		}
+
 		return userMapper.toResponse(user);
 	}
 
@@ -73,13 +103,54 @@ public class UserService {
 	public void changePassword(Authentication authentication, ChangePasswordRequest request) {
 		User user = loadCurrent(authentication);
 		if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
-			throw new BadRequestException("Current password is incorrect");
+			throw new BadRequestException("Mật khẩu hiện tại không đúng");
+		}
+		if (passwordEncoder.matches(request.newPassword(), user.getPassword())) {
+			throw new BadRequestException("Mật khẩu mới phải khác mật khẩu hiện tại");
 		}
 		user.setPassword(passwordEncoder.encode(request.newPassword()));
 	}
 
-	User loadCurrent(Authentication authentication) {
+	@Transactional
+	public UserResponse assignRoles(Long userId, AssignRolesRequest request) {
+		User user = userRepository.findById(userId)
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
+		List<Role> roles = roleRepository.findAllById(request.roleIds());
+		if (roles.size() != request.roleIds().size()) {
+			throw new BadRequestException("Một hoặc nhiều mã vai trò không hợp lệ");
+		}
+		replaceRoleAssignments(user, roles);
+		// Sync legacy enum with the primary role (first role in set)
+		if (!roles.isEmpty()) {
+			try {
+				user.setRole(com.example.invoice.entity.UserRole.valueOf(roles.get(0).getCode()));
+			} catch (IllegalArgumentException ignored) {
+				// custom role codes not in legacy enum — leave legacy field unchanged
+			}
+		}
+		return userMapper.toResponse(userRepository.save(user));
+	}
+
+	private void replaceRoleAssignments(User user, List<Role> roles) {
+		user.getUserRoles().clear();
+		for (Role role : roles) {
+			UserRoleAssignment assignment = new UserRoleAssignment();
+			assignment.setUser(user);
+			assignment.setRole(role);
+			user.getUserRoles().add(assignment);
+		}
+	}
+
+	public User loadCurrent(Authentication authentication) {
 		return userRepository.findByUsername(authentication.getName())
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
+	}
+
+	private Company loadCompany(Long companyId) {
+		if (companyId == null) {
+			return null;
+		}
+		return companyRepository.findById(companyId)
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công ty"));
 	}
 }

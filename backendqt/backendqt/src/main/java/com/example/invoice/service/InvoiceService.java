@@ -4,13 +4,19 @@ import com.example.invoice.dto.invoice.InvoiceItemRequest;
 import com.example.invoice.dto.invoice.InvoiceItemResponse;
 import com.example.invoice.dto.invoice.InvoiceRequest;
 import com.example.invoice.dto.invoice.InvoiceResponse;
+import com.example.invoice.dto.invoice.ExtractedFieldResponse;
 import com.example.invoice.entity.Document;
+import com.example.invoice.entity.ExtractedField;
 import com.example.invoice.entity.Invoice;
 import com.example.invoice.entity.InvoiceItem;
+import com.example.invoice.entity.User;
 import com.example.invoice.exception.ResourceNotFoundException;
 import com.example.invoice.repository.InvoiceRepository;
+import com.example.invoice.repository.ExtractedFieldRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,7 +24,10 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class InvoiceService {
 	private final InvoiceRepository invoiceRepository;
+	private final ExtractedFieldRepository extractedFieldRepository;
 	private final DocumentService documentService;
+	private final UserService userService;
+	private final OcrFieldLocator ocrFieldLocator;
 
 	@Transactional
 	public InvoiceResponse create(InvoiceRequest request) {
@@ -27,18 +36,59 @@ public class InvoiceService {
 		return toResponse(invoiceRepository.save(invoice));
 	}
 
+	@Transactional(readOnly = true)
 	public List<InvoiceResponse> findAll() {
-		return invoiceRepository.findAll().stream().map(this::toResponse).toList();
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		User user = userService.loadCurrent(auth);
+		if (hasRole(user, "ADMIN")) {
+			return invoiceRepository.findAll().stream().map(this::toResponse).toList();
+		}
+		if (hasRole(user, "ACCOUNTANT")) {
+			if (user.getCompany() == null) return List.of();
+			return invoiceRepository.findAllByDocumentCompanyId(user.getCompany().getId()).stream().map(this::toResponse).toList();
+		}
+		if (isEmployee(user)) {
+			return invoiceRepository.findAllByDocumentUploadedById(user.getId()).stream().map(this::toResponse).toList();
+		}
+		if (user.getCompany() == null) return java.util.List.of();
+		return invoiceRepository.findAllByDocumentCompanyId(user.getCompany().getId()).stream().map(this::toResponse).toList();
 	}
 
+	@Transactional(readOnly = true)
 	public InvoiceResponse findById(Long id) {
 		return toResponse(load(id));
 	}
 
+	@Transactional(readOnly = true)
 	public InvoiceResponse findByDocumentId(Long documentId) {
-		return invoiceRepository.findByDocumentId(documentId)
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		User user = userService.loadCurrent(auth);
+		if (hasRole(user, "ADMIN")) {
+			return invoiceRepository.findByDocumentId(documentId)
+					.map(this::toResponse)
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ"));
+		}
+		if (hasRole(user, "ACCOUNTANT")) {
+			if (user.getCompany() == null) throw new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ");
+			return invoiceRepository.findByDocumentIdAndDocumentCompanyId(documentId, user.getCompany().getId())
+					.map(this::toResponse).orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ"));
+		}
+		if (isEmployee(user)) {
+			return invoiceRepository.findByDocumentIdAndDocumentUploadedById(documentId, user.getId())
+					.map(this::toResponse)
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ"));
+		}
+		if (user.getCompany() == null) throw new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ");
+		return invoiceRepository.findByDocumentIdAndDocumentCompanyId(documentId, user.getCompany().getId())
 				.map(this::toResponse)
-				.orElseThrow(() -> new ResourceNotFoundException("Invoice not found for document"));
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ"));
+	}
+
+	@Transactional(readOnly = true)
+	public List<ExtractedFieldResponse> findExtractedFieldsByDocumentId(Long documentId) {
+		Document document = documentService.load(documentId);
+		return extractedFieldRepository.findByDocumentId(document.getId()).stream()
+				.map(this::toExtractedFieldResponse).toList();
 	}
 
 	@Transactional
@@ -67,6 +117,7 @@ public class InvoiceService {
 		invoice.setSubtotal(request.subtotal());
 		invoice.setVatAmount(request.vatAmount());
 		invoice.setTotalAmount(request.totalAmount());
+		invoice.setAiGenerated(false);
 		invoice.getItems().clear();
 		if (request.items() != null) {
 			for (InvoiceItemRequest itemRequest : request.items()) {
@@ -82,8 +133,24 @@ public class InvoiceService {
 	}
 
 	private Invoice load(Long id) {
-		return invoiceRepository.findById(id)
-				.orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		User user = userService.loadCurrent(auth);
+		if (hasRole(user, "ADMIN")) {
+			return invoiceRepository.findById(id)
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn"));
+		}
+		if (hasRole(user, "ACCOUNTANT")) {
+			if (user.getCompany() == null) throw new ResourceNotFoundException("Không tìm thấy hóa đơn");
+			return invoiceRepository.findByIdAndDocumentCompanyId(id, user.getCompany().getId())
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn"));
+		}
+		if (isEmployee(user)) {
+			return invoiceRepository.findByIdAndDocumentUploadedById(id, user.getId())
+					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn"));
+		}
+		if (user.getCompany() == null) throw new ResourceNotFoundException("Không tìm thấy hóa đơn");
+		return invoiceRepository.findByIdAndDocumentCompanyId(id, user.getCompany().getId())
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn"));
 	}
 
 	private InvoiceResponse toResponse(Invoice invoice) {
@@ -95,4 +162,19 @@ public class InvoiceService {
 				invoice.getBuyerName(), invoice.getBuyerTaxCode(), invoice.getBuyerAddress(), invoice.getSubtotal(),
 				invoice.getVatAmount(), invoice.getTotalAmount(), items);
 	}
+
+	private ExtractedFieldResponse toExtractedFieldResponse(ExtractedField field) {
+		return new ExtractedFieldResponse(field.getId(), field.getFieldName(), field.getFieldValue(), field.getSource(),
+				field.getConfidence(), ocrFieldLocator.locate(field.getDocument().getId(), field.getFieldValue()));
+	}
+
+	private boolean hasRole(User user, String roleCode) {
+		return user.getUserRoles().stream()
+				.anyMatch(assignment -> roleCode.equals(assignment.getRole().getCode()));
+	}
+
+	private boolean isEmployee(User user) {
+		return hasRole(user, "EMPLOYEE") || hasRole(user, "USER");
+	}
 }
+

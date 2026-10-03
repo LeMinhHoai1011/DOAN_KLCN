@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE ocr_results
+    ADD COLUMN IF NOT EXISTS layout_json TEXT;
+
+COMMIT;

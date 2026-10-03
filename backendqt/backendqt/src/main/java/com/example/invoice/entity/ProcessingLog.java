@@ -26,7 +26,11 @@ public class ProcessingLog {
 	private Long id;
 
 	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "document_id", nullable = false)
+	@JoinColumn(name = "processing_job_id")
+	private ProcessingJob processingJob;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "document_id")
 	private Document document;
 
 	private String processType;

@@ -6,6 +6,10 @@ import type { DashboardStatistics } from '../../services/dashboardService';
 import documentService from '../../services/documentService';
 import type { DocumentListItem } from '../../services/documentService';
 import { AlertTriangle, CheckCircle2, FileText, Receipt } from 'lucide-react';
+import ContentCard from '../../components/ui/ContentCard';
+import ErrorState from '../../components/ui/ErrorState';
+import LoadingState from '../../components/ui/LoadingState';
+import PageHeader from '../../components/ui/PageHeader';
 
 const AdminDashboard = () => {
   const [statistics, setStatistics] = useState<DashboardStatistics | null>(null);
@@ -47,21 +51,14 @@ const AdminDashboard = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Tổng quan hệ thống</h1>
-        <p className="text-slate-500 mt-1">Theo dõi hoạt động số hóa và xử lý chứng từ</p>
-      </div>
+      <PageHeader title="Tổng quan quản trị" description="Theo dõi dữ liệu số hóa và xử lý chứng từ từ các API hiện có." />
 
       {isLoading && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-slate-500">
-          Đang tải dữ liệu dashboard...
-        </div>
+        <LoadingState label="Đang tải dữ liệu dashboard..." />
       )}
 
       {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-600">
-          {error}
-        </div>
+        <ErrorState message={error} />
       )}
 
       {statistics && (
@@ -73,10 +70,10 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <ContentCard className="p-6">
         <h2 className="text-lg font-semibold text-slate-800 mb-2">Biểu đồ dashboard</h2>
-        <p className="text-sm text-slate-500">Chưa có API backend cho dữ liệu theo ngày hoặc phân loại để hiển thị biểu đồ.</p>
-      </div>
+        <p className="text-sm text-slate-500">Biểu đồ theo ngày, loại chứng từ, phòng ban và audit activity chưa được kết nối vì API hiện tại chưa cung cấp dữ liệu này.</p>
+      </ContentCard>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-200 flex justify-between items-center">

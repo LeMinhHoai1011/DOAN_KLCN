@@ -4,10 +4,12 @@ import {
   Users,
   Shield,
   Files,
-  Settings,
+  KeyRound,
   LogOut,
+  UploadCloud,
   BarChart3,
-  BrainCircuit
+  BrainCircuit,
+  Tags
 } from 'lucide-react';
 import clsx from 'clsx';
 import { getCurrentUser, logout } from '../../services/authService';
@@ -17,7 +19,9 @@ const menuItems = [
   { name: 'Quản lý người dùng', path: '/admin/users', icon: Users },
   { name: 'Quản lý vai trò', path: '/admin/roles', icon: Shield },
   { name: 'Quản lý chứng từ', path: '/admin/documents', icon: Files },
+  { name: 'Tải lên chứng từ', path: '/admin/upload', icon: UploadCloud },
   { name: 'Thống kê hệ thống', path: '/admin/statistics', icon: BarChart3 },
+  { name: 'Danh mục chứng từ', path: '/admin/categories', icon: Tags },
 ];
 
 const AdminSidebar = () => {
@@ -37,7 +41,7 @@ const AdminSidebar = () => {
   };
 
   return (
-    <aside className="w-64 bg-[#0B1731] text-slate-300 h-screen flex flex-col fixed left-0 top-0 shadow-xl z-20">
+    <aside className="fixed left-0 top-0 z-20 hidden h-screen w-64 flex-col bg-[#0B1731] text-slate-300 shadow-xl lg:flex">
       <div className="h-16 flex items-center px-6 border-b border-slate-700/50">
         <div className="flex items-center gap-2 text-white font-bold text-lg">
           <BrainCircuit className="text-blue-500" size={24} />
@@ -68,7 +72,7 @@ const AdminSidebar = () => {
 
         <div className="mt-8 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">Hệ thống</div>
         <NavLink
-          to="/settings"
+          to="/admin/password"
           className={({ isActive }) => clsx(
             "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
             isActive 
@@ -76,8 +80,8 @@ const AdminSidebar = () => {
               : "hover:bg-slate-800/50 hover:text-white"
           )}
         >
-          <Settings size={20} className="text-slate-400" />
-          <span>Cài đặt</span>
+          <KeyRound size={20} className="text-slate-400" />
+          <span>Đổi mật khẩu</span>
         </NavLink>
       </div>
       

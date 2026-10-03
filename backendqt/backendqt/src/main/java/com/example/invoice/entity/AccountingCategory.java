@@ -36,6 +36,10 @@ public class AccountingCategory {
 	private String categoryName;
 
 	private String description;
+
+	@Column(nullable = false, columnDefinition = "boolean default true")
+	private boolean active = true;
+
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;
 
