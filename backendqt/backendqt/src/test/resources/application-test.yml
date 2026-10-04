@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:invoice_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+app:
+  demo-admin:
+    enabled: true
+    password: Admin@123456
+  jwt:
+    secret: test-only-secret-that-is-long-enough-for-hmac-signing
+  minio:
+    endpoint: http://localhost:9000
+    access-key: test
+    secret-key: test-secret
+    bucket: test
+
+ai:
+  ocr:
+    enabled: false

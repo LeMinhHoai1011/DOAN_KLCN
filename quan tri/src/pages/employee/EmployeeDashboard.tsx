@@ -6,8 +6,14 @@ import type { DashboardStatistics } from '../../services/dashboardService';
 import documentService from '../../services/documentService';
 import type { DocumentListItem } from '../../services/documentService';
 import { AlertTriangle, CheckCircle2, FileText, Receipt } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import PageHeader from '../../components/ui/PageHeader';
+import ContentCard from '../../components/ui/ContentCard';
+import LoadingState from '../../components/ui/LoadingState';
+import ErrorState from '../../components/ui/ErrorState';
 
 const EmployeeDashboard = () => {
+  const navigate = useNavigate();
   const [statistics, setStatistics] = useState<DashboardStatistics | null>(null);
   const [recentDocuments, setRecentDocuments] = useState<DocumentListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -47,21 +53,14 @@ const EmployeeDashboard = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Tổng quan hệ thống</h1>
-        <p className="text-slate-500 mt-1">Theo dõi hoạt động số hóa và xử lý chứng từ</p>
-      </div>
+      <PageHeader title="Tổng quan của tôi" description="Theo dõi các chứng từ thuộc tài khoản của bạn." actions={<button type="button" onClick={() => navigate('/employee/upload')} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700">Tải lên chứng từ</button>} />
 
       {isLoading && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-slate-500">
-          Đang tải dữ liệu dashboard...
-        </div>
+        <LoadingState label="Đang tải dữ liệu của bạn..." />
       )}
 
       {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-600">
-          {error}
-        </div>
+        <ErrorState message={error} />
       )}
 
       {statistics && (
@@ -73,15 +72,15 @@ const EmployeeDashboard = () => {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <ContentCard className="p-6">
         <h2 className="text-lg font-semibold text-slate-800 mb-2">Biểu đồ dashboard</h2>
         <p className="text-sm text-slate-500">Chưa có API backend cho dữ liệu theo ngày hoặc phân loại để hiển thị biểu đồ.</p>
-      </div>
+      </ContentCard>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-200 flex justify-between items-center">
           <h2 className="text-lg font-semibold text-slate-800">Chứng từ mới nhất</h2>
-          <button className="text-sm text-blue-600 font-medium hover:text-blue-700">Xem tất cả</button>
+          <button onClick={() => navigate('/employee/documents')} className="text-sm text-blue-600 font-medium hover:text-blue-700">Xem tất cả</button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">

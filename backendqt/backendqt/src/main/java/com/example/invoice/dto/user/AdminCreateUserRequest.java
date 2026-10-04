@@ -12,5 +12,6 @@ public record AdminCreateUserRequest(
 		@NotBlank @Size(max = 150) String fullName,
 		@NotBlank @Email @Size(max = 150) String email,
 		@Size(max = 30) String phone,
-		@NotNull UserRole role) {
+		@NotNull UserRole role,
+		Long companyId) {
 }

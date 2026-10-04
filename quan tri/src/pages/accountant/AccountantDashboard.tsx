@@ -4,30 +4,43 @@ import StatCard from '../../components/StatCard';
 import StatusBadge from '../../components/StatusBadge';
 import dashboardService from '../../services/dashboardService';
 import type { DashboardStatistics } from '../../services/dashboardService';
+import type { FinancialDashboard } from '../../services/dashboardService';
 import documentService from '../../services/documentService';
 import type { DocumentListItem } from '../../services/documentService';
 import { AlertTriangle, CheckCircle2, FileText, Receipt } from 'lucide-react';
+import { Line } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
+import type { FinancialSeriesPoint } from '../../services/dashboardService';
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
 const AccountantDashboard = () => {
   const navigate = useNavigate();
   const [statistics, setStatistics] = useState<DashboardStatistics | null>(null);
+  const [financial, setFinancial] = useState<FinancialDashboard | null>(null);
   const [recentDocuments, setRecentDocuments] = useState<DocumentListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [series, setSeries] = useState<FinancialSeriesPoint[]>([]);
+  const [interval, setInterval] = useState<'DAILY' | 'MONTHLY'>('MONTHLY');
+  const [seriesLoading, setSeriesLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadDashboard = async () => {
       try {
-        const [dashboardStatistics, documents] = await Promise.all([
+        const [dashboardStatistics, documents, financialDashboard, timeSeries] = await Promise.all([
           dashboardService.getDashboardStatistics(),
           documentService.getDocuments(),
+          dashboardService.getFinancialDashboard(),
+          dashboardService.getFinancialTimeSeries({ interval }),
         ]);
 
         if (isMounted) {
           setStatistics(dashboardStatistics);
+          setFinancial(financialDashboard);
           setRecentDocuments(documents.slice(0, 5));
+          setSeries(timeSeries);
         }
       } catch {
         if (isMounted) {
@@ -36,6 +49,7 @@ const AccountantDashboard = () => {
       } finally {
         if (isMounted) {
           setIsLoading(false);
+          setSeriesLoading(false);
         }
       }
     };
@@ -45,7 +59,7 @@ const AccountantDashboard = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [interval]);
 
   return (
     <div className="space-y-6">
@@ -75,9 +89,22 @@ const AccountantDashboard = () => {
         </div>
       )}
 
+      {financial && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <StatCard title="Tổng doanh thu (VND)" value={Number(financial.totalRevenue)} icon={Receipt} type="success" />
+          <StatCard title="Tổng chi phí (VND)" value={Number(financial.totalExpense)} icon={AlertTriangle} type="warning" />
+          <StatCard title="Dòng tiền (VND)" value={Number(financial.cashFlow)} icon={CheckCircle2} type="primary" />
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-        <h2 className="text-lg font-semibold text-slate-800 mb-2">Biểu đồ dashboard</h2>
-        <p className="text-sm text-slate-500">Chưa có API backend cho dữ liệu theo ngày hoặc phân loại để hiển thị biểu đồ.</p>
+        <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold text-slate-800">Thu chi theo thoi gian</h2><select value={interval} onChange={(event) => setInterval(event.target.value as 'DAILY' | 'MONTHLY')} className="rounded border border-slate-200 px-3 py-2 text-sm"><option value="MONTHLY">Theo thang</option><option value="DAILY">Theo ngay</option></select></div>
+        {seriesLoading ? <p className="text-sm text-slate-500">Dang tai bieu do...</p> : series.length === 0 ? <p className="text-sm text-slate-500">Chua co du lieu trong khoang thoi gian da chon.</p> : <Line data={{labels:series.map(x=>x.period),datasets:[{label:'Thu',data:series.map(x=>Number(x.income)),borderColor:'#059669'},{label:'Chi',data:series.map(x=>Number(x.expense)),borderColor:'#e11d48'},{label:'Dong tien',data:series.map(x=>Number(x.cashFlow)),borderColor:'#2563eb'}]}} options={{responsive:true}} />}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <h2 className="text-lg font-semibold text-slate-800 mb-2">Chi phí theo nhóm</h2>
+        {financial?.expensesByCategory.length ? <ul className="space-y-2 text-sm text-slate-700">{financial.expensesByCategory.map((item) => <li key={item.category || 'other'} className="flex justify-between border-b border-slate-100 pb-2"><span>{item.category || 'Chưa phân nhóm'}</span><strong>{Number(item.amount).toLocaleString('vi-VN')} đ</strong></li>)}</ul> : <p className="text-sm text-slate-500">Chưa có dữ liệu chi phí trong khoảng thời gian đã chọn.</p>}
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">

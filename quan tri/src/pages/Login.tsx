@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import "./Login.css";
-import { getErrorMessage, login } from "../services/authService";
+import { getDashboardPath, getErrorMessage, login, logout } from "../services/authService";
 
 function Login() {
   const navigate = useNavigate();
@@ -23,17 +23,13 @@ function Login() {
 
     try {
       const response = await login({ username, password });
-      const role = response.user.role;
-      
-      if (role === 'ADMIN') {
-        navigate("/admin/dashboard");
-      } else if (role === 'ACCOUNTANT') {
-        navigate("/accountant/dashboard");
-      } else if (role === 'USER' || role === 'EMPLOYEE') {
-        navigate("/employee/dashboard");
-      } else {
-        navigate("/accountant/dashboard");
+      const dashboardPath = getDashboardPath(response.user);
+      if (!dashboardPath) {
+        logout();
+        setError("Tài khoản chưa được gán vai trò hợp lệ. Vui lòng liên hệ quản trị viên.");
+        return;
       }
+      navigate(dashboardPath);
     } catch (error: unknown) {
       setError(getErrorMessage(error, "Đăng nhập thất bại hoặc không thể kết nối đến Server"));
     }

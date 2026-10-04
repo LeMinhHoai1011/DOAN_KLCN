@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, FileText, Save } from 'lucide-react';
+import { ArrowLeft, Download, Save } from 'lucide-react';
 import clsx from 'clsx';
 import StatusBadge from '../components/StatusBadge';
 import classificationService from '../services/classificationService';
@@ -8,6 +8,8 @@ import documentService, { mapDocument } from '../services/documentService';
 import invoiceService from '../services/invoiceService';
 import type { ClassificationResponse } from '../services/classificationService';
 import type { DocumentResponse, OCRResultResponse } from '../services/documentService';
+import type { ExtractedFieldResponse } from '../services/documentService';
+import OcrDocumentPreview from '../components/OcrDocumentPreview';
 import type { InvoiceResponse } from '../services/invoiceService';
 
 interface InvoiceFormData {
@@ -46,12 +48,22 @@ const parseAmount = (value: string) => {
   return Number.isNaN(amount) ? null : amount;
 };
 
+const hasCompletedPipeline = (status: DocumentResponse['status']) => (
+  status === 'PROCESSED' || status === 'NEED_REVIEW' || status === 'COMPLETED'
+);
+
+const isInvoiceDocument = (documentType: string | null) => {
+  const normalized = documentType?.trim().toUpperCase().replace(/[- ]/g, '_');
+  return normalized === 'INVOICE' || normalized === 'VAT_INVOICE' || Boolean(normalized?.endsWith('_INVOICE'));
+};
+
 const DocumentDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const documentId = Number(id);
   const [document, setDocument] = useState<DocumentResponse | null>(null);
   const [ocr, setOcr] = useState<OCRResultResponse | null>(null);
+  const [extractedFields, setExtractedFields] = useState<ExtractedFieldResponse[]>([]);
   const [classification, setClassification] = useState<ClassificationResponse | null>(null);
   const [invoice, setInvoice] = useState<InvoiceResponse | null>(null);
   const [invoiceForm, setInvoiceForm] = useState<InvoiceFormData>(emptyInvoiceForm);
@@ -74,38 +86,43 @@ const DocumentDetail = () => {
     }
 
     const loadDocumentDetail = async () => {
-      const [documentResult, ocrResult, classificationResult, invoiceResult] = await Promise.allSettled([
-        documentService.getDocumentById(documentId),
-        documentService.getDocumentOCR(documentId),
-        classificationService.getClassification(documentId),
-        invoiceService.getInvoiceByDocumentId(documentId),
-      ]);
-
-      if (!isMounted) {
-        return;
-      }
-
-      if (documentResult.status === 'rejected') {
+      let loadedDocument: DocumentResponse;
+      try {
+        loadedDocument = await documentService.getDocumentById(documentId);
+      } catch {
+        if (!isMounted) return;
         setError('Không thể tải thông tin chứng từ');
         setIsLoading(false);
         return;
       }
+      if (!isMounted) return;
 
-      setDocument(documentResult.value);
+      setDocument(loadedDocument);
+      const completed = hasCompletedPipeline(loadedDocument.status);
+      const [ocrResult, classificationResult, invoiceResult, extractedResult] = await Promise.allSettled([
+        loadedDocument.status === 'UPLOADED' ? Promise.resolve(null) : documentService.getDocumentOCR(documentId),
+        completed ? classificationService.getClassification(documentId) : Promise.resolve(null),
+        completed && isInvoiceDocument(loadedDocument.documentType)
+          ? invoiceService.getInvoiceByDocumentId(documentId) : Promise.resolve(null),
+        completed ? documentService.getDocumentExtractedFields(documentId) : Promise.resolve([]),
+      ]);
+      if (!isMounted) return;
 
-      if (ocrResult.status === 'fulfilled') {
+      if (ocrResult.status === 'fulfilled' && ocrResult.value) {
         setOcr(ocrResult.value);
       }
 
-      if (classificationResult.status === 'fulfilled') {
+      if (classificationResult.status === 'fulfilled' && classificationResult.value) {
         setClassification(classificationResult.value);
         setClassificationValue(classificationResult.value.category || '');
       }
 
-      if (invoiceResult.status === 'fulfilled') {
+      if (invoiceResult.status === 'fulfilled' && invoiceResult.value) {
         setInvoice(invoiceResult.value);
         setInvoiceForm(toInvoiceForm(invoiceResult.value));
       }
+
+      if (extractedResult.status === 'fulfilled') setExtractedFields(extractedResult.value);
 
       setIsLoading(false);
     };
@@ -229,12 +246,7 @@ const DocumentDetail = () => {
         <div className="bg-slate-800 rounded-2xl flex flex-col overflow-hidden border border-slate-300 shadow-sm relative">
           <div className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-xs backdrop-blur-md">1 / 1</div>
           <div className="flex-1 flex items-center justify-center p-8 overflow-auto">
-            <div className="bg-white w-full max-w-lg aspect-[1/1.4] shadow-2xl relative">
-              <div className="w-full h-full flex items-center justify-center text-slate-300">
-                <FileText size={64} className="opacity-20" />
-                <span className="absolute mt-24 text-sm opacity-50">Bản xem trước tài liệu</span>
-              </div>
-            </div>
+            <OcrDocumentPreview documentId={document.id} fileType={document.fileType} ocr={ocr} fields={extractedFields} />
           </div>
         </div>
 
@@ -275,7 +287,9 @@ const DocumentDetail = () => {
               <h3 className="text-lg font-semibold text-slate-800">Dữ liệu invoice</h3>
               <span className="text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-md font-medium">API backend</span>
             </div>
-            {invoice ? (
+            {!isInvoiceDocument(document.documentType) ? (
+              <p className="text-sm text-slate-500">Không áp dụng cho loại chứng từ này.</p>
+            ) : invoice ? (
               <div className="space-y-4">
                 <InputField label="Nhà cung cấp" value={invoiceForm.supplier} field="supplier" />
                 <InputField label="Mã số thuế" value={invoiceForm.taxCode} field="taxCode" />

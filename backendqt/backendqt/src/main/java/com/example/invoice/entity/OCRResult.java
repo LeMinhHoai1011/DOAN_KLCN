@@ -7,7 +7,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
@@ -32,10 +31,15 @@ public class OCRResult {
 
 	private String ocrEngine;
 	private String modelVersion;
+	private String language;
+	private String sourceType;
 
-	@Lob
-	@Column(nullable = false)
+	@Column(nullable = false, columnDefinition = "text")
 	private String rawText;
+
+	/** Page sizes and normalized word bounding boxes serialized as JSON. */
+	@Column(columnDefinition = "text")
+	private String layoutJson;
 
 	@Column(precision = 5, scale = 2)
 	private BigDecimal confidence;

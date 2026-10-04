@@ -22,15 +22,28 @@ public class ProcessingLogService {
 	@Transactional
 	public ProcessingLog append(Long documentId, String processType, String agentStep, String status,
 			BigDecimal confidence, Long executionTime, String message) {
+		return append(documentId, processType, agentStep, status, confidence, executionTime, message, null, null);
+	}
+
+	@Transactional
+	public ProcessingLog append(Long documentId, String processType, String agentStep, String status,
+			BigDecimal confidence, Long executionTime, String message, String modelName, String modelVersion) {
 		Document document = documentService.load(documentId);
 		ProcessingLog log = new ProcessingLog();
 		log.setDocument(document);
-		log.setProcessType(processType);
-		log.setAgentStep(agentStep);
-		log.setStatus(status);
+		log.setProcessType(limit(processType));
+		log.setAgentStep(limit(agentStep));
+		log.setStatus(limit(status));
 		log.setConfidence(confidence);
 		log.setExecutionTime(executionTime);
-		log.setMessage(message);
+		log.setMessage(limit(message));
+		log.setModelName(limit(modelName));
+		log.setModelVersion(limit(modelVersion));
 		return processingLogRepository.save(log);
+	}
+
+	private String limit(String value) {
+		if (value == null || value.length() <= 255) return value;
+		return value.substring(0, 255);
 	}
 }

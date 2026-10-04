@@ -2,6 +2,9 @@ package com.example.invoice.config;
 
 import com.example.invoice.entity.User;
 import com.example.invoice.entity.UserRole;
+import com.example.invoice.entity.Role;
+import com.example.invoice.entity.UserRoleAssignment;
+import com.example.invoice.repository.RoleRepository;
 import com.example.invoice.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,31 +13,36 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component
+@org.springframework.core.annotation.Order(3)
 @RequiredArgsConstructor
 public class DemoAdminInitializer implements CommandLineRunner {
 	private final UserRepository userRepository;
+	private final RoleRepository roleRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final JdbcTemplate jdbcTemplate;
 
-	@Value("${app.demo-admin.enabled:true}")
+	@Value("${app.demo-admin.enabled:false}")
 	private boolean enabled;
 
 	@Value("${app.demo-admin.username:admin}")
 	private String username;
 
-	@Value("${app.demo-admin.password:Admin@123456}")
+	@Value("${app.demo-admin.password:}")
 	private String password;
 
 	@Value("${app.demo-admin.email:admin@smartinvoice.local}")
 	private String email;
 
-	@Value("${app.demo-users.enabled:true}")
+	@Value("${app.demo-users.enabled:false}")
 	private boolean demoUsersEnabled;
 
 	@Override
+	@Transactional
 	public void run(String... args) {
+		if (!enabled && !demoUsersEnabled) return;
 		allowLegacyPasswordColumnToBeEmpty();
 		allowSupportedRoles();
 
@@ -56,15 +64,23 @@ public class DemoAdminInitializer implements CommandLineRunner {
 	}
 
 	private void createIfMissing(String accountUsername, String accountPassword, String fullName, String accountEmail, UserRole role) {
-		if (userRepository.existsByUsername(accountUsername)) {
-			return;
-		}
-		User user = new User();
-		user.setUsername(accountUsername);
-		user.setPassword(passwordEncoder.encode(accountPassword));
-		user.setFullName(fullName);
-		user.setEmail(accountEmail);
+		User user = userRepository.findByUsername(accountUsername).orElseGet(() -> {
+			User newUser = new User();
+			newUser.setUsername(accountUsername);
+			newUser.setPassword(passwordEncoder.encode(accountPassword));
+			newUser.setFullName(fullName);
+			newUser.setEmail(accountEmail);
+			return userRepository.save(newUser);
+		});
 		user.setRole(role);
+		Role databaseRole = roleRepository.findByCode(role.name()).orElse(null);
+		if (databaseRole != null && user.getUserRoles().stream()
+				.noneMatch(assignment -> assignment.getRole().getId().equals(databaseRole.getId()))) {
+			UserRoleAssignment assignment = new UserRoleAssignment();
+			assignment.setUser(user);
+			assignment.setRole(databaseRole);
+			user.getUserRoles().add(assignment);
+		}
 		userRepository.save(user);
 	}
 
