@@ -14,6 +14,7 @@ import com.example.invoice.exception.ResourceNotFoundException;
 import com.example.invoice.repository.DocumentRepository;
 import com.example.invoice.repository.DocumentTypeRepository;
 import com.example.invoice.repository.DocumentVersionRepository;
+import com.example.invoice.repository.ClassificationRepository;
 import io.minio.BucketExistsArgs;
 import io.minio.GetObjectArgs;
 import io.minio.MakeBucketArgs;
@@ -23,6 +24,8 @@ import io.minio.RemoveObjectArgs;
 import java.io.InputStream;
 import java.io.ByteArrayInputStream;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -42,6 +45,7 @@ public class DocumentService {
 	private final DocumentRepository documentRepository;
 	private final DocumentTypeRepository documentTypeRepository;
 	private final DocumentVersionRepository documentVersionRepository;
+	private final ClassificationRepository classificationRepository;
 	private final UserService userService;
 	private final StorageService storageService;
 	private final MinioClient minioClient;
@@ -194,17 +198,17 @@ public class DocumentService {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		User user = userService.loadCurrent(auth);
 		if (hasRole(user, "ADMIN")) {
-			return documentRepository.findAll().stream().map(this::toResponse).toList();
+			return toResponses(documentRepository.findAll());
 		}
 		if (hasRole(user, "ACCOUNTANT")) {
 			if (user.getCompany() == null) return java.util.List.of();
-			return documentRepository.findAllByCompanyId(user.getCompany().getId()).stream().map(this::toResponse).toList();
+			return toResponses(documentRepository.findAllByCompanyId(user.getCompany().getId()));
 		}
 		if (hasRole(user, "EMPLOYEE") || hasRole(user, "USER")) {
-			return documentRepository.findAllByUploadedById(user.getId()).stream().map(this::toResponse).toList();
+			return toResponses(documentRepository.findAllByUploadedById(user.getId()));
 		}
 		if (user.getCompany() == null) return java.util.List.of();
-		return documentRepository.findAllByCompanyId(user.getCompany().getId()).stream().map(this::toResponse).toList();
+		return toResponses(documentRepository.findAllByCompanyId(user.getCompany().getId()));
 	}
 
 	@Transactional(readOnly = true)
@@ -237,7 +241,9 @@ public class DocumentService {
 			String value = "%" + search.trim().toLowerCase(java.util.Locale.ROOT) + "%";
 			specification = specification.and((root, query, builder) -> builder.like(builder.lower(root.get("originalFileName")), value));
 		}
-		return documentRepository.findAll(specification, pageable).map(this::toResponse);
+		Page<Document> documents = documentRepository.findAll(specification, pageable);
+		Map<Long, java.math.BigDecimal> confidenceByDocument = currentConfidenceByDocument(documents.getContent());
+		return documents.map(document -> toResponse(document, confidenceByDocument.get(document.getId())));
 	}
 
 	@Transactional(readOnly = true)
@@ -297,13 +303,37 @@ public class DocumentService {
 	}
 
 	public DocumentResponse toResponse(Document document) {
+		java.math.BigDecimal confidence = classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(document.getId())
+				.map(com.example.invoice.entity.Classification::getConfidence).orElse(null);
+		return toResponse(document, confidence);
+	}
+
+	private DocumentResponse toResponse(Document document, java.math.BigDecimal confidence) {
 		Long uploadedById = document.getUploadedBy() == null ? null : document.getUploadedBy().getId();
+		String typeCode = document.getType() == null ? document.getDocumentType() : document.getType().getCode();
+		String typeName = document.getType() == null ? null : document.getType().getName();
+		java.math.BigDecimal amount = document.getInvoice() == null ? null : document.getInvoice().getTotalAmount();
 		return new DocumentResponse(document.getId(), document.getOriginalFileName(), document.getFileType(),
-				document.getFileSize(), document.getFilePath(), document.getStatus(), document.getReviewStatus(),
+				document.getFileSize(), document.getFilePath(), document.getStatus(), document.getStatus(), document.getReviewStatus(),
 				document.getCompany() == null ? null : document.getCompany().getId(), document.getType() == null ? null : document.getType().getId(),
-				document.getDocumentType(), new CompanyRoleResponse(document.getCompanyRole(), document.getCompanyRoleConfidence(), document.getCompanyRoleReason()),
+				typeCode, typeCode, typeName, amount, confidence,
+				new CompanyRoleResponse(document.getCompanyRole(), document.getCompanyRoleConfidence(), document.getCompanyRoleReason()),
 				document.getDocumentDirection(), new TransactionAssessmentResponse(document.getTransactionAssessmentType(), document.getTransactionAssessmentConfidence(), document.getTransactionAssessmentReason()), uploadedById,
 				document.getCreatedAt(), document.getUpdatedAt());
+	}
+
+	private List<DocumentResponse> toResponses(List<Document> documents) {
+		Map<Long, java.math.BigDecimal> confidenceByDocument = currentConfidenceByDocument(documents);
+		return documents.stream().map(document -> toResponse(document, confidenceByDocument.get(document.getId()))).toList();
+	}
+
+	private Map<Long, java.math.BigDecimal> currentConfidenceByDocument(List<Document> documents) {
+		if (documents.isEmpty()) return Map.of();
+		List<Long> ids = documents.stream().map(Document::getId).toList();
+		Map<Long, java.math.BigDecimal> result = new LinkedHashMap<>();
+		classificationRepository.findCurrentByDocumentIds(ids)
+				.forEach(classification -> result.put(classification.getDocument().getId(), classification.getConfidence()));
+		return result;
 	}
 
 	private Specification<Document> scopeFor(User user, Long requestedCompanyId) {

@@ -7,17 +7,30 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.util.List;
 import java.util.Optional;
 
 public interface DocumentRepository extends JpaRepository<Document, Long>, JpaSpecificationExecutor<Document> {
     @Override
+    @EntityGraph(attributePaths = {"company", "uploadedBy", "type", "invoice"})
+    List<Document> findAll();
+
+    @Override
+    @EntityGraph(attributePaths = {"company", "uploadedBy", "type", "invoice"})
+    Page<Document> findAll(Specification<Document> specification, Pageable pageable);
+
+    @Override
     @EntityGraph(attributePaths = "company")
     Optional<Document> findById(Long id);
+    @EntityGraph(attributePaths = {"company", "uploadedBy", "type", "invoice"})
     List<Document> findAllByCompanyId(Long companyId);
     @EntityGraph(attributePaths = "company")
     Optional<Document> findByIdAndCompanyId(Long id, Long companyId);
+    @EntityGraph(attributePaths = {"company", "uploadedBy", "type", "invoice"})
     List<Document> findAllByUploadedById(Long uploadedById);
     @EntityGraph(attributePaths = "company")
     Optional<Document> findByIdAndUploadedById(Long id, Long uploadedById);

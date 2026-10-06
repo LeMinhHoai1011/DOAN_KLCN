@@ -17,10 +17,15 @@ export interface DocumentResponse {
   fileSize: number
   filePath: string
   status: DocumentStatus
+  processingStatus: DocumentStatus
   reviewStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CORRECTED'
   companyId: number | null
   typeId: number | null
   documentType: string | null
+  documentTypeCode: string | null
+  documentTypeName: string | null
+  amount: number | null
+  aiConfidence: number | null
   companyRole: { role: string | null; confidence: number | null; reason: string | null } | null
   documentDirection: string | null
   transactionAssessment: { type: string | null; confidence: number | null; reason: string | null } | null
@@ -125,6 +130,8 @@ export interface DocumentListItem {
   supplier?: string
   amount?: number
   aiConfidence?: number
+  documentTypeCode: string | null
+  documentTypeName: string
 }
 
 const statusLabels: Record<DocumentStatus, string> = {
@@ -150,6 +157,10 @@ export const mapDocument = (document: DocumentResponse): DocumentListItem => ({
   reviewStatus: document.reviewStatus,
   displayStatus: statusLabels[document.status] || document.status,
   date: formatDate(document.createdAt),
+  amount: document.amount == null ? undefined : Number(document.amount),
+  aiConfidence: document.aiConfidence == null ? undefined : Math.round(Number(document.aiConfidence) * 100),
+  documentTypeCode: document.documentTypeCode || document.documentType,
+  documentTypeName: document.documentTypeName || document.documentTypeCode || document.documentType || 'Chưa phân loại',
 })
 
 const getDocumentPage = async ({ page = 1, size = 50, sort = 'createdAt,desc', ...filters }: DocumentPageQuery = {}): Promise<DocumentPage> => {

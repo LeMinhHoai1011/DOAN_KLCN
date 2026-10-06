@@ -3,12 +3,16 @@ package com.example.invoice.repository;
 import com.example.invoice.entity.Classification;
 import com.example.invoice.entity.ClassificationStatus;
 import java.util.Optional;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ClassificationRepository extends JpaRepository<Classification, Long> {
 	Optional<Classification> findFirstByDocumentIdOrderByCreatedAtDesc(Long documentId);
+
+	@Query("select c from Classification c where c.document.id in :documentIds and c.createdAt = (select max(latest.createdAt) from Classification latest where latest.document.id = c.document.id)")
+	List<Classification> findCurrentByDocumentIds(@Param("documentIds") java.util.Collection<Long> documentIds);
 
 	long countByStatus(ClassificationStatus status);
 	long countByDocumentCompanyIdAndStatus(Long companyId, ClassificationStatus status);

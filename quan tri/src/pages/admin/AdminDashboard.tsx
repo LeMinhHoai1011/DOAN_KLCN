@@ -4,7 +4,7 @@ import { Bar } from 'react-chartjs-2'
 import { BarElement, CategoryScale, Chart as ChartJS, Legend, LinearScale, Tooltip } from 'chart.js'
 import { AlertTriangle, CheckCircle2, FileText, Receipt } from 'lucide-react'
 import StatCard from '../../components/StatCard'
-import StatusBadge from '../../components/StatusBadge'
+import StatusBadge, { getStatusPresentation } from '../../components/StatusBadge'
 import ContentCard from '../../components/ui/ContentCard'
 import ErrorState from '../../components/ui/ErrorState'
 import LoadingState from '../../components/ui/LoadingState'
@@ -35,9 +35,9 @@ const AdminDashboard = () => {
     return () => { active = false }
   }, [])
 
-  const chartData = useMemo(() => statistics ? ({
-    labels: ['Tổng chứng từ', 'Tổng hóa đơn', 'Đã phân loại', 'Cần kiểm tra'],
-    datasets: [{ label: 'Số lượng', data: [statistics.totalDocuments, statistics.totalInvoices, statistics.totalClassified, statistics.totalReviewRequired], backgroundColor: ['#2563eb', '#7c3aed', '#059669', '#d97706'], borderRadius: 8, maxBarThickness: 64 }],
+  const chartData = useMemo(() => statistics && statistics.documentsByStatus.length ? ({
+    labels: statistics.documentsByStatus.map(item => getStatusPresentation(item.status).label),
+    datasets: [{ label: 'Số lượng', data: statistics.documentsByStatus.map(item => item.count), backgroundColor: ['#64748b', '#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed'], borderRadius: 8, maxBarThickness: 64 }],
   }) : null, [statistics])
 
   if (isLoading) return <LoadingState label="Đang tải dữ liệu tổng quan..." />
@@ -53,7 +53,7 @@ const AdminDashboard = () => {
     <ContentCard><div className="flex items-center justify-between border-b border-slate-200 p-6"><h2 className="text-lg font-semibold text-slate-800">Chứng từ mới nhất</h2><button type="button" onClick={() => navigate('/admin/documents')} className="text-sm font-medium text-blue-600 hover:text-blue-700">Xem tất cả</button></div>
       <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b border-slate-200 bg-slate-50 text-slate-500"><tr><th className="px-6 py-3">Mã</th><th className="px-6 py-3">Tên chứng từ</th><th className="px-6 py-3">Loại</th><th className="px-6 py-3">Ngày</th><th className="px-6 py-3">AI Confidence</th><th className="px-6 py-3">Trạng thái</th></tr></thead><tbody className="divide-y divide-slate-100">
         {!error && recentDocuments.length === 0 && <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">Chưa có chứng từ nào</td></tr>}
-        {recentDocuments.map(doc => <tr key={doc.id} onClick={() => navigate(`/admin/documents/${doc.id}`)} className="cursor-pointer hover:bg-slate-50"><td className="px-6 py-3 font-medium text-blue-600">{doc.id}</td><td className="px-6 py-3">{doc.fileName}</td><td className="px-6 py-3">{doc.fileType || '—'}</td><td className="px-6 py-3">{doc.date}</td><td className="px-6 py-3">{doc.aiConfidence == null ? '—' : `${doc.aiConfidence}%`}</td><td className="px-6 py-3"><StatusBadge status={doc.status} reviewStatus={doc.reviewStatus} /></td></tr>)}
+        {recentDocuments.map(doc => <tr key={doc.id} onClick={() => navigate(`/admin/documents/${doc.id}`)} className="cursor-pointer hover:bg-slate-50"><td className="px-6 py-3 font-medium text-blue-600">{doc.id}</td><td className="px-6 py-3">{doc.fileName}</td><td className="px-6 py-3">{doc.documentTypeName}</td><td className="px-6 py-3">{doc.date}</td><td className="px-6 py-3">{doc.aiConfidence == null ? '—' : `${doc.aiConfidence}%`}</td><td className="px-6 py-3"><StatusBadge status={doc.status} reviewStatus={doc.reviewStatus} /></td></tr>)}
       </tbody></table></div></ContentCard>
   </div>
 }

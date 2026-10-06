@@ -110,9 +110,9 @@ const Dashboard = () => {
                 <tr key={doc.id} className="hover:bg-slate-50 transition-colors">
                   <td className="py-3 px-6 font-medium text-blue-600">{doc.id}</td>
                   <td className="py-3 px-6">{doc.fileName}</td>
-                  <td className="py-3 px-6">{doc.fileType || '-'}</td>
+                  <td className="py-3 px-6">{doc.documentTypeName}</td>
                   <td className="py-3 px-6">{doc.date}</td>
-                  <td className="py-3 px-6">-</td>
+                  <td className="py-3 px-6">{doc.aiConfidence == null ? '-' : `${doc.aiConfidence}%`}</td>
                   <td className="py-3 px-6">
                     <StatusBadge status={doc.status} />
                   </td>
