@@ -36,6 +36,7 @@ public class AiProperties {
 		private int minimumTextLength = 40;
 		private java.math.BigDecimal goodConfidence = new java.math.BigDecimal("0.65");
 		private int reservedOutputTokens = 3072;
+		private final Adaptive adaptive = new Adaptive();
 
 		public boolean isEnabled() { return enabled; }
 		public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -51,6 +52,38 @@ public class AiProperties {
 		public void setGoodConfidence(java.math.BigDecimal value) { this.goodConfidence = value; }
 		public int getReservedOutputTokens() { return reservedOutputTokens; }
 		public void setReservedOutputTokens(int value) { this.reservedOutputTokens = value; }
+		public Adaptive getAdaptive() { return adaptive; }
+
+		public static class Adaptive {
+			private boolean enabled = true;
+			private double goodQualityScore = 0.72;
+			private double usableQualityScore = 0.25;
+			private int minimumValidWords = 4;
+			private double lowConfidencePercent = 45;
+			private double upscaleFactor = 2.0;
+			private int maxAttempts = 3;
+			private double minimumDeskewAngleDegrees = 0.5;
+			private double maximumDeskewAngleDegrees = 5.0;
+
+			public boolean isEnabled() { return enabled; }
+			public void setEnabled(boolean value) { this.enabled = value; }
+			public double getGoodQualityScore() { return goodQualityScore; }
+			public void setGoodQualityScore(double value) { this.goodQualityScore = value; }
+			public double getUsableQualityScore() { return usableQualityScore; }
+			public void setUsableQualityScore(double value) { this.usableQualityScore = value; }
+			public int getMinimumValidWords() { return minimumValidWords; }
+			public void setMinimumValidWords(int value) { this.minimumValidWords = value; }
+			public double getLowConfidencePercent() { return lowConfidencePercent; }
+			public void setLowConfidencePercent(double value) { this.lowConfidencePercent = value; }
+			public double getUpscaleFactor() { return upscaleFactor; }
+			public void setUpscaleFactor(double value) { this.upscaleFactor = value; }
+			public int getMaxAttempts() { return maxAttempts; }
+			public void setMaxAttempts(int value) { this.maxAttempts = value; }
+			public double getMinimumDeskewAngleDegrees() { return minimumDeskewAngleDegrees; }
+			public void setMinimumDeskewAngleDegrees(double value) { this.minimumDeskewAngleDegrees = value; }
+			public double getMaximumDeskewAngleDegrees() { return maximumDeskewAngleDegrees; }
+			public void setMaximumDeskewAngleDegrees(double value) { this.maximumDeskewAngleDegrees = value; }
+		}
 	}
 
 	public static class Pdf {

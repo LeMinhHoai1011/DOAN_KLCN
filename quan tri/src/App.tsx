@@ -10,7 +10,6 @@ import AccountantDocuments from './pages/accountant/AccountantDocuments';
 import AccountantDocumentDetail from './pages/accountant/AccountantDocumentDetail';
 import AccountantUpload from './pages/accountant/AccountantUpload';
 import FinancialTransactions from './pages/accountant/FinancialTransactions';
-import AiTest from './pages/accountant/AiTest';
 import ClassificationWorkspace from './pages/accountant/ClassificationWorkspace';
 import ReconciliationWorkspace from './pages/accountant/ReconciliationWorkspace';
 import Storage from './pages/accountant/Storage';
@@ -76,7 +75,6 @@ function App() {
               <Route path="documents/:id" element={<AccountantDocumentDetail />} />
               <Route path="upload" element={<AccountantUpload />} />
               <Route path="financial-transactions" element={<FinancialTransactions />} />
-              <Route path="ocr-ai" element={<AiTest />} />
               <Route path="storage" element={<Storage />} />
               <Route path="classification" element={<ClassificationWorkspace />} />
               <Route path="reconciliation" element={<ReconciliationWorkspace />} />

@@ -107,16 +107,22 @@ public class InvoiceService {
 		Document document = documentService.load(request.documentId());
 		invoice.setDocument(document);
 		invoice.setInvoiceNumber(request.invoiceNumber());
+		invoice.setInvoiceSeries(request.invoiceSeries());
 		invoice.setInvoiceDate(request.invoiceDate());
 		invoice.setSellerName(request.sellerName());
 		invoice.setSellerTaxCode(request.sellerTaxCode());
 		invoice.setSellerAddress(request.sellerAddress());
+		invoice.setSellerPhone(request.sellerPhone());
 		invoice.setBuyerName(request.buyerName());
 		invoice.setBuyerTaxCode(request.buyerTaxCode());
 		invoice.setBuyerAddress(request.buyerAddress());
 		invoice.setSubtotal(request.subtotal());
 		invoice.setVatAmount(request.vatAmount());
 		invoice.setTotalAmount(request.totalAmount());
+		invoice.setPaymentMethod(request.paymentMethod());
+		invoice.setAmountInWords(request.amountInWords());
+		invoice.setTaxAuthorityCode(request.taxAuthorityCode());
+		invoice.setSignDate(request.signDate());
 		invoice.setAiGenerated(false);
 		invoice.getItems().clear();
 		if (request.items() != null) {
@@ -125,7 +131,10 @@ public class InvoiceService {
 				item.setInvoice(invoice);
 				item.setProductName(itemRequest.productName());
 				item.setQuantity(itemRequest.quantity());
+				item.setUnit(itemRequest.unit());
 				item.setUnitPrice(itemRequest.unitPrice());
+				item.setTaxRate(itemRequest.taxRate());
+				item.setTaxAmount(itemRequest.taxAmount());
 				item.setAmount(itemRequest.amount());
 				invoice.getItems().add(item);
 			}
@@ -155,17 +164,20 @@ public class InvoiceService {
 
 	private InvoiceResponse toResponse(Invoice invoice) {
 		List<InvoiceItemResponse> items = invoice.getItems().stream()
-				.map(item -> new InvoiceItemResponse(item.getId(), item.getProductName(), item.getQuantity(), item.getUnitPrice(), item.getAmount()))
+				.map(item -> new InvoiceItemResponse(item.getId(), item.getProductName(), item.getQuantity(), item.getUnit(),
+						item.getUnitPrice(), item.getTaxRate(), item.getTaxAmount(), item.getAmount()))
 				.toList();
 		return new InvoiceResponse(invoice.getId(), invoice.getDocument().getId(), invoice.getInvoiceNumber(),
-				invoice.getInvoiceDate(), invoice.getSellerName(), invoice.getSellerTaxCode(), invoice.getSellerAddress(),
+				invoice.getInvoiceSeries(), invoice.getInvoiceDate(), invoice.getSellerName(), invoice.getSellerTaxCode(), invoice.getSellerAddress(),
+				invoice.getSellerPhone(),
 				invoice.getBuyerName(), invoice.getBuyerTaxCode(), invoice.getBuyerAddress(), invoice.getSubtotal(),
-				invoice.getVatAmount(), invoice.getTotalAmount(), items);
+				invoice.getVatAmount(), invoice.getTotalAmount(), invoice.getPaymentMethod(), invoice.getAmountInWords(),
+				invoice.getTaxAuthorityCode(), invoice.getSignDate(), items);
 	}
 
 	private ExtractedFieldResponse toExtractedFieldResponse(ExtractedField field) {
 		return new ExtractedFieldResponse(field.getId(), field.getFieldName(), field.getFieldValue(), field.getSource(),
-				field.getConfidence(), ocrFieldLocator.locate(field.getDocument().getId(), field.getFieldValue()));
+				field.getConfidence(), ocrFieldLocator.locate(field.getDocument().getId(), field.getFieldName(), field.getFieldValue()));
 	}
 
 	private boolean hasRole(User user, String roleCode) {

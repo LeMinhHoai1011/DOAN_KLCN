@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
+import {
+  LayoutDashboard,
   Users,
   Shield,
   Files,
@@ -15,7 +15,7 @@ import clsx from 'clsx';
 import { getCurrentUser, logout } from '../../services/authService';
 
 const menuItems = [
-  { name: 'Dashboard Quản trị', path: '/admin', icon: LayoutDashboard },
+  { name: 'Dashboard Quản trị', path: '/admin/dashboard', icon: LayoutDashboard },
   { name: 'Quản lý người dùng', path: '/admin/users', icon: Users },
   { name: 'Quản lý vai trò', path: '/admin/roles', icon: Shield },
   { name: 'Quản lý chứng từ', path: '/admin/documents', icon: Files },
@@ -57,14 +57,15 @@ const AdminSidebar = () => {
             <NavLink
               key={item.path}
               to={item.path}
+              end
               className={({ isActive }) => clsx(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
-                isActive 
-                  ? "bg-blue-600/10 text-blue-400 font-medium" 
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-blue-400",
+                isActive
+                  ? "bg-blue-600/10 text-blue-400 font-medium"
                   : "hover:bg-slate-800/50 hover:text-white"
               )}
             >
-              <Icon size={20} className="text-slate-400" />
+              <Icon size={20} className="text-current" />
               <span>{item.name}</span>
             </NavLink>
           );
@@ -73,18 +74,19 @@ const AdminSidebar = () => {
         <div className="mt-8 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">Hệ thống</div>
         <NavLink
           to="/admin/password"
+          end
           className={({ isActive }) => clsx(
-            "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
-            isActive 
-              ? "bg-blue-600/10 text-blue-400 font-medium" 
+            "flex items-center gap-3 px-3 py-2.5 rounded-lg outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-blue-400",
+            isActive
+              ? "bg-blue-600/10 text-blue-400 font-medium"
               : "hover:bg-slate-800/50 hover:text-white"
           )}
         >
-          <KeyRound size={20} className="text-slate-400" />
+          <KeyRound size={20} className="text-current" />
           <span>Đổi mật khẩu</span>
         </NavLink>
       </div>
-      
+
       <div className="p-4 border-t border-slate-700/50">
         <div className="bg-slate-800/50 rounded-lg p-3 flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm">

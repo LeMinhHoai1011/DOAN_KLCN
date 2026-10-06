@@ -44,7 +44,10 @@ public class DocumentAiResultPersistenceService {
 	private static final Logger log = LoggerFactory.getLogger(DocumentAiResultPersistenceService.class);
 	private static final Set<String> RESERVED_CORE_FIELD_NAMES = Set.of(
 			"invoiceNumber", "invoiceSeries", "invoiceDate", "sellerName", "sellerTaxCode", "sellerAddress",
-			"buyerName", "buyerTaxCode", "buyerAddress", "subtotal", "vatAmount", "taxAmount", "totalAmount", "items");
+			"sellerPhone", "buyerName", "buyerTaxCode", "buyerAddress", "subtotal", "vatAmount", "taxAmount",
+			"totalAmount", "paymentMethod", "amountInWords", "taxAuthorityCode", "signDate", "items");
+	private static final Set<String> IGNORED_NON_BUSINESS_FIELD_NAMES = Set.of(
+			"advertisement", "recruitment", "marketingText", "slogan");
 	private static final int MAX_EXTRACTED_FIELD_NAME_LENGTH = 100;
 	private final DocumentService documentService;
 	private final DocumentTypeRepository documentTypeRepository;
@@ -154,14 +157,28 @@ public class DocumentAiResultPersistenceService {
 						"id", word.id(), "text", word.text(), "confidence", word.confidence(),
 						"x", Math.round(word.x() * page.imageWidth()), "y", Math.round(word.y() * page.imageHeight()),
 						"width", Math.round(word.width() * page.imageWidth()), "height", Math.round(word.height() * page.imageHeight()))).toList();
+				List<Map<String, Object>> lines = page.lines().stream().map(line -> layoutElement(line.id(), line.text(), line.confidence(),
+						line.x(), line.y(), line.width(), line.height(), page, "wordIds", line.wordIds())).toList();
+				List<Map<String, Object>> blocks = page.blocks().stream().map(block -> layoutElement(block.id(), block.text(), block.confidence(),
+						block.x(), block.y(), block.width(), block.height(), page, "lineIds", block.lineIds())).toList();
 				Map<String, Object> value = new LinkedHashMap<>();
 				value.put("page", page.pageNumber()); value.put("width", page.imageWidth()); value.put("height", page.imageHeight());
-				value.put("language", page.language()); value.put("words", words);
+				value.put("language", page.language()); value.put("words", words); value.put("lines", lines); value.put("blocks", blocks);
 				return value;
 			}).toList();
-			return objectMapper.writeValueAsString(Map.of("version", 1, "pages", pages));
+			return objectMapper.writeValueAsString(Map.of("version", 2, "pages", pages));
 		}
 		catch (JsonProcessingException exception) { throw new IllegalStateException("Không thể tuần tự hóa bố cục OCR", exception); }
+	}
+
+	private Map<String, Object> layoutElement(String id, String text, float confidence, double x, double y,
+			double width, double height, OcrPageResult page, String childKey, List<String> childIds) {
+		Map<String, Object> value = new LinkedHashMap<>();
+		value.put("id", id); value.put("text", text); value.put("confidence", confidence);
+		value.put("x", Math.round(x * page.imageWidth())); value.put("y", Math.round(y * page.imageHeight()));
+		value.put("width", Math.round(width * page.imageWidth())); value.put("height", Math.round(height * page.imageHeight()));
+		value.put(childKey, childIds);
+		return value;
 	}
 
 	private void persistClassification(Document document, AiDocumentResult result, BigDecimal confidence, List<String> warnings, boolean requiresReview) {
@@ -197,12 +214,17 @@ public class DocumentAiResultPersistenceService {
 		invoice.setSellerName(extraction.sellerName());
 		invoice.setSellerTaxCode(boundedIdentifier(extraction.sellerTaxCode(), AiDocumentResultValidator.MAX_TAX_CODE_LENGTH));
 		invoice.setSellerAddress(extraction.sellerAddress());
+		invoice.setSellerPhone(boundedIdentifier(extraction.sellerPhone(), AiDocumentResultValidator.MAX_SELLER_PHONE_LENGTH));
 		invoice.setBuyerName(extraction.buyerName());
 		invoice.setBuyerTaxCode(boundedIdentifier(extraction.buyerTaxCode(), AiDocumentResultValidator.MAX_TAX_CODE_LENGTH));
 		invoice.setBuyerAddress(extraction.buyerAddress());
 		invoice.setSubtotal(extraction.subtotal());
 		invoice.setVatAmount(extraction.vatAmount());
 		invoice.setTotalAmount(extraction.totalAmount());
+		invoice.setPaymentMethod(boundedIdentifier(extraction.paymentMethod(), AiDocumentResultValidator.MAX_PAYMENT_METHOD_LENGTH));
+		invoice.setAmountInWords(extraction.amountInWords());
+		invoice.setTaxAuthorityCode(boundedIdentifier(extraction.taxAuthorityCode(), AiDocumentResultValidator.MAX_TAX_AUTHORITY_CODE_LENGTH));
+		invoice.setSignDate(parseDate(extraction.signDate()));
 		invoice.setAiGenerated(true);
 		invoice.getItems().clear();
 		if (extraction.items() != null) {
@@ -260,16 +282,24 @@ public class DocumentAiResultPersistenceService {
 				AiDocumentResultValidator.MAX_TAX_CODE_LENGTH, persistedNames);
 		persistRejectedIdentifier(document, invoice, "buyerTaxCode", extraction == null ? null : extraction.buyerTaxCode(),
 				AiDocumentResultValidator.MAX_TAX_CODE_LENGTH, persistedNames);
+		persistRejectedIdentifier(document, invoice, "sellerPhone", extraction == null ? null : extraction.sellerPhone(),
+				AiDocumentResultValidator.MAX_SELLER_PHONE_LENGTH, persistedNames);
+		persistRejectedIdentifier(document, invoice, "paymentMethod", extraction == null ? null : extraction.paymentMethod(),
+				AiDocumentResultValidator.MAX_PAYMENT_METHOD_LENGTH, persistedNames);
+		persistRejectedIdentifier(document, invoice, "taxAuthorityCode", extraction == null ? null : extraction.taxAuthorityCode(),
+				AiDocumentResultValidator.MAX_TAX_AUTHORITY_CODE_LENGTH, persistedNames);
 		for (AiDocumentResult.AiExtractedField field : fields == null
 				? List.<AiDocumentResult.AiExtractedField>of() : fields) {
 			if (field.fieldName() == null || field.fieldName().isBlank()) continue;
 			String name = normalizeExtraFieldName(field.fieldName());
-			if (name == null || persistedNames.contains(name) || isPersistedInvoiceCoreField(invoice, name)) continue;
+			if (name == null || IGNORED_NON_BUSINESS_FIELD_NAMES.contains(name)
+					|| persistedNames.contains(name) || isPersistedInvoiceCoreField(invoice, name)) continue;
 			persistedNames.add(name);
 			persistExtractedField(document, invoice, name, field.fieldValue(), field.confidence());
 		}
 		for (NormalizedExtraField field : normalizeExtraFields(extraFields).values()) {
-			if (isPersistedInvoiceCoreField(invoice, field.name()) || persistedNames.contains(field.name())) continue;
+			if (IGNORED_NON_BUSINESS_FIELD_NAMES.contains(field.name())
+					|| isPersistedInvoiceCoreField(invoice, field.name()) || persistedNames.contains(field.name())) continue;
 			persistExtractedField(document, invoice, field.name(), field.value(), field.confidence());
 			persistedNames.add(field.name());
 		}
@@ -352,12 +382,17 @@ public class DocumentAiResultPersistenceService {
 			case "sellerName" -> hasText(invoice.getSellerName());
 			case "sellerTaxCode" -> hasText(invoice.getSellerTaxCode());
 			case "sellerAddress" -> hasText(invoice.getSellerAddress());
+			case "sellerPhone" -> hasText(invoice.getSellerPhone());
 			case "buyerName" -> hasText(invoice.getBuyerName());
 			case "buyerTaxCode" -> hasText(invoice.getBuyerTaxCode());
 			case "buyerAddress" -> hasText(invoice.getBuyerAddress());
 			case "subtotal" -> invoice.getSubtotal() != null;
 			case "vatAmount", "taxAmount" -> invoice.getVatAmount() != null;
 			case "totalAmount" -> invoice.getTotalAmount() != null;
+			case "paymentMethod" -> hasText(invoice.getPaymentMethod());
+			case "amountInWords" -> hasText(invoice.getAmountInWords());
+			case "taxAuthorityCode" -> hasText(invoice.getTaxAuthorityCode());
+			case "signDate" -> invoice.getSignDate() != null;
 			case "items" -> invoice.getItems() != null && !invoice.getItems().isEmpty();
 			default -> false;
 		};

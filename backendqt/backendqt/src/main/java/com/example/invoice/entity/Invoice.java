@@ -46,6 +46,8 @@ public class Invoice {
 	private String sellerTaxCode;
 	@Column(columnDefinition = "text")
 	private String sellerAddress;
+	@Column(length = 100)
+	private String sellerPhone;
 	@Column(columnDefinition = "text")
 	private String buyerName;
 	@Column(length = 255)
@@ -61,6 +63,13 @@ public class Invoice {
 
 	@Column(precision = 19, scale = 2)
 	private BigDecimal totalAmount;
+	@Column(length = 255)
+	private String paymentMethod;
+	@Column(columnDefinition = "text")
+	private String amountInWords;
+	@Column(length = 255)
+	private String taxAuthorityCode;
+	private LocalDate signDate;
 
 	@Column(nullable = false)
 	private boolean aiGenerated;

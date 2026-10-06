@@ -11,42 +11,7 @@ import type { DocumentResponse, OCRResultResponse } from '../services/documentSe
 import type { ExtractedFieldResponse } from '../services/documentService';
 import OcrDocumentPreview from '../components/OcrDocumentPreview';
 import type { InvoiceResponse } from '../services/invoiceService';
-
-interface InvoiceFormData {
-  supplier: string;
-  taxCode: string;
-  invoiceNo: string;
-  address: string;
-  subTotal: string;
-  vatAmount: string;
-}
-
-const emptyInvoiceForm: InvoiceFormData = {
-  supplier: '',
-  taxCode: '',
-  invoiceNo: '',
-  address: '',
-  subTotal: '',
-  vatAmount: '',
-};
-
-const toInvoiceForm = (invoice: InvoiceResponse): InvoiceFormData => ({
-  supplier: invoice.sellerName || '',
-  taxCode: invoice.sellerTaxCode || '',
-  invoiceNo: invoice.invoiceNumber || '',
-  address: invoice.sellerAddress || '',
-  subTotal: invoice.subtotal === null ? '' : String(invoice.subtotal),
-  vatAmount: invoice.vatAmount === null ? '' : String(invoice.vatAmount),
-});
-
-const parseAmount = (value: string) => {
-  if (!value.trim()) {
-    return null;
-  }
-
-  const amount = Number(value)
-  return Number.isNaN(amount) ? null : amount;
-};
+import VatInvoicePanel, { emptyInvoiceForm, toInvoiceForm, toInvoiceUpdateRequest, type InvoiceFormData } from '../components/VatInvoicePanel';
 
 const hasCompletedPipeline = (status: DocumentResponse['status']) => (
   status === 'PROCESSED' || status === 'NEED_REVIEW' || status === 'COMPLETED'
@@ -154,21 +119,7 @@ const DocumentDetail = () => {
 
     try {
       if (invoice) {
-        const updatedInvoice = await invoiceService.updateInvoice(invoice.id, {
-          documentId: document.id,
-          invoiceNumber: invoiceForm.invoiceNo || null,
-          invoiceDate: invoice.invoiceDate,
-          sellerName: invoiceForm.supplier || null,
-          sellerTaxCode: invoiceForm.taxCode || null,
-          sellerAddress: invoiceForm.address || null,
-          buyerName: invoice.buyerName,
-          buyerTaxCode: invoice.buyerTaxCode,
-          buyerAddress: invoice.buyerAddress,
-          subtotal: parseAmount(invoiceForm.subTotal),
-          vatAmount: parseAmount(invoiceForm.vatAmount),
-          totalAmount: invoice.totalAmount,
-          items: invoice.items,
-        });
+        const updatedInvoice = await invoiceService.updateInvoice(invoice.id, toInvoiceUpdateRequest(document.id, invoiceForm, invoice));
         setInvoice(updatedInvoice);
         setInvoiceForm(toInvoiceForm(updatedInvoice));
       }
@@ -200,18 +151,6 @@ const DocumentDetail = () => {
   const documentView = mapDocument(document);
   const confidence = ocr?.confidence;
 
-  const InputField = ({ label, value, field }: { label: string; value: string; field: keyof InvoiceFormData }) => (
-    <div className="mb-4">
-      <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
-      <input
-        type="text"
-        value={value}
-        onChange={(event) => updateInvoiceForm(field, event.target.value)}
-        className="w-full border border-slate-300 bg-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-      />
-    </div>
-  );
-
   return (
     <div className="space-y-4 h-[calc(100vh-8rem)] flex flex-col">
       <div className="flex items-center justify-between">
@@ -242,15 +181,13 @@ const DocumentDetail = () => {
       {saveMessage && <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700">{saveMessage}</div>}
       {saveError && <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{saveError}</div>}
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">
-        <div className="bg-slate-800 rounded-2xl flex flex-col overflow-hidden border border-slate-300 shadow-sm relative">
-          <div className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-xs backdrop-blur-md">1 / 1</div>
-          <div className="flex-1 flex items-center justify-center p-8 overflow-auto">
-            <OcrDocumentPreview documentId={document.id} fileType={document.fileType} ocr={ocr} fields={extractedFields} />
-          </div>
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
+        <div className="h-[min(72vh,760px)] min-h-[620px]">
+          <OcrDocumentPreview documentId={document.id} fileType={document.fileType} ocr={ocr}
+            fields={extractedFields} documentType={document.documentType} />
         </div>
 
-        <div className="flex flex-col gap-4 overflow-y-auto pr-2">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <div className="bg-white rounded-2xl border border-blue-200 shadow-sm overflow-hidden p-5 bg-gradient-to-br from-blue-50 to-white">
             <div className="flex items-start justify-between mb-4">
               <div>
@@ -284,28 +221,17 @@ const DocumentDetail = () => {
 
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex-1">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-semibold text-slate-800">Dữ liệu invoice</h3>
+              <h3 className="text-lg font-semibold text-slate-800">{document.documentType === 'VAT_INVOICE' ? 'Thông tin hóa đơn giá trị gia tăng' : 'Dữ liệu hóa đơn'}</h3>
               <span className="text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-md font-medium">API backend</span>
             </div>
             {!isInvoiceDocument(document.documentType) ? (
               <p className="text-sm text-slate-500">Không áp dụng cho loại chứng từ này.</p>
             ) : invoice ? (
-              <div className="space-y-4">
-                <InputField label="Nhà cung cấp" value={invoiceForm.supplier} field="supplier" />
-                <InputField label="Mã số thuế" value={invoiceForm.taxCode} field="taxCode" />
-                <InputField label="Số hóa đơn" value={invoiceForm.invoiceNo} field="invoiceNo" />
-                <InputField label="Tổng tiền trước thuế" value={invoiceForm.subTotal} field="subTotal" />
-                <InputField label="Tiền thuế VAT" value={invoiceForm.vatAmount} field="vatAmount" />
-                <InputField label="Địa chỉ" value={invoiceForm.address} field="address" />
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div><span className="block text-xs font-medium text-slate-500 mb-1">Số điện thoại</span><span className="text-slate-500">Backend chưa cung cấp</span></div>
-                  <div><span className="block text-xs font-medium text-slate-500 mb-1">Hình thức thanh toán</span><span className="text-slate-500">Backend chưa cung cấp</span></div>
-                </div>
-              </div>
+              <VatInvoicePanel invoice={invoice} form={invoiceForm} editable onChange={updateInvoiceForm} rawText={ocr?.rawText} />
             ) : (
               <p className="text-sm text-slate-500">Backend chưa có invoice cho chứng từ này.</p>
             )}
-            {ocr && <div className="mt-6 border-t border-slate-200 pt-4 text-sm text-slate-600">OCR raw text đã nhận từ backend: {ocr.rawText || 'Chưa có nội dung'}</div>}
+            {!invoice && ocr && <details className="mt-6 rounded-xl border border-slate-200 p-4"><summary className="cursor-pointer font-medium text-slate-700">Văn bản OCR gốc</summary><pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap text-xs text-slate-600">{ocr.rawText || 'Chưa có nội dung'}</pre></details>}
           </div>
         </div>
       </div>

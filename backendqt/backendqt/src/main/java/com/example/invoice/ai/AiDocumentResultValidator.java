@@ -19,6 +19,10 @@ public class AiDocumentResultValidator {
 	public static final int MAX_INVOICE_NUMBER_LENGTH = 255;
 	public static final int MAX_INVOICE_SERIES_LENGTH = 255;
 	public static final int MAX_TAX_CODE_LENGTH = 255;
+	public static final int MAX_SELLER_PHONE_LENGTH = 100;
+	public static final int MAX_PAYMENT_METHOD_LENGTH = 255;
+	public static final int MAX_TAX_AUTHORITY_CODE_LENGTH = 255;
+	private static final int MAX_AMOUNT_IN_WORDS_LENGTH = 8000;
 	private static final int MAX_REASONABLE_NAME_LENGTH = 1000;
 	private static final int MAX_REASONABLE_ADDRESS_LENGTH = 4000;
 	private static final int MAX_REASONABLE_ITEM_NAME_LENGTH = 2000;
@@ -68,6 +72,10 @@ public class AiDocumentResultValidator {
 		warnLength(invoice.buyerName(), MAX_REASONABLE_NAME_LENGTH, "BUYER_NAME_ABNORMAL_LENGTH", warnings);
 		warnLength(invoice.sellerAddress(), MAX_REASONABLE_ADDRESS_LENGTH, "SELLER_ADDRESS_ABNORMAL_LENGTH", warnings);
 		warnLength(invoice.buyerAddress(), MAX_REASONABLE_ADDRESS_LENGTH, "BUYER_ADDRESS_ABNORMAL_LENGTH", warnings);
+		warnLength(invoice.sellerPhone(), MAX_SELLER_PHONE_LENGTH, "SELLER_PHONE_INVALID_LENGTH", warnings);
+		warnLength(invoice.paymentMethod(), MAX_PAYMENT_METHOD_LENGTH, "PAYMENT_METHOD_INVALID_LENGTH", warnings);
+		warnLength(invoice.amountInWords(), MAX_AMOUNT_IN_WORDS_LENGTH, "AMOUNT_IN_WORDS_ABNORMAL_LENGTH", warnings);
+		warnLength(invoice.taxAuthorityCode(), MAX_TAX_AUTHORITY_CODE_LENGTH, "TAX_AUTHORITY_CODE_INVALID_LENGTH", warnings);
 		if (invoice.items() != null) invoice.items().forEach(item -> {
 			if (item != null) warnLength(item.productName(), MAX_REASONABLE_ITEM_NAME_LENGTH,
 					"INVOICE_ITEM_NAME_ABNORMAL_LENGTH", warnings);
@@ -83,6 +91,13 @@ public class AiDocumentResultValidator {
 				LocalDate.parse(invoice.invoiceDate());
 			} catch (DateTimeParseException exception) {
 				warnings.add("Invoice date is not an unambiguous yyyy-MM-dd value");
+			}
+		}
+		if (invoice.signDate() != null) {
+			try {
+				LocalDate.parse(invoice.signDate());
+			} catch (DateTimeParseException exception) {
+				warnings.add("Ngày ký không phải giá trị yyyy-MM-dd rõ ràng");
 			}
 		}
 		if (invoice.subtotal() != null && invoice.vatAmount() != null && invoice.totalAmount() != null

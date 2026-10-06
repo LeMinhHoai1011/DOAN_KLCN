@@ -43,19 +43,20 @@ public class DocumentAiProcessingService {
 	private final AiDocumentResultValidator resultValidator;
 	private final DocumentAiResultPersistenceService persistenceService;
 	private final ProcessingLogService processingLogService;
-	private final ImagePreprocessingService imagePreprocessingService;
+	private final AdaptiveOcrService adaptiveOcrService;
 	private final PdfImageConversionService pdfImageConversionService;
-	private final Tess4jOcrService tess4jOcrService;
 	private final AiProperties aiProperties;
 	private final OcrTextNormalizer ocrTextNormalizer;
+	private final OcrLayoutReconstructor ocrLayoutReconstructor;
 
 	@Autowired
 	public DocumentAiProcessingService(DocumentService documentService, DocumentTypeRepository documentTypeRepository,
 			AccountingCategoryRepository accountingCategoryRepository, AiProcessingService aiProcessingService,
 			AiDocumentResultValidator resultValidator, DocumentAiResultPersistenceService persistenceService,
-			ProcessingLogService processingLogService, ImagePreprocessingService imagePreprocessingService,
-			PdfImageConversionService pdfImageConversionService, Tess4jOcrService tess4jOcrService,
-			AiProperties aiProperties, OcrTextNormalizer ocrTextNormalizer) {
+			ProcessingLogService processingLogService, PdfImageConversionService pdfImageConversionService,
+			AdaptiveOcrService adaptiveOcrService,
+			AiProperties aiProperties, OcrTextNormalizer ocrTextNormalizer,
+			OcrLayoutReconstructor ocrLayoutReconstructor) {
 		this.documentService = documentService;
 		this.documentTypeRepository = documentTypeRepository;
 		this.accountingCategoryRepository = accountingCategoryRepository;
@@ -63,11 +64,11 @@ public class DocumentAiProcessingService {
 		this.resultValidator = resultValidator;
 		this.persistenceService = persistenceService;
 		this.processingLogService = processingLogService;
-		this.imagePreprocessingService = imagePreprocessingService;
+		this.adaptiveOcrService = adaptiveOcrService;
 		this.pdfImageConversionService = pdfImageConversionService;
-		this.tess4jOcrService = tess4jOcrService;
 		this.aiProperties = aiProperties;
 		this.ocrTextNormalizer = ocrTextNormalizer;
+		this.ocrLayoutReconstructor = ocrLayoutReconstructor;
 	}
 
 	/** Compatibility constructor retained for the text-first PDF fallback tests. */
@@ -77,7 +78,7 @@ public class DocumentAiProcessingService {
 			AiDocumentResultValidator resultValidator, DocumentAiResultPersistenceService persistenceService,
 			ProcessingLogService processingLogService, PdfImageConversionService pdfImageConversionService) {
 		this(documentService, documentTypeRepository, accountingCategoryRepository, aiProcessingService, resultValidator,
-				persistenceService, processingLogService, null, pdfImageConversionService, null, new AiProperties(), null);
+				persistenceService, processingLogService, pdfImageConversionService, null, new AiProperties(), null, null);
 	}
 
 	public AiDocumentProcessingResponse process(Long documentId, boolean reprocess) {
@@ -146,30 +147,28 @@ public class DocumentAiProcessingService {
 
 	private AiDocumentProcessingResponse processImage(Long documentId, Document document, byte[] originalBytes,
 			List<String> typeCodes, List<String> categoryCodes, Set<String> allowedTypes, Company company) {
-		byte[] bytes = originalBytes;
-		String contentType = document.getFileType();
 		List<String> warnings = new ArrayList<>();
-		ImagePreprocessingResult preprocessing = null;
-		try {
-			preprocessing = imagePreprocessingService.preprocess(bytes, contentType);
-			if (preprocessing.applied()) {
-				String objectKey = documentService.storeProcessedImage(documentId, preprocessing.bytes(), preprocessing.contentType());
-				bytes = preprocessing.bytes();
-				contentType = preprocessing.contentType();
-				processingLogService.append(documentId, "IMAGE_PREPROCESSING", "NORMALIZE", "SUCCESS", null,
-						preprocessing.durationMs(), "angle=%.2f; original=%dx%d; processed=%dx%d; objectKey=%s".formatted(
-								preprocessing.detectedAngleDegrees(), preprocessing.originalWidth(), preprocessing.originalHeight(),
-								preprocessing.processedWidth(), preprocessing.processedHeight(), objectKey));
+		AdaptiveOcrService.AdaptiveOcrResult adaptive = adaptiveOcrService.recognize(originalBytes, document.getFileType(), 1);
+		byte[] bytes = adaptive.selectedImageBytes();
+		String contentType = adaptive.selectedContentType();
+		if (adaptive.warning() != null) warnings.add(adaptive.warning());
+		String objectKey = null;
+		if (adaptive.selectedProfile() != OcrProcessingProfile.NORMAL) {
+			try {
+				objectKey = documentService.storeProcessedImage(documentId, bytes, contentType);
+			} catch (RuntimeException exception) {
+				warnings.add("Không thể lưu bản ảnh đã tiền xử lý; kết quả OCR vẫn được giữ lại");
+				log.warn("Could not store processed image documentId={}: {}", documentId, sanitize(exception.getMessage()));
 			}
-		} catch (RuntimeException exception) {
-			warnings.add("Tiền xử lý ảnh thất bại; ảnh gốc đã được gửi đến OCR và AI");
-			processingLogService.append(documentId, "IMAGE_PREPROCESSING", "NORMALIZE", "WARNING", null, null,
-					"Tiền xử lý thất bại: " + sanitize(exception.getMessage()));
 		}
+		processingLogService.append(documentId, "IMAGE_PREPROCESSING", adaptive.selectedProfile().name(), "SUCCESS",
+				BigDecimal.valueOf(adaptive.qualityScore()), null,
+				"profile=%s; attempts=%d; original=%s; selectedObjectKey=%s".formatted(adaptive.selectedProfile(),
+						adaptive.attempts(), adaptive.imageQuality() == null ? "unknown" : adaptive.imageQuality().width() + "x" + adaptive.imageQuality().height(), objectKey));
 
 		log.info("AI input documentId={} mimeType={} bytes={} allowedTypeCount={}",
 				documentId, contentType, bytes.length, typeCodes.size());
-		OcrPageResult pageOcr = tess4jOcrService.recognize(bytes, 1);
+		OcrPageResult pageOcr = reconstructLayout(adaptive.page());
 		logOcr(documentId, pageOcr);
 		OcrDocumentResult ocr = aggregateOcr(List.of(pageOcr));
 		persistenceService.persistOcr(documentId, ocr);
@@ -181,9 +180,10 @@ public class DocumentAiProcessingService {
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);
 		warnings.addAll(validated.warnings());
 		warnings.addAll(ocr.warnings());
-		ImagePreprocessingMetadata metadata = preprocessing == null ? null : new ImagePreprocessingMetadata(
-				preprocessing.applied(), preprocessing.detectedAngleDegrees(), preprocessing.originalWidth(), preprocessing.originalHeight(),
-				preprocessing.processedWidth(), preprocessing.processedHeight(), preprocessing.durationMs(), preprocessing.warning());
+		ImagePreprocessingMetadata metadata = adaptive.imageQuality() == null ? null : new ImagePreprocessingMetadata(
+				adaptive.selectedProfile() != OcrProcessingProfile.NORMAL, adaptive.imageQuality().skewAngleDegrees(),
+				adaptive.imageQuality().width(), adaptive.imageQuality().height(), pageOcr.imageWidth(), pageOcr.imageHeight(),
+				pageOcr.durationMs(), adaptive.warning());
 		return response(documentId, requiresReview, warnings, metadata);
 	}
 
@@ -195,7 +195,8 @@ public class DocumentAiProcessingService {
 
 	AiDocumentResult analyzeSingleImage(String fileName, String contentType, byte[] bytes,
 			List<String> documentTypes, List<String> categoryCodes, Company company, OcrPageResult ocr) {
-		String normalizedText = normalizeOcrText(ocr == null ? null : ocr.text());
+		String normalizedText = normalizeOcrText(ocr == null ? null
+				: ocrLayoutReconstructor == null ? ocr.text() : ocrLayoutReconstructor.structuredContext(ocr));
 		String prompt = AiDocumentPromptFactory.create(documentTypes, categoryCodes,
 				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
 		boolean reliableOcr = ocr != null && ocr.successful()
@@ -240,12 +241,13 @@ public class DocumentAiProcessingService {
 		List<PageAnalysis> results = new ArrayList<>();
 		List<OcrPageResult> recognizedPages = new ArrayList<>();
 		for (PdfPageImage page : pdfImageConversionService.convert(pdfBytes)) {
-			OcrPageResult ocr = tess4jOcrService.recognize(page.bytes(), page.pageNumber());
+			AdaptiveOcrService.AdaptiveOcrResult adaptive = adaptiveOcrService.recognize(page.bytes(), page.contentType(), page.pageNumber());
+			OcrPageResult ocr = reconstructLayout(adaptive.page());
 			logOcr(documentId, ocr);
 			recognizedPages.add(ocr);
 			persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
-			results.add(new PageAnalysis(analyzeSingleImage(fileName + "#page-" + page.pageNumber(), page.contentType(),
-					page.bytes(), documentTypes, categoryCodes, company, ocr), ocr));
+			results.add(new PageAnalysis(analyzeSingleImage(fileName + "#page-" + page.pageNumber(), adaptive.selectedContentType(),
+					adaptive.selectedImageBytes(), documentTypes, categoryCodes, company, ocr), ocr));
 		}
 		return List.copyOf(results);
 	}
@@ -272,6 +274,10 @@ public class DocumentAiProcessingService {
 	String normalizeOcrText(String value) {
 		if (ocrTextNormalizer != null) return ocrTextNormalizer.normalizeAndCompact(value);
 		return value == null ? "" : value.replaceAll("[ \\t]+", " ").replaceAll("(?m)^\\s*$\\R", "").trim();
+	}
+
+	private OcrPageResult reconstructLayout(OcrPageResult page) {
+		return ocrLayoutReconstructor == null ? page : ocrLayoutReconstructor.reconstruct(page);
 	}
 
 	private OcrDocumentResult aggregateOcr(List<OcrPageResult> pages) {
@@ -312,11 +318,14 @@ public class DocumentAiProcessingService {
 		return new AiDocumentResult.AiInvoiceExtraction(firstPresent(left.invoiceNumber(), right.invoiceNumber()),
 				firstPresent(left.invoiceSeries(), right.invoiceSeries()), firstPresent(left.invoiceDate(), right.invoiceDate()),
 				firstPresent(left.sellerName(), right.sellerName()), firstPresent(left.sellerTaxCode(), right.sellerTaxCode()),
-				firstPresent(left.sellerAddress(), right.sellerAddress()), firstPresent(left.buyerName(), right.buyerName()),
+				firstPresent(left.sellerAddress(), right.sellerAddress()), firstPresent(left.sellerPhone(), right.sellerPhone()),
+				firstPresent(left.buyerName(), right.buyerName()),
 				firstPresent(left.buyerTaxCode(), right.buyerTaxCode()), firstPresent(left.buyerAddress(), right.buyerAddress()),
 				left.subtotal() != null ? left.subtotal() : right.subtotal(),
 				left.vatAmount() != null ? left.vatAmount() : right.vatAmount(),
-				left.totalAmount() != null ? left.totalAmount() : right.totalAmount(), items);
+				left.totalAmount() != null ? left.totalAmount() : right.totalAmount(),
+				firstPresent(left.paymentMethod(), right.paymentMethod()), firstPresent(left.amountInWords(), right.amountInWords()),
+				firstPresent(left.taxAuthorityCode(), right.taxAuthorityCode()), firstPresent(left.signDate(), right.signDate()), items);
 	}
 
 	private String firstPresent(String left, String right) {
@@ -331,11 +340,11 @@ public class DocumentAiProcessingService {
 		boolean buyer = companyTaxCode.equals(normalizeTaxCode(invoice.buyerTaxCode()));
 		AiDocumentResult.AiCompanyRole role = null;
 		if (seller && buyer) role = new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.UNKNOWN, BigDecimal.ONE,
-				"Current company tax code matches both seller and buyer");
+				"Mã số thuế của công ty hiện tại trùng với cả người bán và người mua");
 		else if (seller) role = new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.SELLER, BigDecimal.ONE,
-				"Current company tax code exactly matches seller tax code");
+				"Mã số thuế của công ty hiện tại trùng chính xác với mã số thuế người bán");
 		else if (buyer) role = new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.BUYER, BigDecimal.ONE,
-				"Current company tax code exactly matches buyer tax code");
+				"Mã số thuế của công ty hiện tại trùng chính xác với mã số thuế người mua");
 		return role == null ? result : result.withCompanyRoleAndDirection(role, result.documentDirection());
 	}
 

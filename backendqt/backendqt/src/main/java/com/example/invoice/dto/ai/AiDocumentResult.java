@@ -118,13 +118,26 @@ public record AiDocumentResult(
 			String sellerName,
 			String sellerTaxCode,
 			String sellerAddress,
+			String sellerPhone,
 			String buyerName,
 			String buyerTaxCode,
 			String buyerAddress,
 			BigDecimal subtotal,
 			BigDecimal vatAmount,
 			BigDecimal totalAmount,
+			String paymentMethod,
+			String amountInWords,
+			String taxAuthorityCode,
+			String signDate,
 			List<AiInvoiceItemExtraction> items) {
+		public AiInvoiceExtraction(String invoiceNumber, String invoiceSeries, String invoiceDate,
+				String sellerName, String sellerTaxCode, String sellerAddress, String buyerName,
+				String buyerTaxCode, String buyerAddress, BigDecimal subtotal, BigDecimal vatAmount,
+				BigDecimal totalAmount, List<AiInvoiceItemExtraction> items) {
+			this(invoiceNumber, invoiceSeries, invoiceDate, sellerName, sellerTaxCode, sellerAddress, null,
+					buyerName, buyerTaxCode, buyerAddress, subtotal, vatAmount, totalAmount,
+					null, null, null, null, items);
+		}
 	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)

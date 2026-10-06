@@ -12,43 +12,8 @@ import type { InvoiceResponse } from '../../services/invoiceService';
 import { getEffectiveRole } from '../../services/authService';
 import ErrorState from '../../components/ui/ErrorState';
 import LoadingState from '../../components/ui/LoadingState';
-import DataTable from '../../components/ui/DataTable';
 import OcrDocumentPreview from '../../components/OcrDocumentPreview';
-
-interface InvoiceFormData {
-  supplier: string;
-  taxCode: string;
-  invoiceNo: string;
-  address: string;
-  subTotal: string;
-  vatAmount: string;
-}
-
-const emptyInvoiceForm: InvoiceFormData = {
-  supplier: '',
-  taxCode: '',
-  invoiceNo: '',
-  address: '',
-  subTotal: '',
-  vatAmount: '',
-};
-
-const toInvoiceForm = (invoice: InvoiceResponse): InvoiceFormData => ({
-  supplier: invoice.sellerName || '',
-  taxCode: invoice.sellerTaxCode || '',
-  invoiceNo: invoice.invoiceNumber || '',
-  address: invoice.sellerAddress || '',
-  subTotal: invoice.subtotal === null ? '' : String(invoice.subtotal),
-  vatAmount: invoice.vatAmount === null ? '' : String(invoice.vatAmount),
-});
-
-const parseAmount = (value: string) => {
-  if (!value.trim()) {
-    return null;
-  }
-  const amount = Number(value);
-  return Number.isNaN(amount) ? null : amount;
-};
+import VatInvoicePanel, { documentTypeLabel, emptyInvoiceForm, toInvoiceForm, toInvoiceUpdateRequest, type InvoiceFormData } from '../../components/VatInvoicePanel';
 
 const humanizeFieldName = (name: string) => name
   .replace(/([a-z])([A-Z])/g, '$1 $2')
@@ -65,11 +30,17 @@ const formatConfidence = (value: number | null | undefined) => (
 
 const distinctMeaningfulFields = (fields: ExtractedFieldResponse[]) => {
   const seen = new Set<string>();
+  const core = new Set(['invoicenumber', 'invoiceseries', 'invoicedate', 'sellername', 'sellertaxcode', 'selleraddress',
+    'sellerphone', 'buyername', 'buyertaxcode', 'buyeraddress', 'subtotal', 'vatamount', 'taxamount', 'totalamount',
+    'paymentmethod', 'amountinwords', 'taxauthoritycode', 'signdate', 'items']);
+  const ignored = new Set(['recruitment', 'advertisement', 'marketingtext', 'slogan']);
   return fields.filter((field) => {
     const name = field.fieldName?.trim();
     const value = field.fieldValue?.trim();
     if (!name || !value) return false;
     const key = name.toLocaleLowerCase();
+    const canonical = key.replace(/[^a-z0-9]/g, '');
+    if (core.has(canonical) || ignored.has(canonical)) return false;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -209,21 +180,7 @@ const AccountantDocumentDetail = () => {
 
     try {
       if (invoice) {
-        const updatedInvoice = await invoiceService.updateInvoice(invoice.id, {
-          documentId: document.id,
-          invoiceNumber: invoiceForm.invoiceNo || null,
-          invoiceDate: invoice.invoiceDate,
-          sellerName: invoiceForm.supplier || null,
-          sellerTaxCode: invoiceForm.taxCode || null,
-          sellerAddress: invoiceForm.address || null,
-          buyerName: invoice.buyerName,
-          buyerTaxCode: invoice.buyerTaxCode,
-          buyerAddress: invoice.buyerAddress,
-          subtotal: parseAmount(invoiceForm.subTotal),
-          vatAmount: parseAmount(invoiceForm.vatAmount),
-          totalAmount: invoice.totalAmount,
-          items: invoice.items,
-        });
+        const updatedInvoice = await invoiceService.updateInvoice(invoice.id, toInvoiceUpdateRequest(document.id, invoiceForm, invoice));
         setInvoice(updatedInvoice);
         setInvoiceForm(toInvoiceForm(updatedInvoice));
       }
@@ -258,21 +215,6 @@ const AccountantDocumentDetail = () => {
   const canSubmit = isEmployeeView && document.status === 'UPLOADED' && document.reviewStatus === 'PENDING';
   const canResubmit = isEmployeeView && document.status === 'NEED_REVIEW' && (document.reviewStatus === 'REJECTED' || document.reviewStatus === 'CORRECTED');
   const dynamicFields = distinctMeaningfulFields(extractedFields);
-  const invoiceItems = invoice?.items ?? [];
-
-  const InputField = ({ label, value, field }: { label: string; value: string; field: keyof InvoiceFormData }) => (
-    <div className="mb-4">
-      <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
-      <input
-        type="text"
-        value={value}
-        onChange={(event) => updateInvoiceForm(field, event.target.value)}
-        disabled={!canEdit}
-        className="w-full border border-slate-300 bg-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-      />
-    </div>
-  );
-
   return (
     <div className="space-y-4 h-[calc(100vh-8rem)] flex flex-col">
       <div className="flex items-center justify-between">
@@ -280,9 +222,9 @@ const AccountantDocumentDetail = () => {
           <button onClick={() => navigate(`${basePath}/documents`)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-600">
             <ArrowLeft size={20} />
           </button>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-800">{document.id} - {document.originalFileName}</h1>
+              <h1 className="max-w-[55vw] truncate text-2xl font-bold text-slate-800" title={`${document.id} - ${document.originalFileName}`}>{document.id} - {document.originalFileName}</h1>
               <StatusBadge status={documentView.status} />
             </div>
             <p className="text-slate-500 text-sm mt-1">{isEmployeeView ? 'Thông tin chứng từ của bạn' : 'Đã tải lên vào'} {isEmployeeView ? '' : documentView.date}</p>
@@ -308,15 +250,13 @@ const AccountantDocumentDetail = () => {
 
       {(canReview || canSubmit || canResubmit) && <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-wrap items-center gap-2"><span className="mr-2 text-sm font-medium text-slate-700">Workflow</span>{canSubmit && <button disabled={isWorkflowPending} onClick={() => void runWorkflow('SUBMIT')} className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50">Gửi xử lý</button>}{canResubmit && <button disabled={isWorkflowPending} onClick={() => void runWorkflow('RESUBMIT')} className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50">Gửi lại</button>}{canReview && <><button disabled={isWorkflowPending} onClick={() => void runWorkflow('START_REVIEW')} className="rounded-lg border border-blue-300 px-3 py-2 text-sm text-blue-700 disabled:opacity-50">Bắt đầu review</button><button disabled={isWorkflowPending} onClick={() => void runWorkflow('APPROVE')} className="rounded-lg border border-emerald-300 px-3 py-2 text-sm text-emerald-700 disabled:opacity-50">Duyệt</button><button disabled={isWorkflowPending} onClick={() => setWorkflowAction('REJECT')} className="rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 disabled:opacity-50">Từ chối</button><button disabled={isWorkflowPending} onClick={() => setWorkflowAction('REQUEST_INFO')} className="rounded-lg border border-amber-300 px-3 py-2 text-sm text-amber-700 disabled:opacity-50">Yêu cầu bổ sung</button></>}</div>{workflowAction && <div className="mt-3 flex flex-wrap gap-2"><input value={workflowNote} onChange={(event) => setWorkflowNote(event.target.value)} placeholder="Nhập lý do" className="min-w-64 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" /><button disabled={isWorkflowPending} onClick={() => void runWorkflow(workflowAction)} className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50">{isWorkflowPending ? 'Đang gửi...' : 'Xác nhận'}</button><button disabled={isWorkflowPending} onClick={() => { setWorkflowAction(null); setWorkflowNote(''); }} className="rounded-lg px-3 py-2 text-sm text-slate-600">Hủy</button></div>}</div>}
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">
-        <div className="bg-slate-800 rounded-2xl flex flex-col overflow-hidden border border-slate-300 shadow-sm relative">
-          <div className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-xs backdrop-blur-md">1 / 1</div>
-          <div className="flex-1 flex items-center justify-center p-8 overflow-auto">
-            <OcrDocumentPreview documentId={document.id} fileType={document.fileType} ocr={ocr} fields={dynamicFields} />
-          </div>
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
+        <div className="h-[min(72vh,760px)] min-h-[620px]">
+          <OcrDocumentPreview documentId={document.id} fileType={document.fileType} ocr={ocr}
+            fields={extractedFields} documentType={document.documentType} />
         </div>
 
-        <div className="flex flex-col gap-4 overflow-y-auto pr-2">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <div className="bg-white rounded-2xl border border-blue-200 shadow-sm overflow-hidden p-5 bg-gradient-to-br from-blue-50 to-white">
             <div className="flex items-start justify-between mb-4">
               <div>
@@ -353,45 +293,27 @@ const AccountantDocumentDetail = () => {
             <h3 className="text-lg font-semibold text-slate-800">Thông tin nhận diện</h3>
             <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <span className="block text-xs font-medium text-slate-500">Loại chứng từ</span>
-              <span className="break-words text-slate-800">{document.documentType || 'Chưa xác định'}</span>
+              <span className="break-words text-slate-800">{documentTypeLabel(document.documentType)}</span>
               {document.companyRole?.role && <div><span className="block text-xs font-medium text-slate-500">Vai trò công ty</span><span>{companyRoleLabels[document.companyRole.role] || document.companyRole.role}</span>{formatConfidence(document.companyRole.confidence) && <span className="ml-2 text-xs text-slate-500">{formatConfidence(document.companyRole.confidence)}</span>}{document.companyRole.reason && <p className="mt-1 break-words text-xs text-slate-500">{document.companyRole.reason}</p>}</div>}
               {document.documentDirection && <div><span className="block text-xs font-medium text-slate-500">Hướng chứng từ</span><span>{directionLabels[document.documentDirection] || document.documentDirection}</span></div>}
               {document.transactionAssessment?.type && <div><span className="block text-xs font-medium text-slate-500">Đề xuất nghiệp vụ AI</span><span>{assessmentLabels[document.transactionAssessment.type] || document.transactionAssessment.type}</span>{formatConfidence(document.transactionAssessment.confidence) && <span className="ml-2 text-xs text-slate-500">{formatConfidence(document.transactionAssessment.confidence)}</span>}{document.transactionAssessment.reason && <p className="mt-1 break-words text-xs text-slate-500">{document.transactionAssessment.reason}</p>}</div>}
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex-1">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex-1 xl:row-span-2">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-semibold text-slate-800">Dữ liệu invoice</h3>
+              <h3 className="text-lg font-semibold text-slate-800">{document.documentType === 'VAT_INVOICE' ? 'Thông tin hóa đơn giá trị gia tăng' : 'Dữ liệu hóa đơn'}</h3>
               <span className="text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-md font-medium">API backend</span>
             </div>
             {!isInvoiceDocument(document.documentType) ? (
               <p className="text-sm text-slate-500">Không áp dụng cho loại chứng từ này.</p>
             ) : invoice ? (
-              <div className="space-y-4">
-                <InputField label="Nhà cung cấp" value={invoiceForm.supplier} field="supplier" />
-                <InputField label="Mã số thuế" value={invoiceForm.taxCode} field="taxCode" />
-                <InputField label="Số hóa đơn" value={invoiceForm.invoiceNo} field="invoiceNo" />
-                <InputField label="Tổng tiền trước thuế" value={invoiceForm.subTotal} field="subTotal" />
-                <InputField label="Tiền thuế VAT" value={invoiceForm.vatAmount} field="vatAmount" />
-                <InputField label="Địa chỉ" value={invoiceForm.address} field="address" />
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div><span className="block text-xs font-medium text-slate-500 mb-1">Số điện thoại</span><span className="text-slate-500">Backend chưa cung cấp</span></div>
-                  <div><span className="block text-xs font-medium text-slate-500 mb-1">Hình thức thanh toán</span><span className="text-slate-500">Backend chưa cung cấp</span></div>
-                </div>
-              </div>
+              <VatInvoicePanel invoice={invoice} form={invoiceForm} editable={canEdit} onChange={updateInvoiceForm} rawText={ocr?.rawText} />
             ) : (
               <p className="text-sm text-slate-500">Backend chưa có invoice cho chứng từ này.</p>
             )}
-            {ocr && <div className="mt-6 border-t border-slate-200 pt-4 text-sm text-slate-600">OCR raw text đã nhận từ backend: {ocr.rawText || 'Chưa có nội dung'}</div>}
+            {!invoice && ocr && <details className="mt-6 rounded-xl border border-slate-200 p-4"><summary className="cursor-pointer font-medium text-slate-700">Văn bản OCR gốc</summary><pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap text-xs text-slate-600">{ocr.rawText || 'Chưa có nội dung'}</pre></details>}
           </div>
-
-          {invoiceItems.length > 0 && <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <h3 className="mb-4 text-lg font-semibold text-slate-800">Hàng hóa / dịch vụ</h3>
-            <DataTable colSpan={4} headers={<><th className="px-3 py-2 font-medium">Tên hàng</th><th className="px-3 py-2 font-medium">Số lượng</th><th className="px-3 py-2 font-medium">Đơn giá</th><th className="px-3 py-2 font-medium">Thành tiền</th></>}>
-              {invoiceItems.map((item) => <tr key={item.id}><td className="px-3 py-2 break-words">{item.productName || '-'}</td><td className="px-3 py-2">{item.quantity ?? '-'}</td><td className="px-3 py-2">{item.unitPrice ?? '-'}</td><td className="px-3 py-2">{item.amount ?? '-'}</td></tr>)}
-            </DataTable>
-          </div>}
 
           {dynamicFields.length > 0 && <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
             <h3 className="text-lg font-semibold text-slate-800">Trường trích xuất bổ sung</h3>

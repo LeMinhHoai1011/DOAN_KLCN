@@ -1,167 +1,45 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import StatCard from '../../components/StatCard';
-import StatusBadge from '../../components/StatusBadge';
-import dashboardService from '../../services/dashboardService';
-import type { DashboardStatistics } from '../../services/dashboardService';
-import type { FinancialDashboard } from '../../services/dashboardService';
-import documentService from '../../services/documentService';
-import type { DocumentListItem } from '../../services/documentService';
-import { AlertTriangle, CheckCircle2, FileText, Receipt } from 'lucide-react';
-import { Line } from 'react-chartjs-2';
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
-import type { FinancialSeriesPoint } from '../../services/dashboardService';
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Line } from 'react-chartjs-2'
+import { CategoryScale, Chart as ChartJS, Legend, LinearScale, LineElement, PointElement, Tooltip } from 'chart.js'
+import { AlertTriangle, CheckCircle2, FileText, Receipt, TrendingDown, TrendingUp, WalletCards } from 'lucide-react'
+import StatCard from '../../components/StatCard'
+import StatusBadge from '../../components/StatusBadge'
+import ContentCard from '../../components/ui/ContentCard'
+import ErrorState from '../../components/ui/ErrorState'
+import LoadingState from '../../components/ui/LoadingState'
+import PageHeader from '../../components/ui/PageHeader'
+import dashboardService, { type DashboardStatistics, type FinancialDashboard, type FinancialSeriesPoint } from '../../services/dashboardService'
+import documentService, { type DocumentListItem } from '../../services/documentService'
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend)
+const money = (value: number) => `${Number(value || 0).toLocaleString('vi-VN')} ₫`
 
 const AccountantDashboard = () => {
-  const navigate = useNavigate();
-  const [statistics, setStatistics] = useState<DashboardStatistics | null>(null);
-  const [financial, setFinancial] = useState<FinancialDashboard | null>(null);
-  const [recentDocuments, setRecentDocuments] = useState<DocumentListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [series, setSeries] = useState<FinancialSeriesPoint[]>([]);
-  const [interval, setInterval] = useState<'DAILY' | 'MONTHLY'>('MONTHLY');
-  const [seriesLoading, setSeriesLoading] = useState(true);
+  const navigate = useNavigate()
+  const [statistics, setStatistics] = useState<DashboardStatistics | null>(null)
+  const [financial, setFinancial] = useState<FinancialDashboard | null>(null)
+  const [documents, setDocuments] = useState<DocumentListItem[]>([])
+  const [series, setSeries] = useState<FinancialSeriesPoint[]>([])
+  const [interval, setInterval] = useState<'DAILY' | 'MONTHLY'>('MONTHLY')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    let isMounted = true;
+    let active = true; setLoading(true); setError('')
+    Promise.all([dashboardService.getDashboardStatistics(), dashboardService.getFinancialDashboard(), dashboardService.getFinancialTimeSeries({ interval }), documentService.getDocumentPage({ page: 1, size: 8, sort: 'createdAt,desc' })])
+      .then(([stats, finance, points, page]) => { if (!active) return; setStatistics(stats); setFinancial(finance); setSeries(points); setDocuments([...page.content].sort((a, b) => { const priority = { NEED_REVIEW: 0, FAILED: 1, PROCESSING: 2 } as Record<string, number>; return (priority[a.status] ?? 3) - (priority[b.status] ?? 3) }).slice(0, 5)) })
+      .catch(() => active && setError('Không thể tải dữ liệu tổng quan. Vui lòng thử lại.'))
+      .finally(() => active && setLoading(false))
+    return () => { active = false }
+  }, [interval])
 
-    const loadDashboard = async () => {
-      try {
-        const [dashboardStatistics, documents, financialDashboard, timeSeries] = await Promise.all([
-          dashboardService.getDashboardStatistics(),
-          documentService.getDocuments(),
-          dashboardService.getFinancialDashboard(),
-          dashboardService.getFinancialTimeSeries({ interval }),
-        ]);
-
-        if (isMounted) {
-          setStatistics(dashboardStatistics);
-          setFinancial(financialDashboard);
-          setRecentDocuments(documents.slice(0, 5));
-          setSeries(timeSeries);
-        }
-      } catch {
-        if (isMounted) {
-          setError('Không thể tải dữ liệu dashboard');
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-          setSeriesLoading(false);
-        }
-      }
-    };
-
-    loadDashboard();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [interval]);
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Tổng quan hệ thống</h1>
-        <p className="text-slate-500 mt-1">Theo dõi hoạt động số hóa và xử lý chứng từ</p>
-      </div>
-
-      {isLoading && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-slate-500">
-          Đang tải dữ liệu dashboard...
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-600">
-          {error}
-        </div>
-      )}
-
-      {statistics && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard title="Tổng chứng từ" value={statistics.totalDocuments} icon={FileText} type="primary" />
-          <StatCard title="Tổng hóa đơn" value={statistics.totalInvoices} icon={Receipt} type="default" />
-          <StatCard title="Đã phân loại" value={statistics.totalClassified} icon={CheckCircle2} type="success" />
-          <StatCard title="Cần kiểm tra" value={statistics.totalReviewRequired} icon={AlertTriangle} type="warning" />
-        </div>
-      )}
-
-      {financial && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <StatCard title="Tổng doanh thu (VND)" value={Number(financial.totalRevenue)} icon={Receipt} type="success" />
-          <StatCard title="Tổng chi phí (VND)" value={Number(financial.totalExpense)} icon={AlertTriangle} type="warning" />
-          <StatCard title="Dòng tiền (VND)" value={Number(financial.cashFlow)} icon={CheckCircle2} type="primary" />
-        </div>
-      )}
-
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-        <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold text-slate-800">Thu chi theo thoi gian</h2><select value={interval} onChange={(event) => setInterval(event.target.value as 'DAILY' | 'MONTHLY')} className="rounded border border-slate-200 px-3 py-2 text-sm"><option value="MONTHLY">Theo thang</option><option value="DAILY">Theo ngay</option></select></div>
-        {seriesLoading ? <p className="text-sm text-slate-500">Dang tai bieu do...</p> : series.length === 0 ? <p className="text-sm text-slate-500">Chua co du lieu trong khoang thoi gian da chon.</p> : <Line data={{labels:series.map(x=>x.period),datasets:[{label:'Thu',data:series.map(x=>Number(x.income)),borderColor:'#059669'},{label:'Chi',data:series.map(x=>Number(x.expense)),borderColor:'#e11d48'},{label:'Dong tien',data:series.map(x=>Number(x.cashFlow)),borderColor:'#2563eb'}]}} options={{responsive:true}} />}
-      </div>
-
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-        <h2 className="text-lg font-semibold text-slate-800 mb-2">Chi phí theo nhóm</h2>
-        {financial?.expensesByCategory.length ? <ul className="space-y-2 text-sm text-slate-700">{financial.expensesByCategory.map((item) => <li key={item.category || 'other'} className="flex justify-between border-b border-slate-100 pb-2"><span>{item.category || 'Chưa phân nhóm'}</span><strong>{Number(item.amount).toLocaleString('vi-VN')} đ</strong></li>)}</ul> : <p className="text-sm text-slate-500">Chưa có dữ liệu chi phí trong khoảng thời gian đã chọn.</p>}
-      </div>
-
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-200 flex justify-between items-center">
-          <h2 className="text-lg font-semibold text-slate-800">Chứng từ mới nhất</h2>
-          <button
-            className="text-sm text-blue-600 font-medium hover:text-blue-700"
-            onClick={() => navigate('/accountant/documents')}
-          >
-            Xem tất cả
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
-                <th className="py-3 px-6 font-medium">Mã</th>
-                <th className="py-3 px-6 font-medium">Tên chứng từ</th>
-                <th className="py-3 px-6 font-medium">Loại</th>
-                <th className="py-3 px-6 font-medium">Ngày</th>
-                <th className="py-3 px-6 font-medium">AI Confidence</th>
-                <th className="py-3 px-6 font-medium">Trạng thái</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm divide-y divide-slate-100">
-              {isLoading && (
-                <tr>
-                  <td colSpan={6} className="py-10 px-6 text-center text-slate-500">Đang tải chứng từ...</td>
-                </tr>
-              )}
-              {!isLoading && !error && recentDocuments.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-10 px-6 text-center text-slate-500">Chưa có chứng từ nào</td>
-                </tr>
-              )}
-              {!isLoading && !error && recentDocuments.map((doc) => (
-                <tr
-                  key={doc.id}
-                  className="hover:bg-slate-50 transition-colors cursor-pointer"
-                  onClick={() => navigate(`/accountant/documents/${doc.id}`)}
-                >
-                  <td className="py-3 px-6 font-medium text-blue-600">{doc.id}</td>
-                  <td className="py-3 px-6">{doc.fileName}</td>
-                  <td className="py-3 px-6">{doc.fileType || '-'}</td>
-                  <td className="py-3 px-6">{doc.date}</td>
-                  <td className="py-3 px-6">-</td>
-                  <td className="py-3 px-6">
-                    <StatusBadge status={doc.status} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default AccountantDashboard;
+  if (loading) return <LoadingState label="Đang tải dữ liệu tổng quan..." />
+  return <div className="space-y-6"><PageHeader title="Tổng quan kế toán" description="Theo dõi chứng từ và tài chính trong phạm vi công ty của bạn." />{error && <ErrorState message={error} />}
+    {statistics && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><StatCard title="Tổng chứng từ" value={statistics.totalDocuments} icon={FileText} type="primary" /><StatCard title="Tổng hóa đơn" value={statistics.totalInvoices} icon={Receipt} type="default" /><StatCard title="Đã phân loại" value={statistics.totalClassified} icon={CheckCircle2} type="success" /><StatCard title="Cần kiểm tra" value={statistics.totalReviewRequired} icon={AlertTriangle} type="warning" /></div>}
+    {financial && <div className="grid gap-4 md:grid-cols-3"><StatCard title="Tổng thu" value={money(financial.totalRevenue)} icon={TrendingUp} type="success" /><StatCard title="Tổng chi" value={money(financial.totalExpense)} icon={TrendingDown} type="warning" /><StatCard title="Dòng tiền" value={money(financial.cashFlow)} icon={WalletCards} type="primary" /></div>}
+    <ContentCard className="p-6"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-lg font-semibold text-slate-800">Thu chi theo thời gian</h2><p className="text-sm text-slate-500">Dữ liệu giao dịch tài chính thực tế.</p></div><select value={interval} onChange={e => setInterval(e.target.value as 'DAILY' | 'MONTHLY')} className="rounded-lg border border-slate-200 px-3 py-2 text-sm"><option value="MONTHLY">Theo tháng</option><option value="DAILY">Theo ngày</option></select></div>{series.length === 0 ? <p className="py-12 text-center text-sm text-slate-500">Chưa có giao dịch trong khoảng thời gian này.</p> : <div className="h-72"><Line data={{ labels: series.map(x => x.period), datasets: [{ label: 'Thu', data: series.map(x => Number(x.income)), borderColor: '#059669', backgroundColor: '#059669' }, { label: 'Chi', data: series.map(x => Number(x.expense)), borderColor: '#e11d48', backgroundColor: '#e11d48' }, { label: 'Dòng tiền', data: series.map(x => Number(x.cashFlow)), borderColor: '#2563eb', backgroundColor: '#2563eb' }] }} options={{ responsive: true, maintainAspectRatio: false }} /></div>}</ContentCard>
+    <ContentCard><div className="flex items-center justify-between border-b border-slate-200 p-5"><h2 className="text-lg font-semibold text-slate-800">Chứng từ gần đây cần xử lý</h2><button onClick={() => navigate('/accountant/documents')} className="text-sm font-medium text-blue-600">Xem tất cả</button></div><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">Mã</th><th className="p-3">Tên chứng từ</th><th className="p-3">Loại</th><th className="p-3">Ngày</th><th className="p-3">Số tiền</th><th className="p-3">Trạng thái</th></tr></thead><tbody className="divide-y">{documents.length === 0 ? <tr><td colSpan={6} className="p-8 text-center text-slate-500">Chưa có chứng từ nào</td></tr> : documents.map(doc => <tr key={doc.id} onClick={() => navigate(`/accountant/documents/${doc.id}`)} className="cursor-pointer hover:bg-slate-50"><td className="p-3 font-medium text-blue-600">{doc.id}</td><td className="p-3">{doc.fileName}</td><td className="p-3">{doc.fileType || '—'}</td><td className="p-3">{doc.date}</td><td className="p-3">{doc.amount == null ? '—' : money(doc.amount)}</td><td className="p-3"><StatusBadge status={doc.status} reviewStatus={doc.reviewStatus} /></td></tr>)}</tbody></table></div></ContentCard>
+  </div>
+}
+export default AccountantDashboard

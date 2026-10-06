@@ -62,12 +62,17 @@ class DocumentAiResultPersistenceServiceTest {
 				extractedFieldRepository, processingLogService, new AiProperties());
 		service.persistOcr(9L, new OcrDocumentResult("recognized", 92f,
 				List.of(new OcrPageResult(1, 2480, 3508, "recognized", 92f,
-						List.of(new OcrWord("1", "recognized", 92f, .1, .2, .3, .04)), 15L, null, "vie+eng")),
+						List.of(new OcrWord("1", "recognized", 92f, .1, .2, .3, .04)), 15L, null, "vie+eng",
+						List.of(new OcrLine("p1-l1", 1, "recognized", 92f, .1, .2, .3, .04, List.of("1"))),
+						List.of(new OcrBlock("p1-b1", 1, "recognized", 92f, .1, .2, .3, .04, List.of("p1-l1"))))),
 				15L, List.of()));
 
 		verify(ocrResultRepository).save(same(existing));
 		assertTrue(existing.getLayoutJson().contains("\"width\":2480"));
 		assertTrue(existing.getLayoutJson().contains("\"x\":248"));
+		assertTrue(existing.getLayoutJson().contains("\"version\":2"));
+		assertTrue(existing.getLayoutJson().contains("\"lines\""));
+		assertTrue(existing.getLayoutJson().contains("\"blocks\""));
 	}
 
 	@Test
@@ -239,6 +244,50 @@ class DocumentAiResultPersistenceServiceTest {
 		verify(extractedFieldRepository).saveAndFlush(same(manual));
 		verify(invoiceRepository).saveAndFlush(stale);
 		verify(invoiceRepository).deleteAiGeneratedByDocumentId(17L);
+	}
+
+	@Test
+	void vatInvoicePersistsNewCoreFieldsAndCompleteItemsWithoutExtraFieldDuplicates() {
+		Document document = new Document(); document.setId(18L);
+		DocumentType type = new DocumentType(); type.setCode("VAT_INVOICE");
+		AiDocumentResult.AiInvoiceItemExtraction item = new AiDocumentResult.AiInvoiceItemExtraction(
+				"Dịch vụ kế toán", new BigDecimal("2"), "tháng", new BigDecimal("5000000"),
+				new BigDecimal("0.08"), new BigDecimal("800000"), new BigDecimal("10000000"));
+		AiDocumentResult.AiInvoiceExtraction extraction = new AiDocumentResult.AiInvoiceExtraction(
+				"000018", "1C26TAA", "2026-10-04", "Công ty Bán", "0312345678", "TP.HCM",
+				"028 1234 5678", "Công ty Mua", "0398765432", "Hà Nội", new BigDecimal("10000000"),
+				new BigDecimal("800000"), new BigDecimal("10800000"), "TM/CK", "Mười triệu tám trăm nghìn đồng",
+				"CQT-2026-XYZ", "2026-10-04", List.of(item));
+		List<AiDocumentResult.AiExtractedField> duplicates = List.of(
+				new AiDocumentResult.AiExtractedField("sellerPhone", "028 1234 5678", BigDecimal.ONE),
+				new AiDocumentResult.AiExtractedField("paymentMethod", "TM/CK", BigDecimal.ONE),
+				new AiDocumentResult.AiExtractedField("amountInWords", "Mười triệu tám trăm nghìn đồng", BigDecimal.ONE),
+				new AiDocumentResult.AiExtractedField("taxAuthorityCode", "CQT-2026-XYZ", BigDecimal.ONE),
+				new AiDocumentResult.AiExtractedField("signDate", "2026-10-04", BigDecimal.ONE));
+		AiDocumentResult result = new AiDocumentResult("ollama", "qwen3-vl", "VAT_INVOICE", BigDecimal.ONE,
+				null, null, null, extraction, duplicates, List.of(), "raw", 5L,
+				AiDocumentResult.DocumentDirection.INCOMING,
+				new AiDocumentResult.AiTransactionAssessment(AiDocumentResult.TransactionAssessmentType.EXPENSE, BigDecimal.ONE, "Hóa đơn đầu vào"),
+				List.of(), new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.BUYER, BigDecimal.ONE, "Trùng mã số thuế"));
+		when(documentService.load(18L)).thenReturn(document);
+		when(documentTypeRepository.findByCode("VAT_INVOICE")).thenReturn(Optional.of(type));
+		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(18L)).thenReturn(Optional.empty());
+		when(invoiceRepository.findByDocumentId(18L)).thenReturn(Optional.empty());
+		when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		service().persist(18L, new AiDocumentResultValidator().validate(result, Set.of("VAT_INVOICE")));
+
+		ArgumentCaptor<Invoice> invoice = ArgumentCaptor.forClass(Invoice.class);
+		verify(invoiceRepository).save(invoice.capture());
+		assertEquals("028 1234 5678", invoice.getValue().getSellerPhone());
+		assertEquals("TM/CK", invoice.getValue().getPaymentMethod());
+		assertEquals("Mười triệu tám trăm nghìn đồng", invoice.getValue().getAmountInWords());
+		assertEquals("CQT-2026-XYZ", invoice.getValue().getTaxAuthorityCode());
+		assertEquals(java.time.LocalDate.of(2026, 10, 4), invoice.getValue().getSignDate());
+		assertEquals("tháng", invoice.getValue().getItems().getFirst().getUnit());
+		assertEquals(new BigDecimal("0.08"), invoice.getValue().getItems().getFirst().getTaxRate());
+		assertEquals(new BigDecimal("800000"), invoice.getValue().getItems().getFirst().getTaxAmount());
+		verify(extractedFieldRepository, never()).save(any(ExtractedField.class));
 	}
 
 	private DocumentAiResultPersistenceService service() {

@@ -69,4 +69,20 @@ class AiDocumentResultValidatorTest {
 		assertEquals(invoiceNumber, validated.result().invoice().invoiceNumber());
 		assertEquals(taxCode, validated.result().invoice().sellerTaxCode());
 	}
+
+	@Test
+	void acceptsNullableAndUnicodeVatFieldsButWarnsForInvalidSignDate() {
+		AiDocumentResult.AiInvoiceExtraction invoice = new AiDocumentResult.AiInvoiceExtraction(
+				"0008", "1C26TAA", "2026-09-25", "CÔNG TY TNHH ÁNH DƯƠNG", "0312345678", null,
+				null, "Người mua", null, null, null, null, null, "TM/CK",
+				"Mười triệu đồng.", "CQT-A9Z-001", "25/09/2026", List.of());
+		AiDocumentResult result = new AiDocumentResult("ollama", "qwen3-vl", "VAT_INVOICE", BigDecimal.ONE,
+				null, invoice, List.of(), List.of(), "raw", 1L);
+
+		var validated = validator.validate(result, Set.of("VAT_INVOICE"));
+
+		assertEquals("CÔNG TY TNHH ÁNH DƯƠNG", validated.result().invoice().sellerName());
+		assertEquals("CQT-A9Z-001", validated.result().invoice().taxAuthorityCode());
+		assertTrue(validated.warnings().stream().anyMatch(warning -> warning.contains("Ngày ký")));
+	}
 }

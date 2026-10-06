@@ -3,7 +3,7 @@ import clsx from 'clsx';
 
 interface StatCardProps {
   title: string;
-  value: number;
+  value: number | string;
   icon: React.ElementType;
   type?: 'primary' | 'success' | 'warning' | 'error' | 'default';
 }
@@ -33,7 +33,7 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, icon: Icon, type = 'd
           <Icon size={20} />
         </div>
       </div>
-      <div className="text-3xl font-bold">{value.toLocaleString()}</div>
+      <div className="text-3xl font-bold">{typeof value === 'number' ? value.toLocaleString('vi-VN') : value}</div>
     </div>
   );
 };

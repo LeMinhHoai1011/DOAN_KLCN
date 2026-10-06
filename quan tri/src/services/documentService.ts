@@ -1,4 +1,6 @@
 import api from './api'
+import axios from 'axios'
+import { PreviewLoadError, previewHttpError, validatePreviewBlob } from './previewBlob'
 
 export type DocumentStatus =
   | 'UPLOADED'
@@ -62,7 +64,7 @@ export interface OCRResultResponse {
   id: number
   documentId: number
   rawText: string
-  /** JSON array of pages and normalized 0..1 OCR word bounding boxes. */
+  /** OCR layout JSON v1/v2. Coordinates may be normalized or expressed in source-page pixels. */
   layoutJson: string | null
   language: string | null
   sourceType: string | null
@@ -131,7 +133,7 @@ const statusLabels: Record<DocumentStatus, string> = {
   PROCESSED: 'Đã xử lý',
   NEED_REVIEW: 'Cần kiểm tra',
   COMPLETED: 'Hoàn tất',
-  FAILED: 'Lỗi',
+  FAILED: 'Xử lý thất bại',
 }
 
 const formatDate = (value: string) => {
@@ -182,11 +184,13 @@ export interface DocumentType {
   code: string;
   name: string;
   description: string;
+  active: boolean;
+  documentCount: number;
 }
 
 const getDocumentTypes = async () => {
   const { data } = await api.get<DocumentType[]>('/api/v1/documents/types')
-  return data
+  return data.map(type => ({ ...type, active: type.active ?? true, documentCount: Number(type.documentCount || 0) }))
 }
 
 const uploadDocument = async (file: File) => {
@@ -214,6 +218,26 @@ const downloadDocument = async (id: number, preview = false) => {
   return URL.createObjectURL(data)
 }
 
+type DocumentTypeInput = Pick<DocumentType, 'code' | 'name' | 'description' | 'active'>
+const createDocumentType = async (request: DocumentTypeInput) => (await api.post<DocumentType>('/api/v1/documents/types', request)).data
+const updateDocumentType = async (id: number, request: DocumentTypeInput) => (await api.put<DocumentType>(`/api/v1/documents/types/${id}`, request)).data
+
+const loadDocumentPreview = async (id: number) => {
+  try {
+    const response = await api.get<Blob>(`/api/v1/documents/${id}/preview`, { responseType: 'blob' })
+	const contentType = response.headers['content-type']
+	const validated = await validatePreviewBlob(response.data, typeof contentType === 'string' ? contentType : null)
+    return { ...validated, status: response.status }
+  } catch (error) {
+    if (error instanceof PreviewLoadError) throw error
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status
+      throw previewHttpError(status)
+    }
+    throw new PreviewLoadError('PREVIEW_SERVER_ERROR', 'Unexpected preview loading failure')
+  }
+}
+
 const documentService = {
   getDocuments,
   getDocumentPage,
@@ -224,7 +248,10 @@ const documentService = {
   processDocument,
   executeWorkflow,
   getDocumentTypes,
-  downloadDocument,
+	createDocumentType,
+	updateDocumentType,
+	downloadDocument,
+	loadDocumentPreview,
 }
 
 export default documentService

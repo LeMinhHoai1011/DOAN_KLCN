@@ -1,48 +1,25 @@
-import { useEffect, useState } from 'react'
-import { Tags } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Pencil, Plus, X } from 'lucide-react'
 import documentService, { type DocumentType } from '../../services/documentService'
-import financialTransactionService, { type AccountingCategory } from '../../services/financialTransactionService'
+import { getErrorMessage } from '../../services/authService'
 import ContentCard from '../../components/ui/ContentCard'
 import EmptyState from '../../components/ui/EmptyState'
 import ErrorState from '../../components/ui/ErrorState'
 import LoadingState from '../../components/ui/LoadingState'
 import PageHeader from '../../components/ui/PageHeader'
 
-const CatalogManagement = () => {
-  const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([])
-  const [categories, setCategories] = useState<AccountingCategory[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  const load = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const [types, categoryData] = await Promise.all([documentService.getDocumentTypes(), financialTransactionService.getCategories()])
-      setDocumentTypes(types)
-      setCategories(categoryData)
-    } catch {
-      setError('Không thể tải danh mục từ hệ thống.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => { void load() }, [])
-
-  return <div className="space-y-6">
-    <PageHeader title="Danh mục chứng từ" description="Danh sách đang sử dụng bởi các API hiện có. Chức năng quản trị thay đổi danh mục chưa được kết nối." />
-    {loading ? <LoadingState label="Đang tải danh mục..." /> : error ? <ErrorState message={error} onRetry={() => void load()} /> : <div className="grid gap-6 lg:grid-cols-2">
-      <ContentCard>
-        <div className="border-b border-slate-200 bg-slate-50 p-5"><h2 className="font-semibold text-slate-800">Loại chứng từ</h2><p className="mt-1 text-sm text-slate-500">Nguồn: GET `/api/v1/documents/types`</p></div>
-        {documentTypes.length === 0 ? <EmptyState title="Chưa có loại chứng từ" /> : <ul className="divide-y divide-slate-100">{documentTypes.map((item) => <li key={item.id} className="p-4"><div className="flex items-center gap-3"><Tags size={18} className="text-blue-500" /><div><p className="font-medium text-slate-800">{item.name}</p><p className="text-xs font-medium text-slate-500">{item.code}</p>{item.description && <p className="mt-1 text-sm text-slate-500">{item.description}</p>}</div></div></li>)}</ul>}
-      </ContentCard>
-      <ContentCard>
-        <div className="border-b border-slate-200 bg-slate-50 p-5"><h2 className="font-semibold text-slate-800">Nhóm chi phí kế toán</h2><p className="mt-1 text-sm text-slate-500">Nguồn: GET `/api/v1/accounting-categories`</p></div>
-        {categories.length === 0 ? <EmptyState title="Chưa có nhóm chi phí" /> : <ul className="divide-y divide-slate-100">{categories.map((item) => <li key={item.id} className="p-4"><p className="font-medium text-slate-800">{item.categoryName}</p><p className="text-xs font-medium text-slate-500">{item.categoryCode}</p>{item.description && <p className="mt-1 text-sm text-slate-500">{item.description}</p>}</li>)}</ul>}
-      </ContentCard>
-    </div>}
+const initialForm = { code: '', name: '', description: '', active: true }
+export default function CatalogManagement() {
+  const [items, setItems] = useState<DocumentType[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState(''), [success, setSuccess] = useState('')
+  const [editing, setEditing] = useState<DocumentType | null>(null), [modal, setModal] = useState(false), [saving, setSaving] = useState(false), [form, setForm] = useState(initialForm)
+  const load = () => { setLoading(true); documentService.getDocumentTypes().then(data => { setItems(data); setError('') }).catch(e => setError(getErrorMessage(e, 'Không thể tải danh mục chứng từ.'))).finally(() => setLoading(false)) }
+  useEffect(load, [])
+  const show = (item?: DocumentType) => { setEditing(item || null); setForm(item ? { code: item.code, name: item.name, description: item.description || '', active: item.active } : initialForm); setModal(true); setError(''); setSuccess('') }
+  const save = async (event: FormEvent) => { event.preventDefault(); setSaving(true); try { editing ? await documentService.updateDocumentType(editing.id, form) : await documentService.createDocumentType(form); setModal(false); setSuccess(editing ? 'Đã cập nhật loại chứng từ.' : 'Đã thêm loại chứng từ.'); load() } catch (e) { setError(getErrorMessage(e, 'Không thể lưu loại chứng từ.')) } finally { setSaving(false) } }
+  const toggle = async (item: DocumentType) => { try { await documentService.updateDocumentType(item.id, { code: item.code, name: item.name, description: item.description || '', active: !item.active }); setSuccess('Đã cập nhật trạng thái.'); load() } catch (e) { setError(getErrorMessage(e, 'Không thể cập nhật trạng thái.')) } }
+  return <div className="space-y-6"><PageHeader title="Danh mục chứng từ" description="Danh mục được dùng trực tiếp trong phân loại và tra cứu chứng từ." actions={<button onClick={() => show()} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white"><Plus size={18} />Thêm loại chứng từ</button>} />
+    {success && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{success}</div>}{error && <ErrorState message={error} onRetry={load} />}
+    {loading ? <LoadingState label="Đang tải danh mục..." /> : <ContentCard>{items.length === 0 ? <EmptyState title="Chưa có loại chứng từ" /> : <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{['Mã','Tên loại chứng từ','Mô tả','Số chứng từ','Trạng thái','Thao tác'].map(x => <th key={x} className="p-4">{x}</th>)}</tr></thead><tbody className="divide-y">{items.map(item => <tr key={item.id}><td className="p-4 font-semibold">{item.code}</td><td className="p-4">{item.name}</td><td className="p-4 text-slate-600">{item.description || '—'}</td><td className="p-4">{item.documentCount}</td><td className="p-4"><button onClick={() => void toggle(item)} className={item.active ? 'rounded-full bg-emerald-100 px-3 py-1 text-emerald-700' : 'rounded-full bg-slate-100 px-3 py-1 text-slate-600'}>{item.active ? 'Hoạt động' : 'Tạm ngừng'}</button></td><td className="p-4"><button onClick={() => show(item)} title="Chỉnh sửa" className="rounded p-2 text-blue-600 hover:bg-blue-50"><Pencil size={17} /></button></td></tr>)}</tbody></table></div>}</ContentCard>}
+    {modal && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" onMouseDown={() => setModal(false)}><form onSubmit={save} onMouseDown={e => e.stopPropagation()} className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"><div className="mb-5 flex justify-between"><h2 className="text-lg font-semibold">{editing ? 'Sửa loại chứng từ' : 'Thêm loại chứng từ'}</h2><button type="button" onClick={() => setModal(false)}><X size={20} /></button></div><div className="grid gap-4"><label className="grid gap-1 text-sm">Mã<input required pattern="[A-Z][A-Z0-9_]*" title="Chỉ dùng chữ in hoa, số và dấu gạch dưới" disabled={Boolean(editing?.documentCount)} value={form.code} onChange={e => setForm({ ...form, code: e.target.value.trim().toUpperCase() })} className="rounded-lg border p-2 disabled:bg-slate-100" /></label><label className="grid gap-1 text-sm">Tên<input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="rounded-lg border p-2" /></label><label className="grid gap-1 text-sm">Mô tả<textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="rounded-lg border p-2" /></label><label className="flex gap-2 text-sm"><input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} />Hoạt động</label></div><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setModal(false)} className="px-4 py-2">Hủy</button><button disabled={saving} className="rounded-lg bg-blue-600 px-4 py-2 text-white disabled:opacity-50">{saving ? 'Đang lưu...' : 'Lưu'}</button></div></form></div>}
   </div>
 }
-
-export default CatalogManagement

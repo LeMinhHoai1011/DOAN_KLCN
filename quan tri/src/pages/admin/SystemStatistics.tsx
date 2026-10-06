@@ -1,166 +1,29 @@
-import { ArrowUpRight, BarChart3, Clock3, FileText, ShieldAlert } from 'lucide-react';
-import ContentCard from '../../components/ui/ContentCard';
-import PageHeader from '../../components/ui/PageHeader';
+import { useEffect, useMemo, useState } from 'react'
+import { Bar, Doughnut } from 'react-chartjs-2'
+import { ArcElement, BarElement, CategoryScale, Chart as ChartJS, Legend, LinearScale, Tooltip } from 'chart.js'
+import { AlertTriangle, CheckCircle2, FileText, XCircle } from 'lucide-react'
+import StatCard from '../../components/StatCard'
+import ContentCard from '../../components/ui/ContentCard'
+import ErrorState from '../../components/ui/ErrorState'
+import LoadingState from '../../components/ui/LoadingState'
+import PageHeader from '../../components/ui/PageHeader'
+import dashboardService, { type DashboardStatistics } from '../../services/dashboardService'
 
-const summaryCards = [
-  { label: 'Tổng chứng từ', value: '3,486', note: '+12.4% so với tháng trước', color: 'blue', icon: FileText },
-  { label: 'Tỷ lệ xử lý xong', value: '84.6%', note: '+6.1% so với tuần trước', color: 'emerald', icon: ArrowUpRight },
-  { label: 'Thời gian xử lý TB', value: '1.8 ngày', note: '-0.4 ngày so với tháng trước', color: 'violet', icon: Clock3 },
-  { label: 'Cần kiểm tra', value: '126', note: '12% công việc có rủi ro', color: 'amber', icon: ShieldAlert },
-];
-
-const monthlyTrend = [48, 64, 58, 70, 88, 76, 94, 102];
-
-const departmentLoad = [
-  { name: 'Kế toán', value: 92, amount: '1,280 công việc' },
-  { name: 'Nhân sự', value: 74, amount: '980 công việc' },
-  { name: 'Kho vận', value: 61, amount: '760 công việc' },
-  { name: 'Bán hàng', value: 54, amount: '640 công việc' },
-];
-
-const topUsers = [
-  { name: 'Nguyễn Thị Hương', tasks: 148, accuracy: '96.2%' },
-  { name: 'Trần Văn Minh', tasks: 134, accuracy: '94.8%' },
-  { name: 'Lê Hoài Nam', tasks: 121, accuracy: '93.5%' },
-  { name: 'Phạm Quỳnh Anh', tasks: 110, accuracy: '92.9%' },
-];
+ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend)
+const statusLabels: Record<string, string> = { UPLOADED: 'Đã tải lên', PROCESSING: 'Đang xử lý', PROCESSED: 'Đã xử lý', NEED_REVIEW: 'Cần kiểm tra', FAILED: 'Xử lý thất bại', COMPLETED: 'Hoàn thành' }
+const colors = ['#2563eb', '#7c3aed', '#059669', '#d97706', '#dc2626', '#0891b2', '#64748b']
 
 const SystemStatistics = () => {
-  return (
-    <div className="space-y-6">
-      <PageHeader title="Thống kê hệ thống" description="Các biểu đồ chi tiết đang chờ API aggregate tương ứng." />
-      <ContentCard className="p-8 text-center"><BarChart3 className="mx-auto text-slate-300" size={40} /><h2 className="mt-4 text-lg font-semibold text-slate-800">Dữ liệu thống kê chi tiết chưa được kết nối</h2><p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">Không hiển thị số liệu mẫu để tránh nhầm lẫn với dữ liệu production. Dashboard quản trị vẫn cung cấp các KPI từ API hiện có.</p></ContentCard>
-      {/* Legacy static visual blocks below are retained temporarily for source safety; they are not rendered as production statistics. */}
-      <div className="hidden">
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {summaryCards.map(({ label, value, note, color, icon: Icon }) => (
-          <div key={label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-500">{label}</span>
-              <div
-                className={`rounded-lg p-2 ${
-                  color === 'blue'
-                    ? 'bg-blue-100 text-blue-600'
-                    : color === 'emerald'
-                      ? 'bg-emerald-100 text-emerald-600'
-                      : color === 'violet'
-                        ? 'bg-violet-100 text-violet-600'
-                        : 'bg-amber-100 text-amber-600'
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-              </div>
-            </div>
-            <div className="mt-4 text-3xl font-bold text-slate-800">{value}</div>
-            <div className="mt-2 text-xs text-slate-500">{note}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-800">Xu hướng hoạt động</h2>
-              <p className="text-sm text-slate-500">Số lượng chứng từ xử lý theo 8 tuần gần nhất</p>
-            </div>
-            <div className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">+18.4%</div>
-          </div>
-
-          <div className="flex h-52 items-end gap-3">
-            {monthlyTrend.map((value, index) => (
-              <div key={index} className="flex flex-1 flex-col items-center gap-2">
-                <div className="flex w-full items-end justify-center rounded-t-xl bg-gradient-to-t from-blue-600 to-blue-400" style={{ height: `${value}%` }} />
-                <span className="text-[10px] font-medium text-slate-500">T{index + 1}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-blue-600" />
-            <h2 className="text-lg font-semibold text-slate-800">Phân bổ công việc</h2>
-          </div>
-
-          <div className="space-y-4">
-            {departmentLoad.map((item) => (
-              <div key={item.name}>
-                <div className="mb-1 flex items-center justify-between text-sm">
-                  <span className="font-medium text-slate-700">{item.name}</span>
-                  <span className="text-slate-500">{item.amount}</span>
-                </div>
-                <div className="h-2.5 rounded-full bg-slate-100">
-                  <div className="h-2.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500" style={{ width: `${item.value}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-[1fr_0.95fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-slate-800">Top người dùng hiệu quả</h2>
-          <div className="overflow-hidden rounded-xl border border-slate-200">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Nhân sự</th>
-                  <th className="px-4 py-3 font-medium">Công việc</th>
-                  <th className="px-4 py-3 font-medium">Độ chính xác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {topUsers.map((user) => (
-                  <tr key={user.name} className="bg-white">
-                    <td className="px-4 py-3 font-medium text-slate-700">{user.name}</td>
-                    <td className="px-4 py-3 text-slate-600">{user.tasks}</td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                        {user.accuracy}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-slate-800">Tóm tắt hệ thống</h2>
-          <div className="space-y-4">
-            <div className="rounded-xl bg-slate-50 p-4">
-              <div className="text-sm text-slate-500">Tỷ lệ tự động hóa</div>
-              <div className="mt-2 flex items-end justify-between">
-                <span className="text-2xl font-bold text-slate-800">76%</span>
-                <span className="text-xs text-emerald-600">+8.3%</span>
-              </div>
-            </div>
-
-            <div className="rounded-xl bg-slate-50 p-4">
-              <div className="text-sm text-slate-500">Sai số phân loại</div>
-              <div className="mt-2 flex items-end justify-between">
-                <span className="text-2xl font-bold text-slate-800">3.1%</span>
-                <span className="text-xs text-blue-600">Giảm 1.2%</span>
-              </div>
-            </div>
-
-            <div className="rounded-xl bg-slate-50 p-4">
-              <div className="text-sm text-slate-500">Bảo mật hệ thống</div>
-              <div className="mt-2 flex items-end justify-between">
-                <span className="text-2xl font-bold text-slate-800">99.2%</span>
-                <span className="text-xs text-amber-600">Ổn định</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      </div>
-    </div>
-  );
-};
-
-export default SystemStatistics;
+  const [data, setData] = useState<DashboardStatistics | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const load = () => { setLoading(true); setError(''); dashboardService.getDashboardStatistics().then(setData).catch(() => setError('Không thể tải thống kê hệ thống. Vui lòng thử lại.')).finally(() => setLoading(false)) }
+  useEffect(load, [])
+  const typeChart = useMemo(() => data && data.documentsByType.length ? ({ labels: data.documentsByType.map(x => x.name), datasets: [{ data: data.documentsByType.map(x => x.count), backgroundColor: data.documentsByType.map((_, i) => colors[i % colors.length]), borderWidth: 0 }] }) : null, [data])
+  const statusChart = useMemo(() => data && data.documentsByStatus.length ? ({ labels: data.documentsByStatus.map(x => statusLabels[x.status] || x.status), datasets: [{ label: 'Số chứng từ', data: data.documentsByStatus.map(x => x.count), backgroundColor: data.documentsByStatus.map((_, i) => colors[i % colors.length]), borderRadius: 7 }] }) : null, [data])
+  return <div className="space-y-6"><PageHeader title="Thống kê hệ thống" description="Số liệu tổng hợp trực tiếp từ dữ liệu chứng từ hiện tại." />{loading && <LoadingState label="Đang tải thống kê..." />}{error && <ErrorState message={error} onRetry={load} />}{data && <>
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><StatCard title="Tổng chứng từ" value={data.totalDocuments} icon={FileText} type="primary" /><StatCard title="Đã phân loại" value={data.totalClassified} icon={CheckCircle2} type="success" /><StatCard title="Cần kiểm tra" value={data.totalReviewRequired} icon={AlertTriangle} type="warning" /><StatCard title="Xử lý thất bại" value={data.totalFailed} icon={XCircle} type="error" /></div>
+    {data.totalDocuments === 0 ? <ContentCard className="p-10 text-center text-slate-500">Chưa có chứng từ để thống kê.</ContentCard> : <div className="grid gap-6 xl:grid-cols-2"><ContentCard className="p-6"><h2 className="text-lg font-semibold text-slate-800">Phân bố theo loại chứng từ</h2>{typeChart ? <div className="mt-5 h-80"><Doughnut data={typeChart} options={{ responsive: true, maintainAspectRatio: false, cutout: '55%', plugins: { legend: { position: 'bottom' } } }} /></div> : <p className="py-16 text-center text-sm text-slate-500">Chưa có chứng từ được gán loại.</p>}</ContentCard><ContentCard className="p-6"><h2 className="text-lg font-semibold text-slate-800">Trạng thái xử lý</h2>{statusChart ? <div className="mt-5 h-80"><Bar data={statusChart} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { grid: { display: false } } } }} /></div> : <p className="py-16 text-center text-sm text-slate-500">Chưa có dữ liệu trạng thái xử lý.</p>}</ContentCard></div>}
+  </>}</div>
+}
+export default SystemStatistics

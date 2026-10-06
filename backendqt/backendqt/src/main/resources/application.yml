@@ -59,6 +59,16 @@ ai:
     minimum-text-length: ${OCR_MINIMUM_TEXT_LENGTH:40}
     good-confidence: ${OCR_GOOD_CONFIDENCE:0.65}
     reserved-output-tokens: ${AI_RESERVED_OUTPUT_TOKENS:3072}
+    adaptive:
+      enabled: ${OCR_ADAPTIVE_ENABLED:true}
+      good-quality-score: ${OCR_GOOD_QUALITY_SCORE:0.72}
+      usable-quality-score: ${OCR_USABLE_QUALITY_SCORE:0.25}
+      minimum-valid-words: ${OCR_MINIMUM_VALID_WORDS:4}
+      low-confidence-percent: ${OCR_LOW_CONFIDENCE_PERCENT:45}
+      upscale-factor: ${OCR_UPSCALE_FACTOR:2.0}
+      max-attempts: ${OCR_MAX_ATTEMPTS:3}
+      minimum-deskew-angle-degrees: ${OCR_MINIMUM_DESKEW_ANGLE_DEGREES:0.5}
+      maximum-deskew-angle-degrees: ${OCR_MAXIMUM_DESKEW_ANGLE_DEGREES:5.0}
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     model: ${OLLAMA_MODEL:qwen3-vl:8b}

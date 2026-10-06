@@ -60,31 +60,47 @@ public class DashboardService {
 		return new DashboardStatisticsResponse(
 				documentRepository.count(),
 				invoiceRepository.count(),
-				classificationRepository.countByStatus(ClassificationStatus.CLASSIFIED)
-						+ classificationRepository.countByStatus(ClassificationStatus.VERIFIED),
-				classificationRepository.countByStatus(ClassificationStatus.REVIEW_REQUIRED));
+				classificationRepository.countCurrentDocumentsByStatusIn(classifiedStatuses()),
+				documentRepository.countByStatus(com.example.invoice.entity.DocumentStatus.NEED_REVIEW),
+				documentRepository.countByStatus(com.example.invoice.entity.DocumentStatus.FAILED),
+				mapTypes(documentRepository.countAllGroupedByType()), mapStatuses(documentRepository.countAllGroupedByStatus()));
 	}
 
 	private DashboardStatisticsResponse statisticsForCompany(Long companyId) {
 		return new DashboardStatisticsResponse(documentRepository.countByCompanyId(companyId),
 				invoiceRepository.countByDocumentCompanyId(companyId), classifiedForCompany(companyId),
-				classificationRepository.countByDocumentCompanyIdAndStatus(companyId, ClassificationStatus.REVIEW_REQUIRED));
+				documentRepository.countByCompanyIdAndStatus(companyId, com.example.invoice.entity.DocumentStatus.NEED_REVIEW),
+				documentRepository.countByCompanyIdAndStatus(companyId, com.example.invoice.entity.DocumentStatus.FAILED),
+				mapTypes(documentRepository.countByCompanyGroupedByType(companyId)), mapStatuses(documentRepository.countByCompanyGroupedByStatus(companyId)));
 	}
 
 	private DashboardStatisticsResponse statisticsForUser(Long userId) {
 		return new DashboardStatisticsResponse(documentRepository.countByUploadedById(userId),
 				invoiceRepository.countByDocumentUploadedById(userId), classifiedForUser(userId),
-				classificationRepository.countByDocumentUploadedByIdAndStatus(userId, ClassificationStatus.REVIEW_REQUIRED));
+				documentRepository.countByUploadedByIdAndStatus(userId, com.example.invoice.entity.DocumentStatus.NEED_REVIEW),
+				documentRepository.countByUploadedByIdAndStatus(userId, com.example.invoice.entity.DocumentStatus.FAILED),
+				mapTypes(documentRepository.countByUploaderGroupedByType(userId)), mapStatuses(documentRepository.countByUploaderGroupedByStatus(userId)));
+	}
+
+	private List<DashboardStatisticsResponse.DocumentTypeCount> mapTypes(List<Object[]> rows) {
+		return rows.stream().map(row -> new DashboardStatisticsResponse.DocumentTypeCount((String) row[0], (String) row[1], (Long) row[2])).toList();
+	}
+
+	private List<DashboardStatisticsResponse.DocumentStatusCount> mapStatuses(List<Object[]> rows) {
+		return rows.stream().map(row -> new DashboardStatisticsResponse.DocumentStatusCount(row[0].toString(), (Long) row[1])).toList();
 	}
 
 	private long classifiedForCompany(Long companyId) {
-		return classificationRepository.countByDocumentCompanyIdAndStatus(companyId, ClassificationStatus.CLASSIFIED)
-				+ classificationRepository.countByDocumentCompanyIdAndStatus(companyId, ClassificationStatus.VERIFIED);
+		return classificationRepository.countCurrentDocumentsByCompanyAndStatusIn(companyId, classifiedStatuses());
 	}
 
 	private long classifiedForUser(Long userId) {
-		return classificationRepository.countByDocumentUploadedByIdAndStatus(userId, ClassificationStatus.CLASSIFIED)
-				+ classificationRepository.countByDocumentUploadedByIdAndStatus(userId, ClassificationStatus.VERIFIED);
+		return classificationRepository.countCurrentDocumentsByUploaderAndStatusIn(userId, classifiedStatuses());
+	}
+
+	private java.util.Set<ClassificationStatus> classifiedStatuses() {
+		return java.util.EnumSet.of(ClassificationStatus.CLASSIFIED, ClassificationStatus.VERIFIED,
+				ClassificationStatus.ACCEPTED, ClassificationStatus.CORRECTED);
 	}
 
 	private boolean hasRole(User user, String roleCode) {

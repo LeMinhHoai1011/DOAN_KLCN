@@ -49,6 +49,35 @@ class OcrFieldLocatorTest {
 		assertTrue(ambiguous.locate(4L, "15.000.000").isEmpty());
 	}
 
+	@Test
+	void reconstructedLineContextDisambiguatesSellerAndBuyerTaxCodes() {
+		OcrFieldLocator locator = locator("""
+				{"version":2,"pages":[{"page":1,"width":1000,"height":1000,"words":[
+				{"id":"w1","text":"Người bán MST","x":10,"y":10,"width":100,"height":20},
+				{"id":"w2","text":"0312345678","x":120,"y":10,"width":100,"height":20},
+				{"id":"w3","text":"Người mua MST","x":10,"y":100,"width":100,"height":20},
+				{"id":"w4","text":"0312345678","x":120,"y":100,"width":100,"height":20}],
+				"lines":[{"text":"Người bán MST 0312345678","wordIds":["w1","w2"]},
+				{"text":"Người mua MST 0312345678","wordIds":["w3","w4"]}]}]}
+				""");
+
+		var seller = locator.locate(4L, "sellerTaxCode", "0312345678");
+		var buyer = locator.locate(4L, "buyerTaxCode", "0312345678");
+		assertEquals(120, seller.getFirst().x());
+		assertEquals(10, seller.getFirst().y());
+		assertEquals(100, buyer.getFirst().y());
+	}
+
+	@Test
+	void controlledFuzzyAcceptsOneOcrConfusionButRejectsWeakMatch() {
+		OcrFieldLocator locator = locator("""
+				{"pages":[{"page":1,"width":1000,"height":1000,"words":[
+				{"text":"41NVN0036","x":1,"y":2,"width":80,"height":10}]}]}
+				""");
+		assertEquals(1, locator.locate(4L, "41NVNO036").size());
+		assertTrue(locator.locate(4L, "UNRELATED-VALUE").isEmpty());
+	}
+
 	private OcrFieldLocator locator(String layout) {
 		OCRResult result = new OCRResult();
 		result.setLayoutJson(layout);

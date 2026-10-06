@@ -4,7 +4,10 @@ export interface InvoiceItem {
   id: number
   productName: string | null
   quantity: number | null
+  unit: string | null
   unitPrice: number | null
+  taxRate: number | null
+  taxAmount: number | null
   amount: number | null
 }
 
@@ -12,32 +15,44 @@ export interface InvoiceResponse {
   id: number
   documentId: number
   invoiceNumber: string | null
+  invoiceSeries: string | null
   invoiceDate: string | null
   sellerName: string | null
   sellerTaxCode: string | null
   sellerAddress: string | null
+  sellerPhone: string | null
   buyerName: string | null
   buyerTaxCode: string | null
   buyerAddress: string | null
   subtotal: number | null
   vatAmount: number | null
   totalAmount: number | null
+  paymentMethod: string | null
+  amountInWords: string | null
+  taxAuthorityCode: string | null
+  signDate: string | null
   items: InvoiceItem[]
 }
 
 export interface InvoiceUpdateRequest {
   documentId: number
   invoiceNumber?: string | null
+  invoiceSeries?: string | null
   invoiceDate?: string | null
   sellerName?: string | null
   sellerTaxCode?: string | null
   sellerAddress?: string | null
+  sellerPhone?: string | null
   buyerName?: string | null
   buyerTaxCode?: string | null
   buyerAddress?: string | null
   subtotal?: number | null
   vatAmount?: number | null
   totalAmount?: number | null
+  paymentMethod?: string | null
+  amountInWords?: string | null
+  taxAuthorityCode?: string | null
+  signDate?: string | null
   items?: InvoiceItem[]
 }
 
