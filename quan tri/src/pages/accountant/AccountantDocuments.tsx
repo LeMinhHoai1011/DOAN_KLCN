@@ -13,7 +13,7 @@ import FilterBar from '../../components/ui/FilterBar';
 
 const PROCESSING_STATUSES: DocumentStatus[] = ['UPLOADED', 'PROCESSING', 'PROCESSED', 'NEED_REVIEW', 'COMPLETED', 'FAILED'];
 const REVIEW_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'CORRECTED'] as const;
-const processingLabels: Record<DocumentStatus, string> = { UPLOADED: 'Đã tải lên', PROCESSING: 'Đang xử lý', PROCESSED: 'Đã xử lý', NEED_REVIEW: 'Cần kiểm tra', COMPLETED: 'Hoàn tất', FAILED: 'Lỗi' };
+const processingLabels: Record<DocumentStatus, string> = { UPLOADED: 'Đã tải lên', PROCESSING: 'Đang xử lý', PROCESSED: 'Đã xử lý', NEED_REVIEW: 'Cần kiểm tra', COMPLETED: 'Hoàn thành', FAILED: 'Lỗi xử lý' };
 const reviewLabels: Record<(typeof REVIEW_STATUSES)[number], string> = { PENDING: 'Chờ kiểm tra', APPROVED: 'Đã duyệt', REJECTED: 'Từ chối', CORRECTED: 'Đã điều chỉnh' };
 
 const AccountantDocuments = () => {

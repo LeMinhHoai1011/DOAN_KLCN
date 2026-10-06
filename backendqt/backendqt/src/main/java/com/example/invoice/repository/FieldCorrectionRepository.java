@@ -6,4 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface FieldCorrectionRepository extends JpaRepository<FieldCorrection, Long> {
 	List<FieldCorrection> findByFieldId(Long fieldId);
+	java.util.Optional<FieldCorrection> findFirstByFieldIdOrderByCreatedAtDescIdDesc(Long fieldId);
 }

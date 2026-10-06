@@ -84,6 +84,11 @@ export interface ExtractedFieldResponse {
   fieldValue: string | null
   source: string | null
   confidence: number | null
+  originalAiValue: string | null
+  correctedValue: string | null
+  manuallyCorrected: boolean
+  correctedById: number | null
+  correctedAt: string | null
   locations?: Array<{
     page: number; x: number; y: number; width: number; height: number
     pageWidth: number; pageHeight: number; matchConfidence: number
@@ -139,8 +144,8 @@ const statusLabels: Record<DocumentStatus, string> = {
   PROCESSING: 'Đang xử lý',
   PROCESSED: 'Đã xử lý',
   NEED_REVIEW: 'Cần kiểm tra',
-  COMPLETED: 'Hoàn tất',
-  FAILED: 'Xử lý thất bại',
+  COMPLETED: 'Hoàn thành',
+  FAILED: 'Lỗi xử lý',
 }
 
 const formatDate = (value: string) => {
@@ -187,6 +192,14 @@ const getDocumentOCR = async (id: number) => {
 
 const getDocumentExtractedFields = async (id: number) => {
   const { data } = await api.get<ExtractedFieldResponse[]>(`/api/v1/documents/${id}/extracted-fields`)
+  return data
+}
+
+const correctExtractedField = async (documentId: number, fieldId: number, fieldValue: string) => {
+  const { data } = await api.patch<ExtractedFieldResponse>(
+    `/api/v1/documents/${documentId}/extracted-fields/${fieldId}/correction`,
+    { fieldValue },
+  )
   return data
 }
 
@@ -255,6 +268,7 @@ const documentService = {
   getDocumentById,
 	getDocumentOCR,
 	getDocumentExtractedFields,
+	correctExtractedField,
   uploadDocument,
   processDocument,
   executeWorkflow,

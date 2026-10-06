@@ -22,6 +22,13 @@ class OcrTextNormalizerTest {
 	}
 
 	@Test
+	void preservesVietnameseUnicodeAndDiacritics() {
+		String source = "Đường Nguyễn Văn Linh, Phường Tân Phong";
+		String result = new OcrTextNormalizer(new AiProperties()).normalizeAndCompact(source);
+		assertThat(result).isEqualTo(source);
+	}
+
+	@Test
 	void compactsLongTextWithinContextBudgetAndKeepsHeaderAndTotals() {
 		AiProperties properties = new AiProperties();
 		properties.getOllama().setNumContext(2048);

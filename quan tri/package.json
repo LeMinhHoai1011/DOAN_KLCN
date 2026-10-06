@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-	"test": "node --test src/components/ocr-preview/ocrPreviewUtils.test.mjs",
+	"test": "node --experimental-strip-types --test src/components/ocr-preview/ocrPreviewUtils.test.mjs src/utils/confidence.test.mjs",
     "preview": "vite preview"
   },
   "devDependencies": {

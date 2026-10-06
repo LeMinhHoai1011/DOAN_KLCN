@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Save } from 'lucide-react';
+import { ArrowLeft, Download, Pencil, Save, X } from 'lucide-react';
 import clsx from 'clsx';
 import StatusBadge from '../../components/StatusBadge';
 import classificationService from '../../services/classificationService';
@@ -14,6 +14,7 @@ import ErrorState from '../../components/ui/ErrorState';
 import LoadingState from '../../components/ui/LoadingState';
 import OcrDocumentPreview from '../../components/OcrDocumentPreview';
 import VatInvoicePanel, { documentTypeLabel, emptyInvoiceForm, toInvoiceForm, toInvoiceUpdateRequest, type InvoiceFormData } from '../../components/VatInvoicePanel';
+import { formatConfidence } from '../../utils/confidence';
 
 const humanizeFieldName = (name: string) => name
   .replace(/([a-z])([A-Z])/g, '$1 $2')
@@ -21,12 +22,6 @@ const humanizeFieldName = (name: string) => name
   .replace(/\s+/g, ' ')
   .trim()
   .replace(/^./, (character) => character.toUpperCase());
-
-const formatConfidence = (value: number | null | undefined) => (
-  typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
-    ? `${Math.round(value * 100)}%`
-    : null
-);
 
 const distinctMeaningfulFields = (fields: ExtractedFieldResponse[]) => {
   const seen = new Set<string>();
@@ -77,6 +72,7 @@ const AccountantDocumentDetail = () => {
   const [classificationValue, setClassificationValue] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -87,7 +83,7 @@ const AccountantDocumentDetail = () => {
   const [workflowError, setWorkflowError] = useState('');
   const [workflowMessage, setWorkflowMessage] = useState('');
   const role = getEffectiveRole();
-  const canEdit = role === 'ADMIN' || role === 'ACCOUNTANT';
+  const hasCorrectionRole = role === 'ADMIN' || role === 'ACCOUNTANT';
   const isEmployeeView = role === 'EMPLOYEE' || role === 'USER';
   const basePath = role === 'ADMIN' ? '/admin' : role === 'EMPLOYEE' ? '/employee' : '/accountant';
 
@@ -172,7 +168,7 @@ const AccountantDocumentDetail = () => {
   };
 
   const handleSave = async () => {
-    if (!document || !canEdit) return;
+    if (!document || !isEditing) return;
 
     setIsSaving(true);
     setSaveMessage('');
@@ -194,10 +190,20 @@ const AccountantDocumentDetail = () => {
       }
 
       setSaveMessage('Đã lưu thay đổi');
+      setIsEditing(false);
     } catch {
       setSaveError('Không thể lưu thay đổi. Vui lòng thử lại.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleCorrectExtractedField = async (fieldId: number, fieldValue: string) => {
+    await documentService.correctExtractedField(documentId, fieldId, fieldValue);
+    try {
+      setExtractedFields(await documentService.getDocumentExtractedFields(documentId));
+    } catch {
+      throw new Error('Đã lưu correction nhưng không thể tải lại dữ liệu. Vui lòng làm mới trang.');
     }
   };
 
@@ -210,8 +216,11 @@ const AccountantDocumentDetail = () => {
   }
 
   const documentView = mapDocument(document);
-  const confidence = ocr?.confidence;
-  const canReview = canEdit && (document.status === 'PROCESSED' || document.status === 'NEED_REVIEW');
+  const classificationConfidence = formatConfidence(classification?.confidence);
+  const ocrConfidence = formatConfidence(ocr?.confidence);
+  const canCorrect = hasCorrectionRole && document.reviewStatus !== 'APPROVED'
+    && (document.status === 'PROCESSED' || document.status === 'NEED_REVIEW');
+  const canReview = hasCorrectionRole && (document.status === 'PROCESSED' || document.status === 'NEED_REVIEW');
   const canSubmit = isEmployeeView && document.status === 'UPLOADED' && document.reviewStatus === 'PENDING';
   const canResubmit = isEmployeeView && document.status === 'NEED_REVIEW' && (document.reviewStatus === 'REJECTED' || document.reviewStatus === 'CORRECTED');
   const dynamicFields = distinctMeaningfulFields(extractedFields);
@@ -235,7 +244,14 @@ const AccountantDocumentDetail = () => {
             <Download size={18} />
             <span>Tải file gốc</span>
           </button>
-          {canEdit && <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors shadow-sm">
+          {canCorrect && !isEditing && <button onClick={() => { setIsEditing(true); setSaveMessage(''); setSaveError(''); }} className="px-4 py-2 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
+            <Pencil size={18} />
+            <span>Chỉnh sửa thủ công</span>
+          </button>}
+          {isEditing && <button onClick={() => { setInvoiceForm(invoice ? toInvoiceForm(invoice) : emptyInvoiceForm); setClassificationValue(classification?.category || ''); setIsEditing(false); setSaveError(''); }} disabled={isSaving} className="px-4 py-2 flex items-center gap-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-60">
+            <X size={18} /><span>Hủy</span>
+          </button>}
+          {isEditing && <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors shadow-sm">
             <Save size={18} />
             <span>{isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}</span>
           </button>}
@@ -253,7 +269,8 @@ const AccountantDocumentDetail = () => {
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
         <div className="h-[min(72vh,760px)] min-h-[620px]">
           <OcrDocumentPreview documentId={document.id} fileType={document.fileType} ocr={ocr}
-            fields={extractedFields} documentType={document.documentType} />
+            fields={extractedFields} documentType={document.documentType} canCorrectFields={canCorrect}
+            onCorrectField={handleCorrectExtractedField} />
         </div>
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -264,17 +281,17 @@ const AccountantDocumentDetail = () => {
                 <p className="text-sm text-slate-600 mt-1">Kết quả từ backend classification</p>
               </div>
               <div className="text-right">
-                <div className={clsx('text-xl font-bold', confidence === null || confidence === undefined ? 'text-slate-500' : 'text-emerald-600')}>
-                  {confidence === null || confidence === undefined ? 'N/A' : `${confidence}%`}
+                <div className={clsx('text-xl font-bold', classificationConfidence === '—' ? 'text-slate-500' : 'text-emerald-600')}>
+                  {classificationConfidence}
                 </div>
-                <div className="text-xs text-slate-500">Độ chính xác OCR</div>
+                <div className="text-xs text-slate-500">Độ tin cậy phân loại</div>
               </div>
             </div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Loại nghiệp vụ / Chi phí</label>
             <select
               value={classificationValue}
               onChange={(event) => setClassificationValue(event.target.value)}
-              disabled={!canEdit}
+              disabled={!isEditing}
               className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium text-slate-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
             >
               <option value="">Chưa có dữ liệu phân loại</option>
@@ -287,6 +304,7 @@ const AccountantDocumentDetail = () => {
               <option value="Khác">Khác</option>
             </select>
             {!classification && <p className="text-xs text-slate-500 mt-2">Backend chưa có bản ghi classification cho chứng từ này.</p>}
+            {classification && !classification.aiGenerated && <p className="mt-2 text-xs font-medium text-amber-700">Đã chỉnh sửa thủ công</p>}
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
@@ -294,6 +312,7 @@ const AccountantDocumentDetail = () => {
             <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <span className="block text-xs font-medium text-slate-500">Loại chứng từ</span>
               <span className="break-words text-slate-800">{documentTypeLabel(document.documentType)}</span>
+              <div><span className="block text-xs font-medium text-slate-500">Độ tin cậy OCR</span><span>{ocrConfidence}</span></div>
               {document.companyRole?.role && <div><span className="block text-xs font-medium text-slate-500">Vai trò công ty</span><span>{companyRoleLabels[document.companyRole.role] || document.companyRole.role}</span>{formatConfidence(document.companyRole.confidence) && <span className="ml-2 text-xs text-slate-500">{formatConfidence(document.companyRole.confidence)}</span>}{document.companyRole.reason && <p className="mt-1 break-words text-xs text-slate-500">{document.companyRole.reason}</p>}</div>}
               {document.documentDirection && <div><span className="block text-xs font-medium text-slate-500">Hướng chứng từ</span><span>{directionLabels[document.documentDirection] || document.documentDirection}</span></div>}
               {document.transactionAssessment?.type && <div><span className="block text-xs font-medium text-slate-500">Đề xuất nghiệp vụ AI</span><span>{assessmentLabels[document.transactionAssessment.type] || document.transactionAssessment.type}</span>{formatConfidence(document.transactionAssessment.confidence) && <span className="ml-2 text-xs text-slate-500">{formatConfidence(document.transactionAssessment.confidence)}</span>}{document.transactionAssessment.reason && <p className="mt-1 break-words text-xs text-slate-500">{document.transactionAssessment.reason}</p>}</div>}
@@ -308,7 +327,7 @@ const AccountantDocumentDetail = () => {
             {!isInvoiceDocument(document.documentType) ? (
               <p className="text-sm text-slate-500">Không áp dụng cho loại chứng từ này.</p>
             ) : invoice ? (
-              <VatInvoicePanel invoice={invoice} form={invoiceForm} editable={canEdit} onChange={updateInvoiceForm} rawText={ocr?.rawText} />
+              <VatInvoicePanel invoice={invoice} form={invoiceForm} editable={isEditing} onChange={updateInvoiceForm} rawText={ocr?.rawText} />
             ) : (
               <p className="text-sm text-slate-500">Backend chưa có invoice cho chứng từ này.</p>
             )}
@@ -320,7 +339,7 @@ const AccountantDocumentDetail = () => {
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               {dynamicFields.map((field) => {
                 const confidenceValue = formatConfidence(field.confidence);
-                return <div key={field.id} className="min-w-0 rounded-lg border border-slate-200 p-3"><div className="text-xs font-medium text-slate-500">{humanizeFieldName(field.fieldName)}</div><div className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-800">{field.fieldValue}</div>{confidenceValue && <div className="mt-2 text-xs text-slate-500">Độ tin cậy: {confidenceValue}</div>}</div>;
+                return <div key={field.id} className="min-w-0 rounded-lg border border-slate-200 p-3"><div className="text-xs font-medium text-slate-500">{humanizeFieldName(field.fieldName)}</div><div className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-800">{field.fieldValue}</div><div className="mt-2 text-xs text-slate-500">Độ tin cậy: {confidenceValue}</div></div>;
               })}
             </div>
           </div>}

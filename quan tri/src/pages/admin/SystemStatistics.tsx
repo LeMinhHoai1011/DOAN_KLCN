@@ -10,7 +10,7 @@ import PageHeader from '../../components/ui/PageHeader'
 import dashboardService, { type DashboardStatistics } from '../../services/dashboardService'
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend)
-const statusLabels: Record<string, string> = { UPLOADED: 'Đã tải lên', PROCESSING: 'Đang xử lý', PROCESSED: 'Đã xử lý', NEED_REVIEW: 'Cần kiểm tra', FAILED: 'Xử lý thất bại', COMPLETED: 'Hoàn thành' }
+const statusLabels: Record<string, string> = { UPLOADED: 'Đã tải lên', PROCESSING: 'Đang xử lý', PROCESSED: 'Đã xử lý', NEED_REVIEW: 'Cần kiểm tra', FAILED: 'Lỗi xử lý', COMPLETED: 'Hoàn thành' }
 const colors = ['#2563eb', '#7c3aed', '#059669', '#d97706', '#dc2626', '#0891b2', '#64748b']
 
 const SystemStatistics = () => {

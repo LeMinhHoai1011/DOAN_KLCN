@@ -11,7 +11,9 @@ import com.example.invoice.service.DocumentAiProcessingService;
 import com.example.invoice.service.DocumentUploadProcessingService;
 import com.example.invoice.dto.invoice.InvoiceResponse;
 import com.example.invoice.dto.invoice.ExtractedFieldResponse;
+import com.example.invoice.dto.invoice.ExtractedFieldCorrectionRequest;
 import com.example.invoice.service.DocumentService;
+import com.example.invoice.service.ExtractedFieldCorrectionService;
 import com.example.invoice.service.InvoiceService;
 import com.example.invoice.service.OCRResultService;
 import jakarta.validation.Valid;
@@ -37,6 +39,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class DocumentController {
 	private final DocumentService documentService;
 	private final InvoiceService invoiceService;
+	private final ExtractedFieldCorrectionService extractedFieldCorrectionService;
 	private final OCRResultService ocrResultService;
 	private final DocumentAiProcessingService documentAiProcessingService;
 	private final DocumentUploadProcessingService documentUploadProcessingService;
@@ -145,6 +148,17 @@ public class DocumentController {
 	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_VIEW') or hasRole('ADMIN')")
 	public List<ExtractedFieldResponse> getExtractedFields(@PathVariable Long id) {
 		return invoiceService.findExtractedFieldsByDocumentId(id);
+	}
+
+	@PatchMapping("/{id}/extracted-fields/{fieldId}/correction")
+	@PreAuthorize("hasRole('ADMIN') or hasRole('ACCOUNTANT')")
+	public ExtractedFieldResponse correctExtractedField(@PathVariable Long id, @PathVariable Long fieldId,
+			@Valid @RequestBody ExtractedFieldCorrectionRequest request, Authentication authentication) {
+		extractedFieldCorrectionService.correct(id, fieldId, request, authentication);
+		return invoiceService.findExtractedFieldsByDocumentId(id).stream()
+				.filter(field -> field.id().equals(fieldId))
+				.findFirst()
+				.orElseThrow(() -> new com.example.invoice.exception.ResourceNotFoundException("Không tìm thấy trường trích xuất"));
 	}
 
 	@PutMapping("/{id}/ocr")

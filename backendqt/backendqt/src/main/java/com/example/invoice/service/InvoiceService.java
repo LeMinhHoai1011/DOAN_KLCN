@@ -5,6 +5,7 @@ import com.example.invoice.dto.invoice.InvoiceItemResponse;
 import com.example.invoice.dto.invoice.InvoiceRequest;
 import com.example.invoice.dto.invoice.InvoiceResponse;
 import com.example.invoice.dto.invoice.ExtractedFieldResponse;
+import com.example.invoice.entity.FieldCorrection;
 import com.example.invoice.entity.Document;
 import com.example.invoice.entity.ExtractedField;
 import com.example.invoice.entity.Invoice;
@@ -13,6 +14,7 @@ import com.example.invoice.entity.User;
 import com.example.invoice.exception.ResourceNotFoundException;
 import com.example.invoice.repository.InvoiceRepository;
 import com.example.invoice.repository.ExtractedFieldRepository;
+import com.example.invoice.repository.FieldCorrectionRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -25,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class InvoiceService {
 	private final InvoiceRepository invoiceRepository;
 	private final ExtractedFieldRepository extractedFieldRepository;
+	private final FieldCorrectionRepository fieldCorrectionRepository;
 	private final DocumentService documentService;
 	private final UserService userService;
 	private final OcrFieldLocator ocrFieldLocator;
@@ -176,8 +179,17 @@ public class InvoiceService {
 	}
 
 	private ExtractedFieldResponse toExtractedFieldResponse(ExtractedField field) {
-		return new ExtractedFieldResponse(field.getId(), field.getFieldName(), field.getFieldValue(), field.getSource(),
-				field.getConfidence(), ocrFieldLocator.locate(field.getDocument().getId(), field.getFieldName(), field.getFieldValue()));
+		FieldCorrection correction = fieldCorrectionRepository.findFirstByFieldIdOrderByCreatedAtDescIdDesc(field.getId())
+				.orElse(null);
+		String correctedValue = correction == null ? null : correction.getNewValue();
+		return new ExtractedFieldResponse(field.getId(), field.getFieldName(),
+				correctedValue == null ? field.getFieldValue() : correctedValue, field.getSource(),
+				field.getConfidence(), "AI".equalsIgnoreCase(field.getSource()) ? field.getFieldValue() : null,
+				correctedValue, correction != null,
+				correction == null || correction.getCorrectedBy() == null ? null : correction.getCorrectedBy().getId(),
+				correction == null ? null : correction.getCreatedAt(),
+				ocrFieldLocator.locate(field.getDocument().getId(), field.getFieldName(),
+						field.getFieldValue()));
 	}
 
 	private boolean hasRole(User user, String roleCode) {
@@ -189,4 +201,3 @@ public class InvoiceService {
 		return hasRole(user, "EMPLOYEE") || hasRole(user, "USER");
 	}
 }
-

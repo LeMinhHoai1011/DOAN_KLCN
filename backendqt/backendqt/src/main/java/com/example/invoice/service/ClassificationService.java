@@ -51,7 +51,9 @@ public class ClassificationService {
 	@Transactional
 	public ClassificationResponse correction(Long documentId, ClassificationUpdateRequest request) {
 		Classification classification = loadByDocumentId(documentId);
-		apply(classification, request);
+		// Keep predictedLabel, confidence and reason as the original AI evidence.
+		// The effective category is the user's correction and is marked separately below.
+		if (request.category() != null) classification.setCategory(request.category());
 		classification.setStatus(ClassificationStatus.CORRECTED);
 		classification.setAiGenerated(false);
 		return toResponse(classification);

@@ -78,9 +78,10 @@ function PdfSurface({ url, pageNumber, width, onMetadata, onError }: {
   return <canvas ref={canvasRef} className="block bg-white shadow-xl" />
 }
 
-export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, documentType }: {
+export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, documentType, canCorrectFields, onCorrectField }: {
   documentId: number; fileType: string; ocr: OCRResultResponse | null
   fields: ExtractedFieldResponse[]; documentType?: string | null
+  canCorrectFields: boolean; onCorrectField: (fieldId: number, fieldValue: string) => Promise<void>
 }) {
   const [url, setUrl] = useState('')
 	const [previewContentType, setPreviewContentType] = useState('')
@@ -210,7 +211,7 @@ export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, 
         </div>}
       </div>
       <ExtractedFieldPanel fields={fields} documentType={documentType} selectedId={selected?.id} hoveredId={hovered?.id}
-        onSelect={selectField} onHover={setHovered} />
+        canCorrect={canCorrectFields} onSelect={selectField} onHover={setHovered} onCorrect={onCorrectField} />
     </div>
     <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-2.5">
       <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600">

@@ -103,15 +103,17 @@ class DocumentAiResultPersistenceServiceTest {
 	}
 
 	@Test
-	void reprocessFromAiInvoiceToNonInvoiceRemovesOnlyAiGeneratedInvoice() {
+	void reprocessFromVatInvoiceToReceiptReplacesCurrentTypeAndRemovesAiInvoice() {
 		Document document = new Document(); document.setId(8L);
-		DocumentType type = new DocumentType(); type.setCode("OTHER");
+		DocumentType previousType = new DocumentType(); previousType.setCode("VAT_INVOICE");
+		document.setType(previousType); document.setDocumentType("VAT_INVOICE");
+		DocumentType type = new DocumentType(); type.setCode("RECEIPT");
 		Invoice stale = new Invoice(); stale.setId(12L); stale.setAiGenerated(true);
-		AiDocumentResult result = new AiDocumentResult("ollama", "text", "OTHER", new BigDecimal("0.95"),
+		AiDocumentResult result = new AiDocumentResult("ollama", "text", "RECEIPT", new BigDecimal("0.95"),
 				"receipt text", null, List.of(), List.of(), "raw", 10L);
-		var validated = new AiDocumentResultValidator().validate(result, Set.of("OTHER"));
+		var validated = new AiDocumentResultValidator().validate(result, Set.of("RECEIPT"));
 		when(documentService.load(8L)).thenReturn(document);
-		when(documentTypeRepository.findByCode("OTHER")).thenReturn(Optional.of(type));
+		when(documentTypeRepository.findByCode("RECEIPT")).thenReturn(Optional.of(type));
 		when(invoiceRepository.findByDocumentId(8L)).thenReturn(Optional.of(stale));
 		when(extractedFieldRepository.findByDocumentId(8L)).thenReturn(List.of());
 		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(8L)).thenReturn(Optional.empty());
@@ -119,6 +121,12 @@ class DocumentAiResultPersistenceServiceTest {
 				documentTypeRepository, ocrResultRepository, classificationRepository, invoiceRepository,
 				extractedFieldRepository, processingLogService, new AiProperties());
 		service.persist(8L, validated);
+		assertEquals(type, document.getType());
+		assertEquals("RECEIPT", document.getDocumentType());
+		ArgumentCaptor<com.example.invoice.entity.Classification> classification =
+				ArgumentCaptor.forClass(com.example.invoice.entity.Classification.class);
+		verify(classificationRepository).save(classification.capture());
+		assertEquals("RECEIPT", classification.getValue().getPredictedLabel());
 		verify(invoiceRepository).deleteAiGeneratedByDocumentId(8L);
 		verify(invoiceRepository, never()).save(stale);
 	}
@@ -145,6 +153,22 @@ class DocumentAiResultPersistenceServiceTest {
 		assertEquals(document, field.getValue().getDocument());
 		assertNull(field.getValue().getInvoice());
 		verify(invoiceRepository, never()).save(any());
+	}
+
+	@Test
+	void confidence084WithOnlyMildTextWarningIsProcessed() {
+		Document document = new Document(); document.setId(19L);
+		DocumentType type = new DocumentType(); type.setCode("RECEIPT");
+		AiDocumentResult result = new AiDocumentResult("ollama", "text", "RECEIPT", new BigDecimal("0.84"),
+				"receipt", null, List.of(), List.of("NON_CRITICAL: địa chỉ có thể thiếu dấu tiếng Việt"), "raw", 10L);
+		when(documentService.load(19L)).thenReturn(document);
+		when(documentTypeRepository.findByCode("RECEIPT")).thenReturn(Optional.of(type));
+		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(19L)).thenReturn(Optional.empty());
+		when(invoiceRepository.findByDocumentId(19L)).thenReturn(Optional.empty());
+
+		service().persist(19L, new AiDocumentResultValidator().validate(result, Set.of("RECEIPT")));
+
+		assertEquals(DocumentStatus.PROCESSED, document.getStatus());
 	}
 
 	@Test
@@ -254,7 +278,7 @@ class DocumentAiResultPersistenceServiceTest {
 				"Dịch vụ kế toán", new BigDecimal("2"), "tháng", new BigDecimal("5000000"),
 				new BigDecimal("0.08"), new BigDecimal("800000"), new BigDecimal("10000000"));
 		AiDocumentResult.AiInvoiceExtraction extraction = new AiDocumentResult.AiInvoiceExtraction(
-				"000018", "1C26TAA", "2026-10-04", "Công ty Bán", "0312345678", "TP.HCM",
+				"000018", "1C26TAA", "2026-10-04", "Công ty Bán", "0312345678", "Đường Nguyễn Văn Linh, Phường Tân Phong",
 				"028 1234 5678", "Công ty Mua", "0398765432", "Hà Nội", new BigDecimal("10000000"),
 				new BigDecimal("800000"), new BigDecimal("10800000"), "TM/CK", "Mười triệu tám trăm nghìn đồng",
 				"CQT-2026-XYZ", "2026-10-04", List.of(item));
@@ -280,6 +304,7 @@ class DocumentAiResultPersistenceServiceTest {
 		ArgumentCaptor<Invoice> invoice = ArgumentCaptor.forClass(Invoice.class);
 		verify(invoiceRepository).save(invoice.capture());
 		assertEquals("028 1234 5678", invoice.getValue().getSellerPhone());
+		assertEquals("Đường Nguyễn Văn Linh, Phường Tân Phong", invoice.getValue().getSellerAddress());
 		assertEquals("TM/CK", invoice.getValue().getPaymentMethod());
 		assertEquals("Mười triệu tám trăm nghìn đồng", invoice.getValue().getAmountInWords());
 		assertEquals("CQT-2026-XYZ", invoice.getValue().getTaxAuthorityCode());

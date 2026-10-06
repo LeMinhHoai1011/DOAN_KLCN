@@ -178,8 +178,8 @@ Tài liệu này tổng hợp các entity JPA trong thư mục `entity`, gồm t
 | `field` / `field_id` | `ExtractedField` | `@ManyToOne`, `nullable=false` | Field bị sửa |
 | `review` / `review_id` | `DocumentReview` | `@ManyToOne` | Lần review liên quan |
 | `correctedBy` / `corrected_by` | `User` | `@ManyToOne` | Người sửa |
-| `oldValue` | `String` | `columnDefinition=text` | Giá trị cũ |
-| `newValue` | `String` | `columnDefinition=text` | Giá trị mới |
+| `oldValue` | `String` | `columnDefinition=text` | Giá trị hiệu lực trước lần sửa; lần đầu giữ giá trị AI ban đầu |
+| `newValue` | `String` | `columnDefinition=text` | Giá trị hiệu lực sau lần sửa; các lần sửa được ghi thành lịch sử mới |
 | `reason` | `String` | - | Lý do sửa |
 | `createdAt` | `LocalDateTime` | - | Thời điểm tạo bản ghi sửa |
 

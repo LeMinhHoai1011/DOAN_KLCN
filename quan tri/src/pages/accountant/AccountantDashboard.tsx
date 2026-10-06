@@ -27,8 +27,21 @@ const AccountantDashboard = () => {
 
   useEffect(() => {
     let active = true; setLoading(true); setError('')
-    Promise.all([dashboardService.getDashboardStatistics(), dashboardService.getFinancialDashboard(), dashboardService.getFinancialTimeSeries({ interval }), documentService.getDocumentPage({ page: 1, size: 8, sort: 'createdAt,desc' })])
-      .then(([stats, finance, points, page]) => { if (!active) return; setStatistics(stats); setFinancial(finance); setSeries(points); setDocuments([...page.content].sort((a, b) => { const priority = { NEED_REVIEW: 0, FAILED: 1, PROCESSING: 2 } as Record<string, number>; return (priority[a.status] ?? 3) - (priority[b.status] ?? 3) }).slice(0, 5)) })
+    Promise.all([
+      dashboardService.getDashboardStatistics(),
+      dashboardService.getFinancialDashboard(),
+      dashboardService.getFinancialTimeSeries({ interval }),
+      documentService.getDocumentPage({ page: 1, size: 5, processingStatus: 'NEED_REVIEW', sort: 'createdAt,asc' }),
+      documentService.getDocumentPage({ page: 1, size: 5, processingStatus: 'FAILED', sort: 'createdAt,asc' }),
+      documentService.getDocumentPage({ page: 1, size: 5, processingStatus: 'PROCESSING', sort: 'createdAt,asc' }),
+    ])
+      .then(([stats, finance, points, needReview, failed, processing]) => {
+        if (!active) return
+        setStatistics(stats)
+        setFinancial(finance)
+        setSeries(points)
+        setDocuments([...needReview.content, ...failed.content, ...processing.content].slice(0, 5))
+      })
       .catch(() => active && setError('Không thể tải dữ liệu tổng quan. Vui lòng thử lại.'))
       .finally(() => active && setLoading(false))
     return () => { active = false }

@@ -13,10 +13,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.invoice.dto.DashboardStatisticsResponse;
 import com.example.invoice.entity.Company;
 import com.example.invoice.entity.Document;
+import com.example.invoice.entity.DocumentStatus;
+import com.example.invoice.entity.ExtractedField;
+import com.example.invoice.entity.FieldCorrection;
 import com.example.invoice.entity.Invoice;
 import com.example.invoice.entity.User;
 import com.example.invoice.repository.CompanyRepository;
 import com.example.invoice.repository.DocumentRepository;
+import com.example.invoice.repository.ExtractedFieldRepository;
+import com.example.invoice.repository.FieldCorrectionRepository;
 import com.example.invoice.repository.InvoiceRepository;
 import com.example.invoice.repository.UserRepository;
 import com.example.invoice.service.DashboardService;
@@ -24,6 +29,7 @@ import com.example.invoice.service.DocumentService;
 import com.example.invoice.service.InvoiceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
+import java.math.BigDecimal;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +58,12 @@ class InvoiceApplicationTests {
 
 	@Autowired
 	private InvoiceRepository invoiceRepository;
+
+	@Autowired
+	private ExtractedFieldRepository extractedFieldRepository;
+
+	@Autowired
+	private FieldCorrectionRepository fieldCorrectionRepository;
 
 	@Autowired
 	private DashboardService dashboardService;
@@ -159,6 +171,50 @@ class InvoiceApplicationTests {
 			assertThrows(com.example.invoice.exception.ResourceNotFoundException.class,
 					() -> documentService.findById(document.getId()));
 			assertFalse(invoiceService.findAll().stream().anyMatch(item -> item.documentId().equals(document.getId())));
+		} finally {
+			SecurityContextHolder.clearContext();
+		}
+	}
+
+	@Test
+	@Transactional
+	void extractedFieldCorrectionPersistsAndReturnsEffectiveValueAfterReload() {
+		String uniqueId = UUID.randomUUID().toString();
+		Document document = new Document();
+		document.setOriginalFileName("correction-" + uniqueId + ".pdf");
+		document.setFileType("application/pdf");
+		document.setFileSize(1L);
+		document.setStatus(DocumentStatus.PROCESSED);
+		documentRepository.saveAndFlush(document);
+
+		ExtractedField field = new ExtractedField();
+		field.setDocument(document);
+		field.setFieldName("deliveryAddress");
+		field.setFieldValue("Duong Nguyen Van Linh");
+		field.setSource("AI");
+		field.setConfidence(new BigDecimal("0.93"));
+		extractedFieldRepository.saveAndFlush(field);
+
+		User admin = userRepository.findByUsername("admin").orElseThrow();
+		FieldCorrection correction = new FieldCorrection();
+		correction.setField(field);
+		correction.setCorrectedBy(admin);
+		correction.setOldValue("Duong Nguyen Van Linh");
+		correction.setNewValue("Đường Nguyễn Văn Linh");
+		correction.setReason("Manual correction");
+		fieldCorrectionRepository.saveAndFlush(correction);
+		entityManager.clear();
+
+		SecurityContextHolder.getContext().setAuthentication(
+				new UsernamePasswordAuthenticationToken("admin", "test"));
+		try {
+			var response = invoiceService.findExtractedFieldsByDocumentId(document.getId()).getFirst();
+			assertEquals("Đường Nguyễn Văn Linh", response.fieldValue());
+			assertEquals("Duong Nguyen Van Linh", response.originalAiValue());
+			assertEquals("Đường Nguyễn Văn Linh", response.correctedValue());
+			assertEquals(admin.getId(), response.correctedById());
+			assertTrue(response.correctedAt() != null);
+			assertEquals(new BigDecimal("0.93"), response.confidence());
 		} finally {
 			SecurityContextHolder.clearContext();
 		}

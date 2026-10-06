@@ -1,6 +1,7 @@
 package com.example.invoice.ai;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,6 +14,49 @@ import org.junit.jupiter.api.Test;
 
 class AiDocumentResultValidatorTest {
 	private final AiDocumentResultValidator validator = new AiDocumentResultValidator();
+
+	@Test
+	void confidence084WithValidExtractionIsProcessed() {
+		var validated = validator.validate(result("0.84", validInvoice(), List.of()), Set.of("VAT_INVOICE"));
+		assertFalse(validated.requiresReview(new BigDecimal("0.75")));
+	}
+
+	@Test
+	void mildVietnameseDiacriticWarningDoesNotForceReview() {
+		var validated = validator.validate(result("0.84", validInvoice(),
+				List.of("NON_CRITICAL: địa chỉ có thể thiếu dấu tiếng Việt")), Set.of("VAT_INVOICE"));
+		assertFalse(validated.requiresReview(new BigDecimal("0.75")));
+	}
+
+	@Test
+	void confidenceBelowReviewThresholdRequiresReviewWithReason() {
+		var validated = validator.validate(result("0.70", validInvoice(), List.of()), Set.of("VAT_INVOICE"));
+		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
+		assertTrue(validated.reviewReasons(new BigDecimal("0.75")).getFirst()
+				.startsWith("LOW_CLASSIFICATION_CONFIDENCE:"));
+	}
+
+	@Test
+	void highConfidenceAmountMismatchStillRequiresReview() {
+		var invoice = new AiDocumentResult.AiInvoiceExtraction("0001", null, "2026-09-27",
+				"Người bán", "0123456789", "Địa chỉ", null, null, null,
+				new BigDecimal("100"), new BigDecimal("10"), new BigDecimal("120"), List.of());
+		var validated = validator.validate(result("0.96", invoice, List.of()), Set.of("VAT_INVOICE"));
+		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
+		assertTrue(validated.reviewReasons(new BigDecimal("0.75")).stream()
+				.anyMatch(reason -> reason.startsWith("TOTAL_MISMATCH:")));
+	}
+
+	@Test
+	void highConfidenceInvalidCriticalFieldStillRequiresReview() {
+		var invoice = new AiDocumentResult.AiInvoiceExtraction("0001", null, "2026-09-27",
+				"Người bán", "ABC", "Địa chỉ", null, null, null,
+				new BigDecimal("100"), new BigDecimal("10"), new BigDecimal("110"), List.of());
+		var validated = validator.validate(result("0.95", invoice, List.of()), Set.of("VAT_INVOICE"));
+		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
+		assertTrue(validated.reviewReasons(new BigDecimal("0.75")).stream()
+				.anyMatch(reason -> reason.startsWith("INVALID_SELLER_TAX_CODE:")));
+	}
 
 	@Test
 	void flagsMoneyMismatchAndLowConfidenceForReview() {
@@ -83,6 +127,18 @@ class AiDocumentResultValidatorTest {
 
 		assertEquals("CÔNG TY TNHH ÁNH DƯƠNG", validated.result().invoice().sellerName());
 		assertEquals("CQT-A9Z-001", validated.result().invoice().taxAuthorityCode());
-		assertTrue(validated.warnings().stream().anyMatch(warning -> warning.contains("Ngày ký")));
+		assertTrue(validated.warnings().stream().anyMatch(warning -> warning.startsWith("INVALID_SIGN_DATE:")));
+	}
+
+	private AiDocumentResult result(String confidence, AiDocumentResult.AiInvoiceExtraction invoice,
+			List<String> warnings) {
+		return new AiDocumentResult("ollama", "qwen3-vl", "VAT_INVOICE", new BigDecimal(confidence),
+				null, invoice, List.of(), warnings, "raw", 1L);
+	}
+
+	private AiDocumentResult.AiInvoiceExtraction validInvoice() {
+		return new AiDocumentResult.AiInvoiceExtraction("0001", null, "2026-09-27",
+				"Công ty Ánh Dương", "0123456789", "Đường Nguyễn Văn Linh, Phường Tân Phong",
+				null, null, null, new BigDecimal("100"), new BigDecimal("10"), new BigDecimal("110"), List.of());
 	}
 }

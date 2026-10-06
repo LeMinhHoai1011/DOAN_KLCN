@@ -10,7 +10,7 @@ export interface StatusPresentation { label: string; tone: 'success' | 'warning'
 
 export const getStatusPresentation = (status: string, reviewStatus?: string | null): StatusPresentation => {
   const labels: Record<string, Omit<StatusPresentation, 'rawStatus' | 'rawReviewStatus'>> = {
-    UPLOADED: { label: 'Đã tải lên', tone: 'neutral' }, PROCESSING: { label: 'Đang xử lý', tone: 'info' }, PROCESSED: { label: 'Đã xử lý', tone: 'success' }, NEED_REVIEW: { label: 'Cần kiểm tra', tone: 'warning' }, COMPLETED: { label: 'Hoàn tất', tone: 'success' }, FAILED: { label: 'Lỗi xử lý', tone: 'error' }, APPROVED: { label: 'Đã duyệt', tone: 'success' }, REJECTED: { label: 'Từ chối', tone: 'error' }, CORRECTED: { label: 'Đã điều chỉnh', tone: 'warning' }, PENDING: { label: 'Chờ kiểm tra', tone: 'neutral' },
+    UPLOADED: { label: 'Đã tải lên', tone: 'neutral' }, PROCESSING: { label: 'Đang xử lý', tone: 'info' }, PROCESSED: { label: 'Đã xử lý', tone: 'success' }, NEED_REVIEW: { label: 'Cần kiểm tra', tone: 'warning' }, COMPLETED: { label: 'Hoàn thành', tone: 'success' }, FAILED: { label: 'Lỗi xử lý', tone: 'error' }, APPROVED: { label: 'Đã duyệt', tone: 'success' }, REJECTED: { label: 'Từ chối', tone: 'error' }, CORRECTED: { label: 'Đã điều chỉnh', tone: 'warning' }, PENDING: { label: 'Chờ kiểm tra', tone: 'neutral' },
   };
   const value = labels[status] || { label: status || 'Không xác định', tone: 'neutral' as const };
   return { ...value, rawStatus: status, rawReviewStatus: reviewStatus };

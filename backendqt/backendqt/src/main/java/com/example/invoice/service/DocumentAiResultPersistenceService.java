@@ -101,8 +101,10 @@ public class DocumentAiResultPersistenceService {
 		persistIntelligence(document, result);
 
 		persistOcrWhenPresent(document, result, validated.confidence(), tessOcr);
-		boolean requiresReview = validated.requiresReview(aiProperties.getDocument().getReviewThreshold());
-		persistClassification(document, result, validated.confidence(), validated.warnings(), requiresReview);
+		BigDecimal reviewThreshold = aiProperties.getDocument().getReviewThreshold();
+		boolean requiresReview = validated.requiresReview(reviewThreshold);
+		List<String> classificationReasons = requiresReview ? validated.reviewReasons(reviewThreshold) : validated.warnings();
+		persistClassification(document, result, validated.confidence(), classificationReasons, requiresReview);
 		processingLogService.append(documentId, "CLASSIFICATION", "CLASSIFY", "SUCCESS", validated.confidence(),
 				result.durationMs(), "documentType=" + result.documentType(), result.provider(), result.model());
 		Invoice invoice = null;

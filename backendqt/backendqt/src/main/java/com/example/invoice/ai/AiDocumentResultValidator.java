@@ -64,6 +64,8 @@ public class AiDocumentResultValidator {
 
 	private void validateInvoice(AiDocumentResult.AiInvoiceExtraction invoice, List<String> warnings) {
 		if (invoice == null) return;
+		if (invoice.invoiceNumber() == null || invoice.invoiceNumber().isBlank())
+			warnings.add("MISSING_INVOICE_NUMBER: thiếu số hóa đơn");
 		warnLength(invoice.invoiceNumber(), MAX_INVOICE_NUMBER_LENGTH, "INVOICE_NUMBER_INVALID_LENGTH", warnings);
 		warnLength(invoice.invoiceSeries(), MAX_INVOICE_SERIES_LENGTH, "INVOICE_SERIES_INVALID_LENGTH", warnings);
 		warnLength(invoice.sellerTaxCode(), MAX_TAX_CODE_LENGTH, "SELLER_TAX_CODE_INVALID_LENGTH", warnings);
@@ -81,28 +83,28 @@ public class AiDocumentResultValidator {
 					"INVOICE_ITEM_NAME_ABNORMAL_LENGTH", warnings);
 		});
 		if (invoice.sellerTaxCode() != null && !TAX_CODE.matcher(invoice.sellerTaxCode().trim()).matches()) {
-			warnings.add("Seller tax code has an unexpected format");
+			warnings.add("INVALID_SELLER_TAX_CODE: mã số thuế người bán không hợp lệ");
 		}
 		if (invoice.buyerTaxCode() != null && !TAX_CODE.matcher(invoice.buyerTaxCode().trim()).matches()) {
-			warnings.add("Buyer tax code has an unexpected format");
+			warnings.add("INVALID_BUYER_TAX_CODE: mã số thuế người mua không hợp lệ");
 		}
 		if (invoice.invoiceDate() != null) {
 			try {
 				LocalDate.parse(invoice.invoiceDate());
 			} catch (DateTimeParseException exception) {
-				warnings.add("Invoice date is not an unambiguous yyyy-MM-dd value");
+				warnings.add("INVALID_INVOICE_DATE: ngày hóa đơn không phải yyyy-MM-dd hợp lệ");
 			}
 		}
 		if (invoice.signDate() != null) {
 			try {
 				LocalDate.parse(invoice.signDate());
 			} catch (DateTimeParseException exception) {
-				warnings.add("Ngày ký không phải giá trị yyyy-MM-dd rõ ràng");
+				warnings.add("INVALID_SIGN_DATE: ngày ký không phải yyyy-MM-dd hợp lệ");
 			}
 		}
 		if (invoice.subtotal() != null && invoice.vatAmount() != null && invoice.totalAmount() != null
 				&& invoice.subtotal().add(invoice.vatAmount()).subtract(invoice.totalAmount()).abs().compareTo(MONEY_TOLERANCE) > 0) {
-			warnings.add("Tổng tiền trước thuế cộng VAT không khớp với tổng thanh toán");
+			warnings.add("TOTAL_MISMATCH: tổng tiền trước thuế cộng VAT không khớp với tổng thanh toán");
 		}
 	}
 
@@ -133,7 +135,26 @@ public class AiDocumentResultValidator {
 
 	public record ValidatedAiDocumentResult(AiDocumentResult result, BigDecimal confidence, List<String> warnings) {
 		public boolean requiresReview(BigDecimal threshold) {
-			return confidence.compareTo(threshold) < 0 || !warnings.isEmpty();
+			return confidence.compareTo(threshold) < 0 || warnings.stream().anyMatch(this::isCritical);
+		}
+
+		public List<String> reviewReasons(BigDecimal threshold) {
+			List<String> reasons = new ArrayList<>();
+			if (confidence.compareTo(threshold) < 0)
+				reasons.add("LOW_CLASSIFICATION_CONFIDENCE: confidence=" + confidence + ", threshold=" + threshold);
+			warnings.stream().filter(this::isCritical).forEach(reasons::add);
+			return List.copyOf(reasons);
+		}
+
+		private boolean isCritical(String warning) {
+			if (warning == null || warning.isBlank()) return false;
+			String value = warning.toLowerCase(java.util.Locale.ROOT);
+			return !(value.startsWith("non_critical:")
+					|| value.contains("thiếu dấu") || value.contains("mất dấu")
+					|| value.contains("diacritic") || value.contains("hoa/thường")
+					|| value.contains("khoảng trắng") || value.contains("whitespace")
+					|| value.contains("định dạng địa chỉ") || value.contains("address format")
+					|| value.contains("preprocessing warning"));
 		}
 	}
 }

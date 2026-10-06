@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Save } from 'lucide-react';
+import { ArrowLeft, Download, Pencil, Save, X } from 'lucide-react';
 import clsx from 'clsx';
 import StatusBadge from '../components/StatusBadge';
 import classificationService from '../services/classificationService';
@@ -12,6 +12,8 @@ import type { ExtractedFieldResponse } from '../services/documentService';
 import OcrDocumentPreview from '../components/OcrDocumentPreview';
 import type { InvoiceResponse } from '../services/invoiceService';
 import VatInvoicePanel, { emptyInvoiceForm, toInvoiceForm, toInvoiceUpdateRequest, type InvoiceFormData } from '../components/VatInvoicePanel';
+import { formatConfidence } from '../utils/confidence';
+import { getCurrentUser, getEffectiveRole } from '../services/authService';
 
 const hasCompletedPipeline = (status: DocumentResponse['status']) => (
   status === 'PROCESSED' || status === 'NEED_REVIEW' || status === 'COMPLETED'
@@ -35,6 +37,7 @@ const DocumentDetail = () => {
   const [classificationValue, setClassificationValue] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -133,6 +136,7 @@ const DocumentDetail = () => {
       }
 
       setSaveMessage('Đã lưu thay đổi');
+      setIsEditing(false);
     } catch {
       setSaveError('Không thể lưu thay đổi. Vui lòng thử lại.');
     } finally {
@@ -149,7 +153,20 @@ const DocumentDetail = () => {
   }
 
   const documentView = mapDocument(document);
-  const confidence = ocr?.confidence;
+  const classificationConfidence = formatConfidence(classification?.confidence);
+  const canCorrect = document.reviewStatus !== 'APPROVED'
+    && (document.status === 'PROCESSED' || document.status === 'NEED_REVIEW');
+  const canCorrectExtractedFields = canCorrect && ['ADMIN', 'ACCOUNTANT'].includes(getEffectiveRole(getCurrentUser()) ?? '');
+
+  const handleCorrectExtractedField = async (fieldId: number, fieldValue: string) => {
+    await documentService.correctExtractedField(document.id, fieldId, fieldValue);
+    try {
+      const refreshedFields = await documentService.getDocumentExtractedFields(document.id);
+      setExtractedFields(refreshedFields);
+    } catch {
+      throw new Error('Đã lưu correction nhưng không thể tải lại dữ liệu. Vui lòng làm mới trang.');
+    }
+  };
 
   return (
     <div className="space-y-4 h-[calc(100vh-8rem)] flex flex-col">
@@ -171,10 +188,16 @@ const DocumentDetail = () => {
             <Download size={18} />
             <span>Tải file gốc</span>
           </button>
-          <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors shadow-sm">
+          {canCorrect && !isEditing && <button onClick={() => { setIsEditing(true); setSaveMessage(''); setSaveError(''); }} className="px-4 py-2 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
+            <Pencil size={18} /><span>Chỉnh sửa thủ công</span>
+          </button>}
+          {isEditing && <button onClick={() => { setInvoiceForm(invoice ? toInvoiceForm(invoice) : emptyInvoiceForm); setClassificationValue(classification?.category || ''); setIsEditing(false); setSaveError(''); }} disabled={isSaving} className="px-4 py-2 flex items-center gap-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-60">
+            <X size={18} /><span>Hủy</span>
+          </button>}
+          {isEditing && <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors shadow-sm">
             <Save size={18} />
             <span>{isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}</span>
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -184,7 +207,8 @@ const DocumentDetail = () => {
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
         <div className="h-[min(72vh,760px)] min-h-[620px]">
           <OcrDocumentPreview documentId={document.id} fileType={document.fileType} ocr={ocr}
-            fields={extractedFields} documentType={document.documentType} />
+            fields={extractedFields} documentType={document.documentType} canCorrectFields={canCorrectExtractedFields}
+            onCorrectField={handleCorrectExtractedField} />
         </div>
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -195,16 +219,17 @@ const DocumentDetail = () => {
                 <p className="text-sm text-slate-600 mt-1">Kết quả từ backend classification</p>
               </div>
               <div className="text-right">
-                <div className={clsx('text-xl font-bold', confidence === null || confidence === undefined ? 'text-slate-500' : 'text-emerald-600')}>
-                  {confidence === null || confidence === undefined ? 'N/A' : `${confidence}%`}
+                <div className={clsx('text-xl font-bold', classificationConfidence === '—' ? 'text-slate-500' : 'text-emerald-600')}>
+                  {classificationConfidence}
                 </div>
-                <div className="text-xs text-slate-500">Độ chính xác OCR</div>
+                <div className="text-xs text-slate-500">Độ tin cậy phân loại</div>
               </div>
             </div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Loại nghiệp vụ / Chi phí</label>
             <select
               value={classificationValue}
               onChange={(event) => setClassificationValue(event.target.value)}
+              disabled={!isEditing}
               className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium text-slate-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
             >
               <option value="">Chưa có dữ liệu phân loại</option>
@@ -217,6 +242,7 @@ const DocumentDetail = () => {
               <option value="Khác">Khác</option>
             </select>
             {!classification && <p className="text-xs text-slate-500 mt-2">Backend chưa có bản ghi classification cho chứng từ này.</p>}
+            {classification && !classification.aiGenerated && <p className="mt-2 text-xs font-medium text-amber-700">Đã chỉnh sửa thủ công</p>}
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex-1">
@@ -227,7 +253,7 @@ const DocumentDetail = () => {
             {!isInvoiceDocument(document.documentType) ? (
               <p className="text-sm text-slate-500">Không áp dụng cho loại chứng từ này.</p>
             ) : invoice ? (
-              <VatInvoicePanel invoice={invoice} form={invoiceForm} editable onChange={updateInvoiceForm} rawText={ocr?.rawText} />
+              <VatInvoicePanel invoice={invoice} form={invoiceForm} editable={isEditing} onChange={updateInvoiceForm} rawText={ocr?.rawText} />
             ) : (
               <p className="text-sm text-slate-500">Backend chưa có invoice cho chứng từ này.</p>
             )}
