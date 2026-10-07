@@ -130,6 +130,15 @@ class AiDocumentResultValidatorTest {
 		assertTrue(validated.warnings().stream().anyMatch(warning -> warning.startsWith("INVALID_SIGN_DATE:")));
 	}
 
+	@Test
+	void rejectsAccountingCategoryOutsideCompanyActiveTaxonomy() {
+		AiDocumentResult result = new AiDocumentResult("ollama", "qwen3-vl", "RECEIPT", BigDecimal.ONE,
+				"CROSS_COMPANY", null, null, null, List.of(), List.of(), "raw", 1L);
+
+		assertThrows(AiProviderException.class,
+				() -> validator.validate(result, Set.of("RECEIPT"), Set.of("CHI_PHI_VAN_PHONG")));
+	}
+
 	private AiDocumentResult result(String confidence, AiDocumentResult.AiInvoiceExtraction invoice,
 			List<String> warnings) {
 		return new AiDocumentResult("ollama", "qwen3-vl", "VAT_INVOICE", new BigDecimal(confidence),

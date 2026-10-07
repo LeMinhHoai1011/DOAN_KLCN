@@ -28,6 +28,11 @@ public class AiDocumentResultValidator {
 	private static final int MAX_REASONABLE_ITEM_NAME_LENGTH = 2000;
 
 	public ValidatedAiDocumentResult validate(AiDocumentResult result, Set<String> allowedTypes) {
+		return validate(result, allowedTypes, null);
+	}
+
+	public ValidatedAiDocumentResult validate(AiDocumentResult result, Set<String> allowedTypes,
+			Set<String> allowedAccountingCategories) {
 		if (result.documentType() == null || !allowedTypes.contains(result.documentType())) {
 			throw new AiProviderException("AI_INVALID_RESPONSE: loại chứng từ không nằm trong danh sách được backend cho phép");
 		}
@@ -35,6 +40,10 @@ public class AiDocumentResultValidator {
 		BigDecimal confidence = normalizeConfidence(result.classificationConfidence(), warnings);
 		if (isInvoiceType(result.documentType()) && result.invoice() == null) {
 			warnings.add("AI classified the document as INVOICE but structured invoice extraction is missing.");
+		}
+		if (result.accountingCategoryCode() != null && allowedAccountingCategories != null
+				&& !allowedAccountingCategories.contains(result.accountingCategoryCode())) {
+			throw new AiProviderException("AI_INVALID_RESPONSE: nhóm nghiệp vụ không nằm trong danh sách active của công ty");
 		}
 		validateInvoice(result.invoice(), warnings);
 		validateTransactionAssessment(result.transactionAssessment(), warnings);

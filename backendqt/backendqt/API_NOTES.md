@@ -76,4 +76,19 @@ PUT /api/v1/documents/{id}/classification/correction
 GET /api/v1/dashboard/statistics
 ```
 
-No AI, OCR engine, OpenRouter, OpenAI, Gemini, MinIO, Redis, Kafka, or Docker integration is implemented in this phase.
+No OpenRouter, OpenAI, Gemini, Redis, Kafka, or Docker integration is implemented in this phase.
+
+## Tess4J OCR runtime
+
+The backend uses `./tessdata` as its default Tess4J data directory and requests
+`vie+eng` by default. Run Spring Boot with the backend project directory as the
+working directory, or set `TESSDATA_PATH` to the absolute directory containing
+both `vie.traineddata` and `eng.traineddata`. `OCR_LANGUAGE` can override the
+requested language. Missing language data is reported as an OCR deployment error;
+the service does not silently retry with English.
+
+The checked-in models are from the official
+[tesseract-ocr/tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast)
+repository, revision `923915d4ced2a7235221788285785a29c4a42d4a` (Apache-2.0).
+Each OCR log includes `requestedLanguage`, `effectiveLanguage`, `tessdataPath`,
+`vieAvailable`, `engAvailable`, and `fallbackUsed`.

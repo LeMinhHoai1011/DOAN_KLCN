@@ -10,6 +10,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface FinancialTransactionRepository extends JpaRepository<FinancialTransaction, Long>, JpaSpecificationExecutor<FinancialTransaction> {
+	boolean existsByDocumentId(Long documentId);
+	boolean existsByInvoiceId(Long invoiceId);
 	@Query("select coalesce(sum(case when t.transactionType = 'INCOME' then t.amount else 0 end), 0), coalesce(sum(case when t.transactionType = 'EXPENSE' then t.amount else 0 end), 0) from FinancialTransaction t where (:companyId is null or t.company.id = :companyId) and (:dateFrom is null or t.transactionDate >= :dateFrom) and (:dateTo is null or t.transactionDate <= :dateTo)")
 	List<Object[]> summarize(@Param("companyId") Long companyId, @Param("dateFrom") LocalDate dateFrom, @Param("dateTo") LocalDate dateTo);
 

@@ -191,6 +191,8 @@ public class DocumentAiResultPersistenceService {
 		classification.setModelVersion(result.model());
 		classification.setPredictedLabel(result.documentType());
 		classification.setCategory(result.accountingCategoryCode());
+		classification.setAccountingAccount(result.accountingAccount());
+		classification.setAccountingCategory(null);
 		if (accountingCategoryRepository != null && result.accountingCategoryCode() != null && document.getCompany() != null) {
 			accountingCategoryRepository.findByCompanyId(document.getCompany().getId()).stream()
 					.filter(category -> result.accountingCategoryCode().equals(category.getCategoryCode()))

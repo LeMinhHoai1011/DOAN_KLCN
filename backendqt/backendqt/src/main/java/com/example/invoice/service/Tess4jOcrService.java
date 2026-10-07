@@ -4,16 +4,15 @@ import com.example.invoice.config.AiProperties;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.util.ArrayList;
-import java.util.List;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import javax.imageio.ImageIO;
 import lombok.RequiredArgsConstructor;
 import net.sourceforge.tess4j.ITessAPI;
 import net.sourceforge.tess4j.Tesseract;
 import net.sourceforge.tess4j.Word;
-import net.sourceforge.tess4j.util.LoadLibs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -24,35 +23,53 @@ public class Tess4jOcrService {
 	private static final Logger log = LoggerFactory.getLogger(Tess4jOcrService.class);
 	private final AiProperties properties;
 
+	static {
+		System.setProperty("jna.encoding", "UTF-8");
+	}
+
 	/** Failure is represented in the result so the vision provider remains a safe fallback. */
 	public OcrPageResult recognize(byte[] imageBytes, int pageNumber) {
 		long started = System.nanoTime();
-		if (!properties.getOcr().isEnabled()) return OcrPageResult.unavailable(pageNumber, "Tess4J OCR is disabled", 0);
 		try {
+			String requestedLanguage = properties.getOcr().getLanguage() == null
+					|| properties.getOcr().getLanguage().isBlank()
+							? "vie+eng" : properties.getOcr().getLanguage().trim();
+			String configuredPath = properties.getOcr().getDataPath();
+			Path dataPath = Path.of(configuredPath == null || configuredPath.isBlank()
+					? "./tessdata" : configuredPath).toAbsolutePath().normalize();
+			boolean vieAvailable = Files.isRegularFile(dataPath.resolve("vie.traineddata"));
+			boolean engAvailable = Files.isRegularFile(dataPath.resolve("eng.traineddata"));
+			List<String> missingLanguages = java.util.Arrays.stream(requestedLanguage.split("\\+"))
+					.map(String::trim)
+					.filter(language -> !Files.isRegularFile(dataPath.resolve(language + ".traineddata")))
+					.toList();
+			String effectiveLanguage = !properties.getOcr().isEnabled() ? "disabled"
+					: missingLanguages.isEmpty() ? requestedLanguage : "not-run";
+			log.info("OCR page={} requestedLanguage={} effectiveLanguage={} tessdataPath={} vieAvailable={} engAvailable={} fallbackUsed={}",
+					pageNumber, requestedLanguage, effectiveLanguage, dataPath, vieAvailable, engAvailable, false);
+			if (!properties.getOcr().isEnabled()) {
+				return OcrPageResult.unavailable(pageNumber, "Tess4J OCR is disabled", elapsed(started));
+			}
+			if (!missingLanguages.isEmpty()) {
+				String warning = "OCR_LANGUAGE_DATA_MISSING: thiếu " + String.join(", ", missingLanguages)
+						+ ".traineddata tại " + dataPath;
+				log.error("OCR page={} failed: {}; requestedLanguage={} effectiveLanguage={} tessdataPath={} vieAvailable={} engAvailable={} fallbackUsed={}",
+						pageNumber, warning, requestedLanguage, effectiveLanguage, dataPath, vieAvailable, engAvailable, false);
+				return OcrPageResult.unavailable(pageNumber, warning, elapsed(started));
+			}
+
 			BufferedImage image = ImageIO.read(new ByteArrayInputStream(imageBytes));
 			if (image == null) return OcrPageResult.unavailable(pageNumber, "Image format could not be decoded for OCR", elapsed(started));
-			try {
-				LanguagePlan plan = resolveLanguage();
-				return recognize(image, pageNumber, plan.language(), plan.warning(), started, plan.dataPath());
-			} catch (Exception | LinkageError primary) {
-				String configured = properties.getOcr().getLanguage();
-				if (configured != null && configured.contains("eng") && !"eng".equals(configured.trim())) {
-					String fallbackWarning = "Configured OCR language unavailable; fell back to bundled English: " + safe(primary.getMessage());
-					try { return recognize(image, pageNumber, "eng", fallbackWarning, started,
-							LoadLibs.extractTessResources("tessdata").getAbsolutePath()); }
-					catch (Exception | LinkageError ignored) { /* report the primary deployment error below */ }
-				}
-				throw primary;
-			}
+			return recognize(image, pageNumber, effectiveLanguage, null, started, dataPath.toString());
 		} catch (Exception | LinkageError exception) {
-			// Native linkage and missing traineddata are deployment issues, not document failures.
 			String warning = "Tess4J OCR unavailable: " + exception.getClass().getSimpleName() + ": " + safe(exception.getMessage());
-			log.warn("{}", warning);
+			log.error("OCR page={} failed: {}; fallbackUsed=false", pageNumber, warning);
 			return OcrPageResult.unavailable(pageNumber, warning, elapsed(started));
 		}
 	}
 
 	private OcrPageResult recognize(BufferedImage image, int pageNumber, String language, String warning, long started, String dataPath) {
+		System.setProperty("jna.encoding", "UTF-8");
 		Tesseract tesseract = new Tesseract();
 		tesseract.setDatapath(dataPath);
 		tesseract.setLanguage(language);
@@ -81,23 +98,7 @@ public class Tess4jOcrService {
 				List.copyOf(words), elapsed(started), words.isEmpty() ? "Tess4J không nhận diện được văn bản" : warning, language);
 	}
 
-	private LanguagePlan resolveLanguage() {
-		String configuredLanguage = properties.getOcr().getLanguage() == null ? "eng" : properties.getOcr().getLanguage().trim();
-		String configuredPath = properties.getOcr().getDataPath();
-		Path path = Path.of(configuredPath == null || configuredPath.isBlank() ? "./tessdata" : configuredPath).toAbsolutePath().normalize();
-		List<String> missing = java.util.Arrays.stream(configuredLanguage.split("\\+"))
-				.filter(language -> !Files.isRegularFile(path.resolve(language + ".traineddata"))).toList();
-		if (missing.isEmpty()) return new LanguagePlan(path.toString(), configuredLanguage, null);
-		String warning = "OCR_LANGUAGE_DATA_MISSING: thiếu " + String.join(", ", missing)
-				+ ".traineddata tại " + path;
-		log.warn("{}; fallback=eng", warning);
-		String bundled = LoadLibs.extractTessResources("tessdata").getAbsolutePath();
-		if (configuredLanguage.contains("eng")) return new LanguagePlan(bundled, "eng", warning + "; đã dùng eng");
-		throw new IllegalStateException(warning);
-	}
-
 	private static double ratio(int value, int total) { return total == 0 ? 0 : (double) value / total; }
 	private static long elapsed(long started) { return (System.nanoTime() - started) / 1_000_000; }
 	private static String safe(String value) { return value == null ? "unknown error" : value.replaceAll("[\\r\\n]+", " "); }
-	private record LanguagePlan(String dataPath, String language, String warning) {}
 }

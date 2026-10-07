@@ -136,7 +136,7 @@ public class DocumentAiProcessingService {
 		AiDocumentResult result = resolveCompanyRole(aggregatePageResults(
 				analyzedPages.stream().map(PageAnalysis::aiResult).toList()), company);
 		OcrDocumentResult ocr = aggregateOcr(analyzedPages.stream().map(PageAnalysis::ocr).toList());
-		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes);
+		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes, Set.copyOf(categoryCodes));
 		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
 				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);
@@ -174,7 +174,7 @@ public class DocumentAiProcessingService {
 		persistenceService.persistOcr(documentId, ocr);
 		AiDocumentResult result = resolveCompanyRole(analyzeSingleImage(document.getOriginalFileName(), contentType,
 				bytes, typeCodes, categoryCodes, company, pageOcr), company);
-		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes);
+		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes, Set.copyOf(categoryCodes));
 		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
 				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);

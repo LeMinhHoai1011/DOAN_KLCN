@@ -13,6 +13,10 @@ export interface ClassificationResponse {
   id: number
   documentId: number
   category: string | null
+  accountingCategoryId: number | null
+  accountingCategoryCode: string | null
+  accountingCategoryName: string | null
+  accountingAccount: string | null
   confidence: number | null
   reason: string | null
   status: ClassificationStatus

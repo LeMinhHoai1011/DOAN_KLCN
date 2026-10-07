@@ -40,6 +40,8 @@ public class Classification {
 	private String modelVersion;
 	private String predictedLabel;
 	private String category;
+	@Column(length = 100)
+	private String accountingAccount;
 
 	@Column(precision = 5, scale = 2)
 	private BigDecimal confidence;

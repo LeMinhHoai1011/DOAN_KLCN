@@ -4,6 +4,7 @@ import { ArrowLeft, Download, Pencil, Save, X } from 'lucide-react';
 import clsx from 'clsx';
 import StatusBadge from '../components/StatusBadge';
 import classificationService from '../services/classificationService';
+import accountingCategoryService, { type AccountingCategory } from '../services/accountingCategoryService';
 import documentService, { mapDocument } from '../services/documentService';
 import invoiceService from '../services/invoiceService';
 import type { ClassificationResponse } from '../services/classificationService';
@@ -35,6 +36,7 @@ const DocumentDetail = () => {
   const [invoice, setInvoice] = useState<InvoiceResponse | null>(null);
   const [invoiceForm, setInvoiceForm] = useState<InvoiceFormData>(emptyInvoiceForm);
   const [classificationValue, setClassificationValue] = useState('');
+  const [accountingCategories, setAccountingCategories] = useState<AccountingCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -66,6 +68,11 @@ const DocumentDetail = () => {
       if (!isMounted) return;
 
       setDocument(loadedDocument);
+      try {
+        setAccountingCategories(await accountingCategoryService.getCategories(getEffectiveRole() === 'ADMIN' ? loadedDocument.companyId : undefined));
+      } catch {
+        setAccountingCategories([]);
+      }
       const completed = hasCompletedPipeline(loadedDocument.status);
       const [ocrResult, classificationResult, invoiceResult, extractedResult] = await Promise.allSettled([
         loadedDocument.status === 'UPLOADED' ? Promise.resolve(null) : documentService.getDocumentOCR(documentId),
@@ -82,7 +89,7 @@ const DocumentDetail = () => {
 
       if (classificationResult.status === 'fulfilled' && classificationResult.value) {
         setClassification(classificationResult.value);
-        setClassificationValue(classificationResult.value.category || '');
+        setClassificationValue(classificationResult.value.accountingCategoryCode || classificationResult.value.category || '');
       }
 
       if (invoiceResult.status === 'fulfilled' && invoiceResult.value) {
@@ -233,14 +240,9 @@ const DocumentDetail = () => {
               className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium text-slate-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
             >
               <option value="">Chưa có dữ liệu phân loại</option>
-              <option value="Chi phí văn phòng">Chi phí văn phòng</option>
-              <option value="Chi phí vận chuyển">Chi phí vận chuyển</option>
-              <option value="Chi phí tiếp khách">Chi phí tiếp khách</option>
-              <option value="Chi phí nguyên vật liệu">Chi phí nguyên vật liệu</option>
-              <option value="Chi phí dịch vụ">Chi phí dịch vụ</option>
-              <option value="Tài sản">Tài sản</option>
-              <option value="Khác">Khác</option>
+              {accountingCategories.map((category) => <option key={category.id} value={category.categoryCode}>{category.categoryName}</option>)}
             </select>
+            {classification?.accountingAccount && <p className="mt-2 text-xs text-slate-600">Tài khoản AI đề xuất: <span className="font-medium">{classification.accountingAccount}</span></p>}
             {!classification && <p className="text-xs text-slate-500 mt-2">Backend chưa có bản ghi classification cho chứng từ này.</p>}
             {classification && !classification.aiGenerated && <p className="mt-2 text-xs font-medium text-amber-700">Đã chỉnh sửa thủ công</p>}
           </div>

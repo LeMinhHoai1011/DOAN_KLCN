@@ -15,6 +15,8 @@ import com.example.invoice.repository.CompanyRepository;
 import com.example.invoice.repository.DocumentRepository;
 import com.example.invoice.repository.FinancialTransactionRepository;
 import com.example.invoice.repository.InvoiceRepository;
+import com.example.invoice.repository.ClassificationRepository;
+import java.util.Optional;
 import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -32,7 +34,35 @@ public class FinancialTransactionService {
 	private final CompanyRepository companyRepository;
 	private final DocumentRepository documentRepository;
 	private final InvoiceRepository invoiceRepository;
+	private final ClassificationRepository classificationRepository;
 	private final UserService userService;
+
+	/** Creates the financial consequence of an approved document once, when AI/manual data is sufficient. */
+	@Transactional
+	public Optional<FinancialTransaction> createFromApprovedDocument(Document document, User actor) {
+		if (document == null || document.getCompany() == null || document.getTransactionAssessmentType() == null) return Optional.empty();
+		String type = document.getTransactionAssessmentType();
+		if (!"INCOME".equals(type) && !"EXPENSE".equals(type)) return Optional.empty();
+		Invoice invoice = invoiceRepository.findByDocumentId(document.getId()).orElse(null);
+		if (transactionRepository.existsByDocumentId(document.getId())
+				|| (invoice != null && invoice.getId() != null && transactionRepository.existsByInvoiceId(invoice.getId()))) return Optional.empty();
+		if (invoice == null || invoice.getTotalAmount() == null) return Optional.empty();
+
+		FinancialTransaction transaction = new FinancialTransaction();
+		transaction.setCompany(document.getCompany());
+		transaction.setCreatedBy(actor);
+		transaction.setTransactionType(type);
+		transaction.setAmount(invoice.getTotalAmount());
+		transaction.setTransactionDate(invoice.getInvoiceDate() == null ? LocalDate.now() : invoice.getInvoiceDate());
+		transaction.setDescription("Chứng từ #" + document.getId());
+		transaction.setPaymentMethod(invoice.getPaymentMethod());
+		transaction.setInvoice(invoice);
+		classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(document.getId())
+				.map(com.example.invoice.entity.Classification::getAccountingCategory)
+				.ifPresent(transaction::setAccountingCategory);
+		transaction.setStatus("ACTIVE");
+		return Optional.of(transactionRepository.save(transaction));
+	}
 
 	@Transactional(readOnly = true)
 	public Page<FinancialTransactionResponse> findAll(LocalDate dateFrom, LocalDate dateTo, String transactionType,

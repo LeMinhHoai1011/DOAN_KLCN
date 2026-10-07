@@ -21,6 +21,7 @@ public class ReviewWorkflowService {
 	private final DocumentReviewRepository documentReviewRepository;
 	private final DocumentService documentService;
 	private final UserService userService;
+	private final FinancialTransactionService financialTransactionService;
 
 	public List<DocumentReview> findByDocumentId(Long documentId) {
 		return documentReviewRepository.findByDocumentId(documentId);
@@ -81,6 +82,7 @@ public class ReviewWorkflowService {
 					"Chỉ có thể phê duyệt chứng từ đã xử lý");
 			document.setReviewStatus(ReviewStatus.APPROVED); document.setStatus(DocumentStatus.COMPLETED);
 			append(document, actor, ReviewStatus.APPROVED, "APPROVE", note);
+			financialTransactionService.createFromApprovedDocument(document, actor);
 		}
 		case "REJECT" -> {
 			requireReviewer(actor); requireNote(note, "Vui lòng nhập lý do từ chối");
