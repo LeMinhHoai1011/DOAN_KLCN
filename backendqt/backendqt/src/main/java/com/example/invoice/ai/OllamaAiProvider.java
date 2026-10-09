@@ -92,7 +92,7 @@ public class OllamaAiProvider implements AiProvider {
 				new OllamaOptions(properties.getOllama().getNumPredict(), properties.getOllama().getNumContext())));
 		OkHttpClient client = configuredClient();
 		String requestMode = images.isEmpty() ? "TEXT" : "VISION";
-		log.info("Ollama request provider={} endpoint={} model={} requestMode={} numContext={} numPredict={} reservedOutputTokens={} inputBudget={} estimatedInputTokens={} imageBytes={} imageCount={} payloadLength={} promptLength={} timeout={}",
+		log.info("AI_REQUEST_STARTED provider={} endpoint={} model={} requestMode={} stream=false format=json numContext={} numPredict={} reservedOutputTokens={} inputBudget={} estimatedInputTokens={} imageBytes={} imageCount={} payloadLength={} promptLength={} timeout={}",
 				providerName(), endpoint, model, requestMode, properties.getOllama().getNumContext(),
 				properties.getOllama().getNumPredict(), properties.getOcr().getReservedOutputTokens(), inputBudget, estimatedInputTokens,
 				imageBytes, images.size(), payload.length(), prompt.length(),
@@ -107,8 +107,8 @@ public class OllamaAiProvider implements AiProvider {
 			String rawResponse = response.body() == null ? "" : response.body().string();
 			long durationMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
 			JsonNode body = parseResponse(rawResponse);
-			log.info("Ollama response status={} durationMs={} done={} doneReason={} responseLength={} thinkingLength={}",
-					response.code(), durationMs, body.path("done").asBoolean(false), body.path("done_reason").asText(""),
+			log.info("AI_RESPONSE_RECEIVED provider={} model={} httpStatus={} durationMs={} done={} doneReason={} responseLength={} thinkingLength={}",
+					providerName(), model, response.code(), durationMs, body.path("done").asBoolean(false), body.path("done_reason").asText(""),
 					body.path("response").asText("").length(), body.path("thinking").asText("").length());
 			log.debug("Ollama response preview={} thinkingPreview={}", preview(body.path("response").asText("")),
 					preview(body.path("thinking").asText("")));
@@ -173,10 +173,9 @@ public class OllamaAiProvider implements AiProvider {
 				JsonNode parsed = objectMapper.readTree(trimmed);
 				if (parsed.isObject()) return trimmed;
 			} catch (JsonProcessingException ignored) {
-				// Compatibility path for models that wrap JSON in prose or a code fence.
+				String fenced = stripMarkdownJsonFence(trimmed);
+				if (fenced != null) return fenced;
 			}
-			String extracted = extractJsonObject(trimmed);
-			if (extracted != null) return extracted;
 		}
 		if (generated.isBlank() && !thinking.isBlank()) {
 			try {
@@ -194,33 +193,16 @@ public class OllamaAiProvider implements AiProvider {
 		throw new AiProviderException("OLLAMA_INVALID_JSON: response của Ollama không chứa đối tượng JSON hợp lệ");
 	}
 
-	private String extractJsonObject(String content) {
-		if (content == null || content.isBlank()) return null;
-		for (int start = content.indexOf('{'); start >= 0; start = content.indexOf('{', start + 1)) {
-			int depth = 0;
-			boolean inString = false;
-			boolean escaped = false;
-			for (int index = start; index < content.length(); index++) {
-			char value = content.charAt(index);
-				if (inString) {
-					if (escaped) escaped = false;
-					else if (value == '\\') escaped = true;
-					else if (value == '"') inString = false;
-					continue;
-				}
-				if (value == '"') inString = true;
-				else if (value == '{') depth++;
-				else if (value == '}' && --depth == 0) {
-					String candidate = content.substring(start, index + 1);
-					try {
-						if (objectMapper.readTree(candidate).isObject()) return candidate;
-					} catch (JsonProcessingException ignored) {
-						break;
-					}
-				}
-			}
+	private String stripMarkdownJsonFence(String content) {
+		if (!content.startsWith("```") || !content.endsWith("```")) return null;
+		int firstLineEnd = content.indexOf('\n');
+		if (firstLineEnd < 0) return null;
+		String candidate = content.substring(firstLineEnd + 1, content.length() - 3).trim();
+		try {
+			return objectMapper.readTree(candidate).isObject() ? candidate : null;
+		} catch (JsonProcessingException ignored) {
+			return null;
 		}
-		return null;
 	}
 
 	private void validateTokenConfiguration() {

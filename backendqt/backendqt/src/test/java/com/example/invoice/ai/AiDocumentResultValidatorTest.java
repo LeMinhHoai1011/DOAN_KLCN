@@ -79,6 +79,24 @@ class AiDocumentResultValidatorTest {
 	}
 
 	@Test
+	void acceptsEveryActiveDatabaseDocumentTypeCode() {
+		Set<String> activeTypes = Set.of("VAT_INVOICE", "RECEIPT", "PAYMENT_VOUCHER", "RECEIPT_VOUCHER", "CONTRACT", "OTHER");
+		for (String type : activeTypes) {
+			AiDocumentResult result = new AiDocumentResult("ollama", "qwen3-vl", type, new BigDecimal("0.90"),
+					null, "VAT_INVOICE".equals(type) ? validInvoice() : null, List.of(),
+					List.of("DOCUMENT_TYPE_REASON: bằng chứng kiểm thử"), "raw", 1L);
+			assertEquals(type, validator.validate(result, activeTypes).result().documentType());
+		}
+	}
+
+	@Test
+	void uncertainOtherRequiresReview() {
+		AiDocumentResult result = new AiDocumentResult("ollama", "qwen3-vl", "OTHER", new BigDecimal("0.40"),
+				null, null, List.of(), List.of("DOCUMENT_TYPE_REASON: không đủ bằng chứng"), "raw", 1L);
+		assertTrue(validator.validate(result, Set.of("OTHER")).requiresReview(new BigDecimal("0.75")));
+	}
+
+	@Test
 	void rejectsConfidenceOutsideNormalizedRange() {
 		AiDocumentResult result = new AiDocumentResult("ollama", "vision", "INVOICE", new BigDecimal("1.01"),
 				null, null, List.of(), List.of(), "raw", 1L);

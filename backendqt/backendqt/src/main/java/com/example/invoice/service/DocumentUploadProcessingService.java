@@ -41,9 +41,11 @@ public class DocumentUploadProcessingService {
 		}
 		DocumentResponse current = documentService.findById(uploaded.id());
 		if (processingFailure == null) return new DocumentUploadResponse(true, current.id(), current.status(), current.reviewStatus(),
+				current.documentTypeCode(), current.documentTypeName(), current.aiConfidence(),
 				"Tải lên và xử lý chứng từ thành công", null);
 		String code = errorCode(processingFailure);
 		return new DocumentUploadResponse(false, current.id(), current.status(), current.reviewStatus(),
+				current.documentTypeCode(), current.documentTypeName(), current.aiConfidence(),
 				"Đã tải lên chứng từ nhưng xử lý tự động thất bại",
 				new DocumentUploadResponse.UploadError(code, sanitize(processingFailure.getMessage()), isRetryable(code)));
 	}

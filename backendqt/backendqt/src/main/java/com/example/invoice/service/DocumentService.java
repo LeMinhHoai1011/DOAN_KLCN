@@ -15,6 +15,7 @@ import com.example.invoice.repository.DocumentRepository;
 import com.example.invoice.repository.DocumentTypeRepository;
 import com.example.invoice.repository.DocumentVersionRepository;
 import com.example.invoice.repository.ClassificationRepository;
+import com.example.invoice.repository.ProcessingLogRepository;
 import io.minio.BucketExistsArgs;
 import io.minio.GetObjectArgs;
 import io.minio.MakeBucketArgs;
@@ -29,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -40,15 +42,24 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class DocumentService {
 	private final DocumentRepository documentRepository;
 	private final DocumentTypeRepository documentTypeRepository;
 	private final DocumentVersionRepository documentVersionRepository;
 	private final ClassificationRepository classificationRepository;
+	private final ProcessingLogRepository processingLogRepository;
 	private final UserService userService;
 	private final StorageService storageService;
 	private final MinioClient minioClient;
+
+	/** Compatibility constructor for isolated scope tests that do not update document types. */
+	DocumentService(DocumentRepository documentRepository, DocumentTypeRepository documentTypeRepository,
+			DocumentVersionRepository documentVersionRepository, ClassificationRepository classificationRepository,
+			UserService userService, StorageService storageService, MinioClient minioClient) {
+		this(documentRepository, documentTypeRepository, documentVersionRepository, classificationRepository, null,
+				userService, storageService, minioClient);
+	}
 
 	@Value("${app.minio.bucket:invoice-files}")
 	private String bucket;
@@ -252,13 +263,33 @@ public class DocumentService {
 	}
 
 	@Transactional
-	public DocumentResponse update(Long id, DocumentUpdateRequest request) {
+	public DocumentResponse update(Long id, DocumentUpdateRequest request, Authentication authentication) {
 		Document document = load(id);
 		if (request.originalFileName() != null) document.setOriginalFileName(request.originalFileName());
 		if (request.fileType() != null) document.setFileType(request.fileType());
 		if (request.fileSize() != null) document.setFileSize(request.fileSize());
 		if (request.filePath() != null) document.setFilePath(request.filePath());
 		if (request.status() != null) document.setStatus(request.status());
+		if (request.typeId() != null && (document.getType() == null || !request.typeId().equals(document.getType().getId()))) {
+			if (document.getReviewStatus() == com.example.invoice.entity.ReviewStatus.APPROVED)
+				throw new IllegalArgumentException("Không thể đổi loại chứng từ đã được duyệt");
+			DocumentType newType = documentTypeRepository.findById(request.typeId()).filter(DocumentType::isActive)
+					.orElseThrow(() -> new IllegalArgumentException("Loại chứng từ không tồn tại hoặc đã ngừng hoạt động"));
+			String oldCode = document.getType() == null ? document.getDocumentType() : document.getType().getCode();
+			document.setType(newType);
+			document.setDocumentType(newType.getCode());
+			classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(id).ifPresent(classification -> {
+				classification.setPredictedLabel(newType.getCode());
+				classification.setAiGenerated(false);
+				classification.setStatus(com.example.invoice.entity.ClassificationStatus.CORRECTED);
+			});
+			com.example.invoice.entity.ProcessingLog history = new com.example.invoice.entity.ProcessingLog();
+			history.setDocument(document); history.setProcessType("DOCUMENT_TYPE");
+			history.setAgentStep("MANUAL_CORRECTION"); history.setStatus("SUCCESS");
+			history.setMessage("oldType=" + (oldCode == null ? "UNDETERMINED" : oldCode) + "; newType=" + newType.getCode()
+					+ "; correctedBy=" + userService.loadCurrent(authentication).getId());
+			processingLogRepository.save(history);
+		}
 		return toResponse(document);
 	}
 

@@ -140,6 +140,8 @@ const AccountantUpload = () => {
                 <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
                   <div>Đã tạo chứng từ với mã: <strong>{uploadResult.documentId}</strong></div>
                   <div>Trạng thái: <strong>{uploadResult.processingStatus}</strong></div>
+                  <div>Loại chứng từ AI đề xuất: <strong>{uploadResult.documentTypeName || uploadResult.documentTypeCode || 'Chưa xác định'}</strong></div>
+                  {uploadResult.documentTypeConfidence != null && <div>Độ tin cậy: <strong>{new Intl.NumberFormat('vi-VN', { style: 'percent', maximumFractionDigits: 1 }).format(uploadResult.documentTypeConfidence)}</strong></div>}
                 </div>
               )}
             </div>

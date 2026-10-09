@@ -121,8 +121,8 @@ public class DocumentController {
 
 	@PutMapping("/{id}")
 	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_UPDATE') or hasRole('ADMIN')")
-	public DocumentResponse update(@PathVariable Long id, @Valid @RequestBody DocumentUpdateRequest request) {
-		return documentService.update(id, request);
+	public DocumentResponse update(@PathVariable Long id, @Valid @RequestBody DocumentUpdateRequest request, Authentication authentication) {
+		return documentService.update(id, request, authentication);
 	}
 
 	@DeleteMapping("/{id}")

@@ -1,6 +1,7 @@
 package com.example.invoice.service;
 
 import com.example.invoice.ai.AiDocumentPromptFactory;
+import com.example.invoice.ai.AiDocumentPromptFactory.AccountingCategoryOption;
 import com.example.invoice.ai.AiDocumentResultValidator;
 import com.example.invoice.ai.AiDocumentResultValidator.ValidatedAiDocumentResult;
 import com.example.invoice.ai.AiProcessingService;
@@ -11,6 +12,7 @@ import com.example.invoice.dto.ai.AiDocumentResult;
 import com.example.invoice.dto.ai.AiTextRequest;
 import com.example.invoice.dto.ai.ImagePreprocessingMetadata;
 import com.example.invoice.entity.Company;
+import com.example.invoice.entity.AccountingCategory;
 import com.example.invoice.entity.Document;
 import com.example.invoice.entity.DocumentStatus;
 import com.example.invoice.entity.DocumentType;
@@ -20,6 +22,7 @@ import com.example.invoice.repository.AccountingCategoryRepository;
 import com.example.invoice.repository.DocumentTypeRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -83,6 +86,8 @@ public class DocumentAiProcessingService {
 
 	public AiDocumentProcessingResponse process(Long documentId, boolean reprocess) {
 		Document document = documentService.load(documentId);
+		if (reprocess && document.getReviewStatus() == com.example.invoice.entity.ReviewStatus.APPROVED)
+			throw new BadRequestException("Không thể chạy lại AI cho chứng từ đã được kế toán duyệt");
 		if (document.getStatus() == DocumentStatus.PROCESSING)
 			throw new BadRequestException("Chứng từ đang được xử lý");
 		if (!reprocess && document.getStatus() != DocumentStatus.UPLOADED)
@@ -96,10 +101,19 @@ public class DocumentAiProcessingService {
 		List<String> typeCodes = types.stream().map(DocumentType::getCode).toList();
 		Set<String> allowedTypes = Set.copyOf(typeCodes);
 		Company company = document.getCompany();
-		List<String> categoryCodes = company == null ? List.of()
-				: accountingCategoryRepository.findByCompanyId(company.getId()).stream()
-						.filter(com.example.invoice.entity.AccountingCategory::isActive)
-						.map(com.example.invoice.entity.AccountingCategory::getCategoryCode).toList();
+		if (company == null) throw new BadRequestException("CATEGORY_COMPANY_MISSING: chứng từ chưa thuộc doanh nghiệp");
+		long categoryLoadStarted = System.nanoTime();
+		log.info("CATEGORY_LOAD_STARTED documentId={} companyId={}", documentId, company.getId());
+		List<AccountingCategory> categories = accountingCategoryRepository
+				.findByCompanyIdAndActiveTrueOrderByCategoryCodeAsc(company.getId());
+		log.info("CATEGORY_LOAD_COMPLETED documentId={} companyId={} categoryCount={} durationMs={}", documentId,
+				company.getId(), categories.size(), Duration.ofNanos(System.nanoTime() - categoryLoadStarted).toMillis());
+		if (categories.isEmpty())
+			throw new BadRequestException("CATEGORY_CATALOG_EMPTY: doanh nghiệp chưa có hạng mục kế toán đang hoạt động");
+		List<String> categoryCodes = categories.stream().map(AccountingCategory::getCategoryCode).toList();
+		List<AccountingCategoryOption> categoryOptions = categories.stream()
+				.map(category -> new AccountingCategoryOption(category.getCategoryCode(), category.getCategoryName(), category.getDescription()))
+				.toList();
 
 		byte[] bytes = documentService.loadFileBytes(documentId);
 		if (bytes.length == 0) throw new BadRequestException("Nội dung chứng từ tải từ MinIO bị trống");
@@ -111,8 +125,8 @@ public class DocumentAiProcessingService {
 				reprocess ? "AI reprocess requested" : "AI process requested");
 
 			return isPdf(document.getFileType())
-					? processPdf(documentId, document, bytes, typeCodes, categoryCodes, allowedTypes, company)
-					: processImage(documentId, document, bytes, typeCodes, categoryCodes, allowedTypes, company);
+					? processPdf(documentId, document, bytes, typeCodes, categoryCodes, categoryOptions, allowedTypes, company)
+					: processImage(documentId, document, bytes, typeCodes, categoryCodes, categoryOptions, allowedTypes, company);
 		} catch (RuntimeException exception) {
 			try {
 				documentService.updateProcessingStatus(documentId, DocumentStatus.FAILED);
@@ -131,8 +145,9 @@ public class DocumentAiProcessingService {
 	}
 
 	private AiDocumentProcessingResponse processPdf(Long documentId, Document document, byte[] bytes,
-			List<String> typeCodes, List<String> categoryCodes, Set<String> allowedTypes, Company company) {
-		List<PageAnalysis> analyzedPages = analyzePdfPages(documentId, document.getOriginalFileName(), bytes, typeCodes, categoryCodes, company);
+			List<String> typeCodes, List<String> categoryCodes, List<AccountingCategoryOption> categoryOptions,
+			Set<String> allowedTypes, Company company) {
+		List<PageAnalysis> analyzedPages = analyzePdfPages(documentId, document.getOriginalFileName(), bytes, typeCodes, categoryCodes, categoryOptions, company);
 		AiDocumentResult result = resolveCompanyRole(aggregatePageResults(
 				analyzedPages.stream().map(PageAnalysis::aiResult).toList()), company);
 		OcrDocumentResult ocr = aggregateOcr(analyzedPages.stream().map(PageAnalysis::ocr).toList());
@@ -140,13 +155,16 @@ public class DocumentAiProcessingService {
 		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
 				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);
+		log.info("AI_CLASSIFICATION_COMPLETED documentId={} companyId={} model={} categoryCode={} needsReview={} durationMs={}",
+				documentId, company.getId(), result.model(), result.accountingCategoryCode(), requiresReview, result.durationMs());
 		List<String> warnings = new ArrayList<>(validated.warnings());
 		warnings.addAll(ocr.warnings());
 		return response(documentId, requiresReview, warnings, null);
 	}
 
 	private AiDocumentProcessingResponse processImage(Long documentId, Document document, byte[] originalBytes,
-			List<String> typeCodes, List<String> categoryCodes, Set<String> allowedTypes, Company company) {
+			List<String> typeCodes, List<String> categoryCodes, List<AccountingCategoryOption> categoryOptions,
+			Set<String> allowedTypes, Company company) {
 		List<String> warnings = new ArrayList<>();
 		AdaptiveOcrService.AdaptiveOcrResult adaptive = adaptiveOcrService.recognize(originalBytes, document.getFileType(), 1);
 		byte[] bytes = adaptive.selectedImageBytes();
@@ -173,11 +191,13 @@ public class DocumentAiProcessingService {
 		OcrDocumentResult ocr = aggregateOcr(List.of(pageOcr));
 		persistenceService.persistOcr(documentId, ocr);
 		AiDocumentResult result = resolveCompanyRole(analyzeSingleImage(document.getOriginalFileName(), contentType,
-				bytes, typeCodes, categoryCodes, company, pageOcr), company);
+				bytes, typeCodes, categoryCodes, categoryOptions, company, pageOcr), company);
 		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes, Set.copyOf(categoryCodes));
 		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
 				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);
+		log.info("AI_CLASSIFICATION_COMPLETED documentId={} companyId={} model={} categoryCode={} needsReview={} durationMs={}",
+				documentId, company.getId(), result.model(), result.accountingCategoryCode(), requiresReview, result.durationMs());
 		warnings.addAll(validated.warnings());
 		warnings.addAll(ocr.warnings());
 		ImagePreprocessingMetadata metadata = adaptive.imageQuality() == null ? null : new ImagePreprocessingMetadata(
@@ -195,9 +215,17 @@ public class DocumentAiProcessingService {
 
 	AiDocumentResult analyzeSingleImage(String fileName, String contentType, byte[] bytes,
 			List<String> documentTypes, List<String> categoryCodes, Company company, OcrPageResult ocr) {
+		List<AccountingCategoryOption> categoryOptions = categoryCodes.stream()
+				.map(code -> new AccountingCategoryOption(code, null, null)).toList();
+		return analyzeSingleImage(fileName, contentType, bytes, documentTypes, categoryCodes, categoryOptions, company, ocr);
+	}
+
+	AiDocumentResult analyzeSingleImage(String fileName, String contentType, byte[] bytes,
+			List<String> documentTypes, List<String> categoryCodes, List<AccountingCategoryOption> categoryOptions,
+			Company company, OcrPageResult ocr) {
 		String normalizedText = normalizeOcrText(ocr == null ? null
 				: ocrLayoutReconstructor == null ? ocr.text() : ocrLayoutReconstructor.structuredContext(ocr));
-		String prompt = AiDocumentPromptFactory.create(documentTypes, categoryCodes,
+		String prompt = AiDocumentPromptFactory.createWithCategories(documentTypes, categoryOptions,
 				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
 		boolean reliableOcr = ocr != null && ocr.successful()
 				&& BigDecimal.valueOf(ocr.confidence()).movePointLeft(2).compareTo(aiProperties.getOcr().getGoodConfidence()) >= 0;
@@ -237,7 +265,7 @@ public class DocumentAiProcessingService {
 	}
 
 	private List<PageAnalysis> analyzePdfPages(Long documentId, String fileName, byte[] pdfBytes, List<String> documentTypes,
-			List<String> categoryCodes, Company company) {
+			List<String> categoryCodes, List<AccountingCategoryOption> categoryOptions, Company company) {
 		List<PageAnalysis> results = new ArrayList<>();
 		List<OcrPageResult> recognizedPages = new ArrayList<>();
 		for (PdfPageImage page : pdfImageConversionService.convert(pdfBytes)) {
@@ -247,7 +275,7 @@ public class DocumentAiProcessingService {
 			recognizedPages.add(ocr);
 			persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
 			results.add(new PageAnalysis(analyzeSingleImage(fileName + "#page-" + page.pageNumber(), adaptive.selectedContentType(),
-					adaptive.selectedImageBytes(), documentTypes, categoryCodes, company, ocr), ocr));
+					adaptive.selectedImageBytes(), documentTypes, categoryCodes, categoryOptions, company, ocr), ocr));
 		}
 		return List.copyOf(results);
 	}

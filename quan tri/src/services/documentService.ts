@@ -117,6 +117,9 @@ export interface DocumentUploadResponse {
   documentId: number
   processingStatus: DocumentStatus
   reviewStatus: DocumentResponse['reviewStatus']
+  documentTypeCode: string | null
+  documentTypeName: string | null
+  documentTypeConfidence: number | null
   message: string
   error: { code: string; message: string; retryable: boolean } | null
 }
@@ -245,6 +248,7 @@ const downloadDocument = async (id: number, preview = false) => {
 type DocumentTypeInput = Pick<DocumentType, 'code' | 'name' | 'description' | 'active'>
 const createDocumentType = async (request: DocumentTypeInput) => (await api.post<DocumentType>('/api/v1/documents/types', request)).data
 const updateDocumentType = async (id: number, request: DocumentTypeInput) => (await api.put<DocumentType>(`/api/v1/documents/types/${id}`, request)).data
+const updateDocument = async (id: number, request: { typeId: number }) => (await api.put<DocumentResponse>(`/api/v1/documents/${id}`, request)).data
 
 const loadDocumentPreview = async (id: number) => {
   try {
@@ -275,6 +279,7 @@ const documentService = {
   getDocumentTypes,
 	createDocumentType,
 	updateDocumentType,
+	updateDocument,
 	downloadDocument,
 	loadDocumentPreview,
 }

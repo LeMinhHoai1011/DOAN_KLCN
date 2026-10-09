@@ -1,4 +1,6 @@
 import api from './api'
+import axios from 'axios'
+import { classificationReadOutcome } from './readState'
 
 export type ClassificationStatus =
   | 'PENDING'
@@ -38,6 +40,16 @@ const getClassification = async (documentId: number) => {
   return data
 }
 
+/** A missing classification is a valid read state; auth and server failures still reject. */
+const getClassificationOrNull = async (documentId: number) => {
+  try {
+    return await getClassification(documentId)
+  } catch (error) {
+    if (axios.isAxiosError(error) && classificationReadOutcome(error.response?.status || 0) === 'empty') return null
+    throw error
+  }
+}
+
 const updateClassification = async (documentId: number, request: ClassificationUpdateRequest) => {
   const { data } = await api.put<ClassificationResponse>(`/api/v1/documents/${documentId}/classification`, request)
   return data
@@ -60,6 +72,7 @@ const correctClassification = async (documentId: number, request: Classification
 
 const classificationService = {
   getClassification,
+  getClassificationOrNull,
   updateClassification,
   approveClassification,
   reviewClassification,

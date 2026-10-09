@@ -4,10 +4,13 @@ import com.example.invoice.dto.ai.AiDocumentResult;
 import com.example.invoice.exception.AiProviderException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Parses a complete provider response without attempting to recover partial JSON. */
 public final class AiDocumentResultParser {
 	private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+	private static final Logger log = LoggerFactory.getLogger(AiDocumentResultParser.class);
 
 	private AiDocumentResultParser() {
 	}
@@ -17,6 +20,8 @@ public final class AiDocumentResultParser {
 			return OBJECT_MAPPER.readValue(stripFence(content), AiDocumentResult.class)
 					.withMetadata(provider, model, rawResponse, durationMs);
 		} catch (JsonProcessingException exception) {
+			log.warn("AI_JSON_PARSE_FAILED provider={} model={} errorType={} location={}", provider, model,
+					exception.getClass().getSimpleName(), exception.getLocation());
 			throw new AiProviderException("AI_JSON_PARSE_ERROR: nhà cung cấp không trả về JSON có cấu trúc hợp lệ", exception);
 		}
 	}

@@ -96,8 +96,17 @@ public class DocumentAiResultPersistenceService {
 		DocumentType type = documentTypeRepository.findByCode(result.documentType())
 				.orElseThrow(() -> new IllegalStateException("Loại chứng từ đã xác thực không còn tồn tại"));
 		if (!type.isActive()) throw new IllegalStateException("Loại chứng từ đã xác thực không còn hoạt động");
-		document.setType(type);
-		document.setDocumentType(type.getCode());
+		boolean manuallyConfirmedType = document.getReviewStatus() == ReviewStatus.APPROVED
+				|| classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(document.getId())
+						.filter(classification -> !classification.isAiGenerated() && classification.getPredictedLabel() != null).isPresent();
+		if (!manuallyConfirmedType) {
+			document.setType(type);
+			document.setDocumentType(type.getCode());
+		} else if (document.getType() != null) {
+			DocumentType proposedType = type;
+			type = document.getType();
+			log.info("AI_DOCUMENT_TYPE_PRESERVED documentId={} confirmedType={} proposedType={}", document.getId(), type.getCode(), proposedType.getCode());
+		}
 		persistIntelligence(document, result);
 
 		persistOcrWhenPresent(document, result, validated.confidence(), tessOcr);
@@ -186,6 +195,14 @@ public class DocumentAiResultPersistenceService {
 	private void persistClassification(Document document, AiDocumentResult result, BigDecimal confidence, List<String> warnings, boolean requiresReview) {
 		Classification classification = classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(document.getId())
 				.orElseGet(Classification::new);
+		if (document.getReviewStatus() == ReviewStatus.APPROVED) {
+			log.info("AI_CLASSIFICATION_PRESERVED documentId={} reason=approved_document", document.getId());
+			return;
+		}
+		if (classification.getId() != null && !classification.isAiGenerated()) {
+			log.info("AI_CLASSIFICATION_PRESERVED documentId={} classificationId={} reason=manual_result", document.getId(), classification.getId());
+			return;
+		}
 		classification.setDocument(document);
 		classification.setModelName(result.provider());
 		classification.setModelVersion(result.model());
@@ -194,9 +211,9 @@ public class DocumentAiResultPersistenceService {
 		classification.setAccountingAccount(result.accountingAccount());
 		classification.setAccountingCategory(null);
 		if (accountingCategoryRepository != null && result.accountingCategoryCode() != null && document.getCompany() != null) {
-			accountingCategoryRepository.findByCompanyId(document.getCompany().getId()).stream()
-					.filter(category -> result.accountingCategoryCode().equals(category.getCategoryCode()))
-					.findFirst().ifPresent(classification::setAccountingCategory);
+			accountingCategoryRepository.findByCompanyIdAndCategoryCodeAndActiveTrue(
+					document.getCompany().getId(), result.accountingCategoryCode())
+					.ifPresent(classification::setAccountingCategory);
 		}
 		classification.setConfidence(confidence);
 		classification.setReason(String.join("; ", warnings));
@@ -211,6 +228,10 @@ public class DocumentAiResultPersistenceService {
 				length(extraction.sellerAddress()), length(extraction.buyerName()), length(extraction.buyerAddress()),
 				length(extraction.sellerTaxCode()), length(extraction.buyerTaxCode()));
 		Invoice invoice = invoiceRepository.findByDocumentId(document.getId()).orElseGet(Invoice::new);
+		if (invoice.getId() != null && !invoice.isAiGenerated()) {
+			log.info("AI_INVOICE_PRESERVED documentId={} invoiceId={} reason=manual_result", document.getId(), invoice.getId());
+			return invoice;
+		}
 		invoice.setDocument(document);
 		invoice.setInvoiceNumber(boundedIdentifier(extraction.invoiceNumber(), AiDocumentResultValidator.MAX_INVOICE_NUMBER_LENGTH));
 		invoice.setInvoiceSeries(boundedIdentifier(extraction.invoiceSeries(), AiDocumentResultValidator.MAX_INVOICE_SERIES_LENGTH));

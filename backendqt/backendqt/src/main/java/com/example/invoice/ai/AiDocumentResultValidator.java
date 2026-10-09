@@ -10,9 +10,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Component
 public class AiDocumentResultValidator {
+	private static final Logger log = LoggerFactory.getLogger(AiDocumentResultValidator.class);
 	private static final Pattern TAX_CODE = Pattern.compile("\\d{10}(?:-\\d{3})?");
 	private static final Pattern EXTRA_FIELD_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9]*");
 	private static final BigDecimal MONEY_TOLERANCE = new BigDecimal("0.01");
@@ -34,6 +37,7 @@ public class AiDocumentResultValidator {
 	public ValidatedAiDocumentResult validate(AiDocumentResult result, Set<String> allowedTypes,
 			Set<String> allowedAccountingCategories) {
 		if (result.documentType() == null || !allowedTypes.contains(result.documentType())) {
+			log.warn("AI_SCHEMA_VALIDATION_FAILED field=documentType value={}", result.documentType());
 			throw new AiProviderException("AI_INVALID_RESPONSE: loại chứng từ không nằm trong danh sách được backend cho phép");
 		}
 		List<String> warnings = new ArrayList<>(result.warnings() == null ? List.of() : result.warnings());
@@ -43,6 +47,8 @@ public class AiDocumentResultValidator {
 		}
 		if (result.accountingCategoryCode() != null && allowedAccountingCategories != null
 				&& !allowedAccountingCategories.contains(result.accountingCategoryCode())) {
+			log.warn("AI_CATEGORY_VALIDATION_FAILED categoryCode={} allowedCategoryCount={}",
+					result.accountingCategoryCode(), allowedAccountingCategories.size());
 			throw new AiProviderException("AI_INVALID_RESPONSE: nhóm nghiệp vụ không nằm trong danh sách active của công ty");
 		}
 		validateInvoice(result.invoice(), warnings);

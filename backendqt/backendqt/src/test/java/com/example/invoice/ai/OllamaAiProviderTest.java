@@ -37,11 +37,12 @@ class OllamaAiProviderTest {
 	}
 
 	@Test
-	void extractsWrappedJsonForCompatibility() {
+	void acceptsMarkdownFenceButRejectsJsonWrappedInProse() {
 		OllamaAiProvider provider = provider(new AiProperties(), request -> response(request, 200,
-				"{\"response\":\"Here is the result: \\n{\\\"documentType\\\":\\\"INVOICE\\\"}\",\"done\":true}"));
+				"{\"response\":\"```json\\n{\\\"documentType\\\":\\\"INVOICE\\\"}\\n```\",\"done\":true}"));
 		assertEquals("{\"documentType\":\"INVOICE\"}",
 				provider.analyzeText(new AiTextRequest("invoice", "text", "prompt")).content());
+		assertCode("OLLAMA_INVALID_JSON", "{\"response\":\"Here is the result: {\\\"documentType\\\":\\\"INVOICE\\\"}\",\"done\":true}");
 	}
 
 	@Test

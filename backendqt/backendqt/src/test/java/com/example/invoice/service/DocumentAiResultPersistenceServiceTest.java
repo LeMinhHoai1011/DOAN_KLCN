@@ -83,6 +83,7 @@ class DocumentAiResultPersistenceServiceTest {
 		type.setCode("INVOICE");
 		Invoice existing = new Invoice();
 		existing.setId(11L);
+		existing.setAiGenerated(true);
 		AiDocumentResult result = new AiDocumentResult("ollama", "vision", "INVOICE", new BigDecimal("0.95"),
 				null, new AiDocumentResult.AiInvoiceExtraction("0001", null, "2026-09-27", null, null, null,
 					null, null, null, new BigDecimal("100"), new BigDecimal("10"), new BigDecimal("110"), List.of()),

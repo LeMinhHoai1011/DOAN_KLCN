@@ -8,5 +8,6 @@ public record DocumentUpdateRequest(
 		String fileType,
 		@PositiveOrZero Long fileSize,
 		String filePath,
-		DocumentStatus status) {
+		DocumentStatus status,
+		Long typeId) {
 }
