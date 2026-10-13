@@ -20,6 +20,9 @@ import com.example.invoice.exception.BadRequestException;
 import com.example.invoice.exception.AiProviderException;
 import com.example.invoice.repository.AccountingCategoryRepository;
 import com.example.invoice.repository.DocumentTypeRepository;
+import com.example.invoice.dto.document.OCRResultResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
@@ -27,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +55,8 @@ public class DocumentAiProcessingService {
 	private final AiProperties aiProperties;
 	private final OcrTextNormalizer ocrTextNormalizer;
 	private final OcrLayoutReconstructor ocrLayoutReconstructor;
+	private final OCRResultService ocrResultService;
+	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	@Autowired
 	public DocumentAiProcessingService(DocumentService documentService, DocumentTypeRepository documentTypeRepository,
@@ -59,7 +65,7 @@ public class DocumentAiProcessingService {
 			ProcessingLogService processingLogService, PdfImageConversionService pdfImageConversionService,
 			AdaptiveOcrService adaptiveOcrService,
 			AiProperties aiProperties, OcrTextNormalizer ocrTextNormalizer,
-			OcrLayoutReconstructor ocrLayoutReconstructor) {
+			OcrLayoutReconstructor ocrLayoutReconstructor, OCRResultService ocrResultService) {
 		this.documentService = documentService;
 		this.documentTypeRepository = documentTypeRepository;
 		this.accountingCategoryRepository = accountingCategoryRepository;
@@ -72,6 +78,7 @@ public class DocumentAiProcessingService {
 		this.aiProperties = aiProperties;
 		this.ocrTextNormalizer = ocrTextNormalizer;
 		this.ocrLayoutReconstructor = ocrLayoutReconstructor;
+		this.ocrResultService = ocrResultService;
 	}
 
 	/** Compatibility constructor retained for the text-first PDF fallback tests. */
@@ -81,19 +88,14 @@ public class DocumentAiProcessingService {
 			AiDocumentResultValidator resultValidator, DocumentAiResultPersistenceService persistenceService,
 			ProcessingLogService processingLogService, PdfImageConversionService pdfImageConversionService) {
 		this(documentService, documentTypeRepository, accountingCategoryRepository, aiProcessingService, resultValidator,
-				persistenceService, processingLogService, pdfImageConversionService, null, new AiProperties(), null, null);
+				persistenceService, processingLogService, pdfImageConversionService, null, new AiProperties(), null, null, null);
 	}
 
 	public AiDocumentProcessingResponse process(Long documentId, boolean reprocess) {
 		Document document = documentService.load(documentId);
-		if (reprocess && document.getReviewStatus() == com.example.invoice.entity.ReviewStatus.APPROVED)
-			throw new BadRequestException("Không thể chạy lại AI cho chứng từ đã được kế toán duyệt");
-		if (document.getStatus() == DocumentStatus.PROCESSING)
-			throw new BadRequestException("Chứng từ đang được xử lý");
-		if (!reprocess && document.getStatus() != DocumentStatus.UPLOADED)
-			throw new BadRequestException("Chứng từ đã được xử lý; hãy dùng chức năng xử lý lại để chạy AI lần nữa");
 		if (!isSupportedImage(document.getFileType()) && !isPdf(document.getFileType()))
 			throw new BadRequestException("Chỉ hỗ trợ tệp PDF, JPEG và PNG");
+		document = documentService.claimForAiProcessing(documentId, reprocess);
 
 		try {
 		List<DocumentType> types = documentTypeRepository.findByActiveTrue();
@@ -108,8 +110,6 @@ public class DocumentAiProcessingService {
 				.findByCompanyIdAndActiveTrueOrderByCategoryCodeAsc(company.getId());
 		log.info("CATEGORY_LOAD_COMPLETED documentId={} companyId={} categoryCount={} durationMs={}", documentId,
 				company.getId(), categories.size(), Duration.ofNanos(System.nanoTime() - categoryLoadStarted).toMillis());
-		if (categories.isEmpty())
-			throw new BadRequestException("CATEGORY_CATALOG_EMPTY: doanh nghiệp chưa có hạng mục kế toán đang hoạt động");
 		List<String> categoryCodes = categories.stream().map(AccountingCategory::getCategoryCode).toList();
 		List<AccountingCategoryOption> categoryOptions = categories.stream()
 				.map(category -> new AccountingCategoryOption(category.getCategoryCode(), category.getCategoryName(), category.getDescription()))
@@ -120,13 +120,12 @@ public class DocumentAiProcessingService {
 		if (document.getFileSize() != null && document.getFileSize() != bytes.length)
 			throw new BadRequestException("Kích thước nội dung chứng từ không khớp với siêu dữ liệu đã lưu");
 
-		documentService.updateProcessingStatus(documentId, DocumentStatus.PROCESSING);
 		processingLogService.append(documentId, "AI_DOCUMENT", "START", "PROCESSING", null, null,
 				reprocess ? "AI reprocess requested" : "AI process requested");
 
 			return isPdf(document.getFileType())
 					? processPdf(documentId, document, bytes, typeCodes, categoryCodes, categoryOptions, allowedTypes, company)
-					: processImage(documentId, document, bytes, typeCodes, categoryCodes, categoryOptions, allowedTypes, company);
+					: processImage(documentId, document, bytes, typeCodes, categoryCodes, categoryOptions, allowedTypes, company, reprocess);
 		} catch (RuntimeException exception) {
 			try {
 				documentService.updateProcessingStatus(documentId, DocumentStatus.FAILED);
@@ -147,10 +146,13 @@ public class DocumentAiProcessingService {
 	private AiDocumentProcessingResponse processPdf(Long documentId, Document document, byte[] bytes,
 			List<String> typeCodes, List<String> categoryCodes, List<AccountingCategoryOption> categoryOptions,
 			Set<String> allowedTypes, Company company) {
-		List<PageAnalysis> analyzedPages = analyzePdfPages(documentId, document.getOriginalFileName(), bytes, typeCodes, categoryCodes, categoryOptions, company);
+		List<PageAnalysis> analyzedPages = analyzePdfPages(documentId, document.getOriginalFileName(), bytes,
+				typeCodes, categoryCodes, categoryOptions, company);
+		OcrDocumentResult ocr = aggregateOcr(analyzedPages.stream().map(PageAnalysis::ocr).toList());
+
 		AiDocumentResult result = resolveCompanyRole(aggregatePageResults(
 				analyzedPages.stream().map(PageAnalysis::aiResult).toList()), company);
-		OcrDocumentResult ocr = aggregateOcr(analyzedPages.stream().map(PageAnalysis::ocr).toList());
+
 		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes, Set.copyOf(categoryCodes));
 		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
 				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
@@ -158,38 +160,71 @@ public class DocumentAiProcessingService {
 		log.info("AI_CLASSIFICATION_COMPLETED documentId={} companyId={} model={} categoryCode={} needsReview={} durationMs={}",
 				documentId, company.getId(), result.model(), result.accountingCategoryCode(), requiresReview, result.durationMs());
 		List<String> warnings = new ArrayList<>(validated.warnings());
-		warnings.addAll(ocr.warnings());
+		if (ocr != null) warnings.addAll(ocr.warnings());
 		return response(documentId, requiresReview, warnings, null);
 	}
 
 	private AiDocumentProcessingResponse processImage(Long documentId, Document document, byte[] originalBytes,
 			List<String> typeCodes, List<String> categoryCodes, List<AccountingCategoryOption> categoryOptions,
-			Set<String> allowedTypes, Company company) {
+			Set<String> allowedTypes, Company company, boolean reprocess) {
 		List<String> warnings = new ArrayList<>();
-		AdaptiveOcrService.AdaptiveOcrResult adaptive = adaptiveOcrService.recognize(originalBytes, document.getFileType(), 1);
-		byte[] bytes = adaptive.selectedImageBytes();
-		String contentType = adaptive.selectedContentType();
-		if (adaptive.warning() != null) warnings.add(adaptive.warning());
-		String objectKey = null;
-		if (adaptive.selectedProfile() != OcrProcessingProfile.NORMAL) {
+		OcrPageResult pageOcr = null;
+		byte[] bytes = originalBytes;
+		String contentType = document.getFileType();
+		boolean skipOcr = false;
+		if (reprocess && ocrResultService != null) {
 			try {
-				objectKey = documentService.storeProcessedImage(documentId, bytes, contentType);
+				OCRResultResponse existingOcr = ocrResultService.findByDocumentId(documentId);
+				Optional<OcrPageResult> restored = restoreStoredOcr(existingOcr);
+				if (restored.isPresent()) {
+					pageOcr = restored.get();
+					skipOcr = true;
+				} else if (existingOcr != null && existingOcr.rawText() != null && !existingOcr.rawText().isBlank()) {
+					warnings.add("Stored OCR layout is unavailable or invalid; OCR was run again before AI analysis");
+					log.info("Stored OCR is not safe for text-only reuse documentId={}; falling back to adaptive OCR", documentId);
+				}
+			} catch (com.example.invoice.exception.ResourceNotFoundException exception) {
+				log.debug("No prior OCR result is available for reprocess documentId={}", documentId);
 			} catch (RuntimeException exception) {
-				warnings.add("Không thể lưu bản ảnh đã tiền xử lý; kết quả OCR vẫn được giữ lại");
-				log.warn("Could not store processed image documentId={}: {}", documentId, sanitize(exception.getMessage()));
+				log.warn("Could not load prior OCR result for reprocess documentId={}: {}", documentId,
+						sanitize(exception.getMessage()));
 			}
 		}
-		processingLogService.append(documentId, "IMAGE_PREPROCESSING", adaptive.selectedProfile().name(), "SUCCESS",
-				BigDecimal.valueOf(adaptive.qualityScore()), null,
-				"profile=%s; attempts=%d; original=%s; selectedObjectKey=%s".formatted(adaptive.selectedProfile(),
-						adaptive.attempts(), adaptive.imageQuality() == null ? "unknown" : adaptive.imageQuality().width() + "x" + adaptive.imageQuality().height(), objectKey));
 
-		log.info("AI input documentId={} mimeType={} bytes={} allowedTypeCount={}",
-				documentId, contentType, bytes.length, typeCodes.size());
-		OcrPageResult pageOcr = reconstructLayout(adaptive.page());
-		logOcr(documentId, pageOcr);
-		OcrDocumentResult ocr = aggregateOcr(List.of(pageOcr));
-		persistenceService.persistOcr(documentId, ocr);
+		OcrDocumentResult ocr = null;
+		ImagePreprocessingMetadata metadata = null;
+
+		if (!skipOcr) {
+			AdaptiveOcrService.AdaptiveOcrResult adaptive = adaptiveOcrService.recognize(originalBytes, document.getFileType(), 1);
+			bytes = adaptive.selectedImageBytes();
+			contentType = adaptive.selectedContentType();
+			if (adaptive.warning() != null) warnings.add(adaptive.warning());
+			String objectKey = null;
+			if (adaptive.selectedProfile() != OcrProcessingProfile.NORMAL) {
+				try {
+					objectKey = documentService.storeProcessedImage(documentId, bytes, contentType);
+				} catch (RuntimeException exception) {
+					warnings.add("Không thể lưu bản ảnh đã tiền xử lý; kết quả OCR vẫn được giữ lại");
+					log.warn("Could not store processed image documentId={}: {}", documentId, sanitize(exception.getMessage()));
+				}
+			}
+			processingLogService.append(documentId, "IMAGE_PREPROCESSING", adaptive.selectedProfile().name(), "SUCCESS",
+					BigDecimal.valueOf(adaptive.qualityScore()), null,
+					"profile=%s; attempts=%d; original=%s; selectedObjectKey=%s".formatted(adaptive.selectedProfile(),
+							adaptive.attempts(), adaptive.imageQuality() == null ? "unknown" : adaptive.imageQuality().width() + "x" + adaptive.imageQuality().height(), objectKey));
+
+			log.info("AI input documentId={} mimeType={} bytes={} allowedTypeCount={}",
+					documentId, contentType, bytes.length, typeCodes.size());
+			pageOcr = reconstructLayout(adaptive.page());
+			logOcr(documentId, pageOcr);
+			ocr = aggregateOcr(List.of(pageOcr));
+			persistenceService.persistOcr(documentId, ocr);
+			metadata = adaptive.imageQuality() == null ? null : new ImagePreprocessingMetadata(
+					adaptive.selectedProfile() != OcrProcessingProfile.NORMAL, adaptive.imageQuality().skewAngleDegrees(),
+					adaptive.imageQuality().width(), adaptive.imageQuality().height(), pageOcr.imageWidth(), pageOcr.imageHeight(),
+					pageOcr.durationMs(), adaptive.warning());
+		}
+
 		AiDocumentResult result = resolveCompanyRole(analyzeSingleImage(document.getOriginalFileName(), contentType,
 				bytes, typeCodes, categoryCodes, categoryOptions, company, pageOcr), company);
 		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes, Set.copyOf(categoryCodes));
@@ -199,11 +234,8 @@ public class DocumentAiProcessingService {
 		log.info("AI_CLASSIFICATION_COMPLETED documentId={} companyId={} model={} categoryCode={} needsReview={} durationMs={}",
 				documentId, company.getId(), result.model(), result.accountingCategoryCode(), requiresReview, result.durationMs());
 		warnings.addAll(validated.warnings());
-		warnings.addAll(ocr.warnings());
-		ImagePreprocessingMetadata metadata = adaptive.imageQuality() == null ? null : new ImagePreprocessingMetadata(
-				adaptive.selectedProfile() != OcrProcessingProfile.NORMAL, adaptive.imageQuality().skewAngleDegrees(),
-				adaptive.imageQuality().width(), adaptive.imageQuality().height(), pageOcr.imageWidth(), pageOcr.imageHeight(),
-				pageOcr.durationMs(), adaptive.warning());
+		if (ocr != null) warnings.addAll(ocr.warnings());
+
 		return response(documentId, requiresReview, warnings, metadata);
 	}
 
@@ -228,6 +260,9 @@ public class DocumentAiProcessingService {
 		String prompt = AiDocumentPromptFactory.createWithCategories(documentTypes, categoryOptions,
 				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
 		boolean reliableOcr = ocr != null && ocr.successful()
+				&& Float.isFinite(ocr.confidence())
+				&& !ocr.words().isEmpty() && !ocr.lines().isEmpty() && !ocr.blocks().isEmpty()
+				&& !looksLikeLostVietnameseDiacritics(normalizedText, ocr.language())
 				&& BigDecimal.valueOf(ocr.confidence()).movePointLeft(2).compareTo(aiProperties.getOcr().getGoodConfidence()) >= 0;
 		if (reliableOcr && !normalizedText.isBlank()) {
 			log.info("AI text input file={} ocrChars={} ocrWords={} confidence={} context={} reservedOutput={}",
@@ -256,6 +291,103 @@ public class DocumentAiProcessingService {
 		log.info("AI vision fallback file={} reason={} imageBytes={}", fileName,
 				ocr == null ? "OCR_UNAVAILABLE" : "OCR_LOW_CONFIDENCE", bytes.length);
 		return aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt));
+	}
+
+	Optional<OcrPageResult> restoreStoredOcr(OCRResultResponse stored) {
+		if (stored == null || stored.rawText() == null || stored.rawText().isBlank()
+				|| stored.layoutJson() == null || stored.layoutJson().isBlank()) return Optional.empty();
+		try {
+			JsonNode root = objectMapper.readTree(stored.layoutJson());
+			JsonNode pages = root.path("pages");
+			if (!pages.isArray() || pages.size() != 1) return Optional.empty();
+			JsonNode page = pages.get(0);
+			int width = page.path("width").asInt(0);
+			int height = page.path("height").asInt(0);
+			if (width <= 0 || height <= 0) return Optional.empty();
+			List<OcrWord> words = readWords(page.path("words"), width, height);
+			if (words.isEmpty()) return Optional.empty();
+			int pageNumber = page.path("page").asInt(1);
+			float confidence = stored.confidence() == null
+					? Float.NaN : stored.confidence().movePointRight(2).floatValue();
+			String language = textOrFallback(page.path("language"), stored.language());
+			List<OcrLine> lines = readLines(page.path("lines"), pageNumber, width, height);
+			List<OcrBlock> blocks = readBlocks(page.path("blocks"), pageNumber, width, height);
+			OcrPageResult restored = new OcrPageResult(pageNumber, width, height, stored.rawText(), confidence,
+					words, 0, null, language, lines, blocks);
+			if (lines.isEmpty() || blocks.isEmpty()) restored = reconstructLayout(restored);
+			return restored.lines().isEmpty() || restored.blocks().isEmpty() ? Optional.empty() : Optional.of(restored);
+		} catch (RuntimeException | java.io.IOException exception) {
+			log.warn("Could not restore stored OCR layout; the original OCR row is left unchanged: {}",
+					sanitize(exception.getMessage()));
+			return Optional.empty();
+		}
+	}
+
+	private List<OcrWord> readWords(JsonNode values, int pageWidth, int pageHeight) {
+		if (!values.isArray()) return List.of();
+		List<OcrWord> result = new ArrayList<>();
+		for (JsonNode value : values) {
+			String id = value.path("id").asText("");
+			String text = value.path("text").asText("");
+			if (id.isBlank() || text.isBlank()) continue;
+			result.add(new OcrWord(id, text, (float) value.path("confidence").asDouble(0),
+					normalized(value, "x", pageWidth), normalized(value, "y", pageHeight),
+					normalized(value, "width", pageWidth), normalized(value, "height", pageHeight)));
+		}
+		return List.copyOf(result);
+	}
+
+	private List<OcrLine> readLines(JsonNode values, int pageNumber, int pageWidth, int pageHeight) {
+		if (!values.isArray()) return List.of();
+		List<OcrLine> result = new ArrayList<>();
+		for (JsonNode value : values) {
+			String id = value.path("id").asText("");
+			if (id.isBlank()) continue;
+			result.add(new OcrLine(id, pageNumber, value.path("text").asText(""),
+					(float) value.path("confidence").asDouble(0), normalized(value, "x", pageWidth),
+					normalized(value, "y", pageHeight), normalized(value, "width", pageWidth),
+					normalized(value, "height", pageHeight), readIds(value.path("wordIds"))));
+		}
+		return List.copyOf(result);
+	}
+
+	private List<OcrBlock> readBlocks(JsonNode values, int pageNumber, int pageWidth, int pageHeight) {
+		if (!values.isArray()) return List.of();
+		List<OcrBlock> result = new ArrayList<>();
+		for (JsonNode value : values) {
+			String id = value.path("id").asText("");
+			if (id.isBlank()) continue;
+			result.add(new OcrBlock(id, pageNumber, value.path("text").asText(""),
+					(float) value.path("confidence").asDouble(0), normalized(value, "x", pageWidth),
+					normalized(value, "y", pageHeight), normalized(value, "width", pageWidth),
+					normalized(value, "height", pageHeight), readIds(value.path("lineIds"))));
+		}
+		return List.copyOf(result);
+	}
+
+	private List<String> readIds(JsonNode values) {
+		if (!values.isArray()) return List.of();
+		List<String> result = new ArrayList<>();
+		values.forEach(value -> { if (!value.asText("").isBlank()) result.add(value.asText()); });
+		return List.copyOf(result);
+	}
+
+	private double normalized(JsonNode value, String field, int dimension) {
+		double pixels = value.path(field).asDouble(Double.NaN);
+		if (!Double.isFinite(pixels) || pixels < 0 || dimension <= 0) return 0;
+		return Math.min(1d, pixels / dimension);
+	}
+
+	private String textOrFallback(JsonNode value, String fallback) {
+		String text = value.asText("");
+		return text.isBlank() ? fallback : text;
+	}
+
+	private boolean looksLikeLostVietnameseDiacritics(String text, String language) {
+		if (text == null || language == null || !language.toLowerCase(Locale.ROOT).contains("vie")) return false;
+		if (text.matches("(?s).*[À-ưǍ-ǜẠ-ỹĐđ].*")) return false;
+		String lower = text.toLowerCase(Locale.ROOT);
+		return lower.matches("(?s).*(hoa don|cong ty|dia chi|ma so thue|nguoi mua|nguoi ban|thanh tien).*");
 	}
 
 	private boolean isStructuredOutputFailure(AiProviderException exception) {
@@ -329,12 +461,18 @@ public class DocumentAiProcessingService {
 		List<AiDocumentResult.AiInvoiceItemExtraction> items = pages.stream()
 				.filter(page -> page.invoice() != null && page.invoice().items() != null)
 				.flatMap(page -> page.invoice().items().stream()).distinct().toList();
+		List<String> warnings = pages.stream()
+				.flatMap(page -> page.warnings() == null ? java.util.stream.Stream.empty() : page.warnings().stream())
+				.collect(Collectors.toCollection(ArrayList::new));
+		if (pages.stream().map(AiDocumentResult::documentType).filter(Objects::nonNull).distinct().count() > 1) {
+			warnings.add("DOCUMENT_TYPE_PAGE_CONFLICT: Các trang PDF đề xuất loại chứng từ khác nhau; cần kiểm tra thủ công");
+		}
 		AiDocumentResult.AiInvoiceExtraction invoice = pages.stream().map(AiDocumentResult::invoice)
 				.filter(Objects::nonNull).reduce((left, right) -> mergeInvoice(left, right, items)).orElse(null);
 		return new AiDocumentResult(first.provider(), first.model(), first.documentType(), confidence,
 				first.accountingCategoryCode(), first.accountingAccount(), rawText, invoice,
 				pages.stream().flatMap(page -> page.fields() == null ? java.util.stream.Stream.empty() : page.fields().stream()).toList(),
-				pages.stream().flatMap(page -> page.warnings() == null ? java.util.stream.Stream.empty() : page.warnings().stream()).toList(),
+				List.copyOf(warnings),
 				first.rawResponse(), pages.stream().mapToLong(AiDocumentResult::durationMs).sum(),
 				first.documentDirection(), first.transactionAssessment(),
 				pages.stream().flatMap(page -> page.extraFields() == null ? java.util.stream.Stream.empty() : page.extraFields().stream()).toList(),

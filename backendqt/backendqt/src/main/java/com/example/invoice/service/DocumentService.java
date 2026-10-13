@@ -22,6 +22,8 @@ import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.StatObjectArgs;
+import io.minio.StatObjectResponse;
 import java.io.InputStream;
 import java.io.ByteArrayInputStream;
 import java.util.List;
@@ -39,11 +41,16 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class DocumentService {
+	private static final Logger log = LoggerFactory.getLogger(DocumentService.class);
 	private final DocumentRepository documentRepository;
 	private final DocumentTypeRepository documentTypeRepository;
 	private final DocumentVersionRepository documentVersionRepository;
@@ -52,13 +59,22 @@ public class DocumentService {
 	private final UserService userService;
 	private final StorageService storageService;
 	private final MinioClient minioClient;
+	private final FileValidationService fileValidationService;
 
 	/** Compatibility constructor for isolated scope tests that do not update document types. */
 	DocumentService(DocumentRepository documentRepository, DocumentTypeRepository documentTypeRepository,
 			DocumentVersionRepository documentVersionRepository, ClassificationRepository classificationRepository,
 			UserService userService, StorageService storageService, MinioClient minioClient) {
+		this(documentRepository, documentTypeRepository, documentVersionRepository, classificationRepository,
+				userService, storageService, minioClient, null);
+	}
+
+	/** Compatibility constructor for isolated scope tests that do not update document types. */
+	DocumentService(DocumentRepository documentRepository, DocumentTypeRepository documentTypeRepository,
+			DocumentVersionRepository documentVersionRepository, ClassificationRepository classificationRepository,
+			UserService userService, StorageService storageService, MinioClient minioClient, FileValidationService fileValidationService) {
 		this(documentRepository, documentTypeRepository, documentVersionRepository, classificationRepository, null,
-				userService, storageService, minioClient);
+				userService, storageService, minioClient, fileValidationService);
 	}
 
 	@Value("${app.minio.bucket:invoice-files}")
@@ -67,15 +83,16 @@ public class DocumentService {
 	@Transactional
 	public DocumentResponse create(DocumentCreateRequest request, Authentication authentication) {
 		User user = userService.loadCurrent(authentication);
+		String objectKey = validateExistingObject(request, user);
 		Document document = new Document();
 		document.setOriginalFileName(request.originalFileName());
 		document.setFileName(storageService.sanitizeFileName(request.originalFileName()));
 		document.setFileType(request.fileType());
 		document.setFileSize(request.fileSize());
-		document.setFilePath(request.filePath() == null ? storageService.generateObjectKey(request.originalFileName()) : request.filePath());
+		document.setFilePath(objectKey);
 		document.setUploadedBy(user);
 		document.setCompany(user.getCompany());
-		
+
 		document = documentRepository.save(document);
 		
 		// Create first version
@@ -95,9 +112,7 @@ public class DocumentService {
 
 	@Transactional
 	public DocumentResponse createFromUpload(MultipartFile file, Authentication authentication) {
-		if (file.isEmpty()) {
-			throw new IllegalArgumentException("Tệp tải lên không được để trống");
-		}
+		fileValidationService.validateUpload(file);
 
 		String originalFileName = storageService.sanitizeFileName(file.getOriginalFilename());
 		
@@ -105,8 +120,9 @@ public class DocumentService {
 		User user = userService.loadCurrent(authentication);
 		String companyPrefix = user.getCompany() != null ? "company-" + user.getCompany().getId() + "/" : "system/";
 		String objectKey = companyPrefix + storageService.generateObjectKey(originalFileName);
-		
+
 		uploadToMinio(file, objectKey);
+		registerRollbackCleanup(objectKey);
 
 		Document document = new Document();
 		document.setOriginalFileName(originalFileName);
@@ -117,7 +133,7 @@ public class DocumentService {
 		document.setUploadedBy(user);
 		document.setCompany(user.getCompany());
 		
-		document = documentRepository.save(document);
+		document = documentRepository.saveAndFlush(document);
 		
 		DocumentVersion version = new DocumentVersion();
 		version.setDocument(document);
@@ -128,14 +144,14 @@ public class DocumentService {
 		version.setFileSize(file.getSize());
 		version.setFileName(originalFileName);
 		version.setObjectKey(objectKey);
-		documentVersionRepository.save(version);
+		documentVersionRepository.saveAndFlush(version);
 		
 		return toResponse(document);
 	}
 
 	@Transactional
 	public DocumentResponse uploadNewVersion(Long id, MultipartFile file, Authentication authentication) {
-		if (file.isEmpty()) throw new IllegalArgumentException("Tệp tải lên không được để trống");
+		fileValidationService.validateUpload(file);
 		
 		Document document = load(id);
 		User user = userService.loadCurrent(authentication);
@@ -143,9 +159,7 @@ public class DocumentService {
 		String originalFileName = storageService.sanitizeFileName(file.getOriginalFilename());
 		String companyPrefix = user.getCompany() != null ? "company-" + user.getCompany().getId() + "/" : "system/";
 		String objectKey = companyPrefix + storageService.generateObjectKey(originalFileName);
-		
-		uploadToMinio(file, objectKey);
-		
+
 		// Determine next version number
 		List<DocumentVersion> versions = documentVersionRepository.findByDocumentId(id);
 		int nextVersion = versions.stream().mapToInt(DocumentVersion::getVersionNumber).max().orElse(0) + 1;
@@ -168,8 +182,26 @@ public class DocumentService {
 		document.setFileType(file.getContentType());
 		document.setFileSize(file.getSize());
 		document.setFilePath(objectKey);
-		
-		return toResponse(documentRepository.save(document));
+		uploadToMinio(file, objectKey);
+		registerRollbackCleanup(objectKey);
+		documentVersionRepository.flush();
+		return toResponse(documentRepository.saveAndFlush(document));
+	}
+
+	@Transactional
+	public Document claimForAiProcessing(Long id, boolean reprocess) {
+		// load() enforces tenant/user scope before the pessimistic write lock is acquired.
+		load(id);
+		Document document = documentRepository.findByIdForUpdate(id)
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chứng từ"));
+		if (reprocess && document.getReviewStatus() == com.example.invoice.entity.ReviewStatus.APPROVED)
+			throw new com.example.invoice.exception.BadRequestException("Không thể chạy lại AI cho chứng từ đã được kế toán duyệt");
+		if (document.getStatus() == DocumentStatus.PROCESSING)
+			throw new com.example.invoice.exception.BadRequestException("Chứng từ đang được xử lý");
+		if (!reprocess && document.getStatus() != DocumentStatus.UPLOADED)
+			throw new com.example.invoice.exception.BadRequestException("Chứng từ đã được xử lý; hãy dùng chức năng xử lý lại để chạy AI lần nữa");
+		document.setStatus(DocumentStatus.PROCESSING);
+		return document;
 	}
 
 	@Transactional(readOnly = true)
@@ -345,7 +377,7 @@ public class DocumentService {
 		String typeName = document.getType() == null ? null : document.getType().getName();
 		java.math.BigDecimal amount = document.getInvoice() == null ? null : document.getInvoice().getTotalAmount();
 		return new DocumentResponse(document.getId(), document.getOriginalFileName(), document.getFileType(),
-				document.getFileSize(), document.getFilePath(), document.getStatus(), document.getStatus(), document.getReviewStatus(),
+				document.getFileSize(), null, document.getStatus(), document.getStatus(), document.getReviewStatus(),
 				document.getCompany() == null ? null : document.getCompany().getId(), document.getType() == null ? null : document.getType().getId(),
 				typeCode, typeCode, typeName, amount, confidence,
 				new CompanyRoleResponse(document.getCompanyRole(), document.getCompanyRoleConfidence(), document.getCompanyRoleReason()),
@@ -395,6 +427,41 @@ public class DocumentService {
 		} catch (Exception exception) {
 			throw new IllegalStateException("Không thể tải tệp lên MinIO", exception);
 		}
+	}
+
+	private String validateExistingObject(DocumentCreateRequest request, User user) {
+		if (request.filePath() == null || request.filePath().isBlank())
+			throw new com.example.invoice.exception.BadRequestException("Object key của tệp là bắt buộc");
+		String expectedPrefix = user.getCompany() == null ? "system/" : "company-" + user.getCompany().getId() + "/";
+		String objectKey = request.filePath().trim();
+		if (!objectKey.startsWith(expectedPrefix))
+			throw new com.example.invoice.exception.BadRequestException("Object không thuộc phạm vi được phép");
+		try {
+			StatObjectResponse stat = minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(objectKey).build());
+			if (stat.size() != request.fileSize())
+				throw new com.example.invoice.exception.BadRequestException("Kích thước metadata không khớp object");
+			if (stat.contentType() != null && !stat.contentType().equalsIgnoreCase(request.fileType()))
+				throw new com.example.invoice.exception.BadRequestException("MIME metadata không khớp object");
+			return objectKey;
+		} catch (com.example.invoice.exception.BadRequestException exception) {
+			throw exception;
+		} catch (Exception exception) {
+			throw new com.example.invoice.exception.BadRequestException("Object không tồn tại hoặc không thể xác minh");
+		}
+	}
+
+	private void registerRollbackCleanup(String objectKey) {
+		if (!TransactionSynchronizationManager.isSynchronizationActive()) return;
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override public void afterCompletion(int status) {
+				if (status != STATUS_ROLLED_BACK) return;
+				try {
+					minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build());
+				} catch (Exception exception) {
+					log.error("MINIO_ROLLBACK_CLEANUP_FAILED objectKey={} action=manual_cleanup_required", objectKey, exception);
+				}
+			}
+		});
 	}
 
 	private boolean hasRole(User user, String roleCode) {

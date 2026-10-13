@@ -9,6 +9,7 @@ import java.util.List;
 
 public interface DocumentTypeRepository extends JpaRepository<DocumentType, Long> {
     Optional<DocumentType> findByCode(String code);
+	Optional<DocumentType> findByCodeAndActiveTrue(String code);
     List<DocumentType> findByActiveTrue();
 
 	@Query("select type, count(document.id) from DocumentType type left join Document document on document.type = type or (document.type is null and document.documentType = type.code) group by type order by type.code")

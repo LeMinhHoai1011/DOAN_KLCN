@@ -41,6 +41,9 @@ public class AiDocumentResultValidator {
 			throw new AiProviderException("AI_INVALID_RESPONSE: loại chứng từ không nằm trong danh sách được backend cho phép");
 		}
 		List<String> warnings = new ArrayList<>(result.warnings() == null ? List.of() : result.warnings());
+		if (warnings.stream().noneMatch(AiDocumentResultValidator::hasDocumentTypeEvidence)) {
+			warnings.add("MISSING_DOCUMENT_TYPE_EVIDENCE: AI không cung cấp căn cứ nhận diện loại chứng từ");
+		}
 		BigDecimal confidence = normalizeConfidence(result.classificationConfidence(), warnings);
 		if (isInvoiceType(result.documentType()) && result.invoice() == null) {
 			warnings.add("AI classified the document as INVOICE but structured invoice extraction is missing.");
@@ -49,13 +52,21 @@ public class AiDocumentResultValidator {
 				&& !allowedAccountingCategories.contains(result.accountingCategoryCode())) {
 			log.warn("AI_CATEGORY_VALIDATION_FAILED categoryCode={} allowedCategoryCount={}",
 					result.accountingCategoryCode(), allowedAccountingCategories.size());
-			throw new AiProviderException("AI_INVALID_RESPONSE: nhóm nghiệp vụ không nằm trong danh sách active của công ty");
+			warnings.add("INVALID_ACCOUNTING_CATEGORY: AI trả nhóm nghiệp vụ không nằm trong danh sách active; đề xuất này bị bỏ qua");
+			result = withoutAccountingCategory(result);
 		}
 		validateInvoice(result.invoice(), warnings);
 		validateTransactionAssessment(result.transactionAssessment(), warnings);
 		validateCompanyRole(result.companyRole(), warnings);
 		validateExtraFields(result.extraFields(), warnings);
 		return new ValidatedAiDocumentResult(result, confidence, List.copyOf(warnings));
+	}
+
+	private AiDocumentResult withoutAccountingCategory(AiDocumentResult result) {
+		return new AiDocumentResult(result.provider(), result.model(), result.documentType(),
+				result.classificationConfidence(), null, result.accountingAccount(), result.rawText(), result.invoice(),
+				result.fields(), result.warnings(), result.rawResponse(), result.durationMs(), result.documentDirection(),
+				result.transactionAssessment(), result.extraFields(), result.companyRole());
 	}
 
 	private boolean isInvoiceType(String typeCode) {
@@ -66,10 +77,17 @@ public class AiDocumentResultValidator {
 				|| normalized.endsWith("_INVOICE");
 	}
 
+	private static boolean hasDocumentTypeEvidence(String warning) {
+		if (warning == null) return false;
+		String prefix = "DOCUMENT_TYPE_REASON:";
+		return warning.regionMatches(true, 0, prefix, 0, prefix.length())
+				&& !warning.substring(prefix.length()).isBlank();
+	}
+
 	private BigDecimal normalizeConfidence(BigDecimal value, List<String> warnings) {
 		if (value == null) {
 			warnings.add("AI did not provide classification confidence");
-			return BigDecimal.ZERO;
+			return null;
 		}
 		if (value.compareTo(BigDecimal.ZERO) < 0 || value.compareTo(BigDecimal.ONE) > 0) {
 			throw new AiProviderException("AI_INVALID_RESPONSE: độ tin cậy phải nằm trong khoảng từ 0,0 đến 1,0");
@@ -81,6 +99,14 @@ public class AiDocumentResultValidator {
 		if (invoice == null) return;
 		if (invoice.invoiceNumber() == null || invoice.invoiceNumber().isBlank())
 			warnings.add("MISSING_INVOICE_NUMBER: thiếu số hóa đơn");
+		if (invoice.invoiceDate() == null || invoice.invoiceDate().isBlank())
+			warnings.add("MISSING_INVOICE_DATE: thiếu ngày hóa đơn");
+		if (invoice.sellerName() == null || invoice.sellerName().isBlank())
+			warnings.add("MISSING_SELLER_NAME: thiếu tên người bán");
+		if (invoice.sellerTaxCode() == null || invoice.sellerTaxCode().isBlank())
+			warnings.add("MISSING_SELLER_TAX_CODE: thiếu mã số thuế người bán");
+		if (invoice.totalAmount() == null)
+			warnings.add("MISSING_TOTAL_AMOUNT: thiếu tổng tiền thanh toán");
 		warnLength(invoice.invoiceNumber(), MAX_INVOICE_NUMBER_LENGTH, "INVOICE_NUMBER_INVALID_LENGTH", warnings);
 		warnLength(invoice.invoiceSeries(), MAX_INVOICE_SERIES_LENGTH, "INVOICE_SERIES_INVALID_LENGTH", warnings);
 		warnLength(invoice.sellerTaxCode(), MAX_TAX_CODE_LENGTH, "SELLER_TAX_CODE_INVALID_LENGTH", warnings);
@@ -93,10 +119,10 @@ public class AiDocumentResultValidator {
 		warnLength(invoice.paymentMethod(), MAX_PAYMENT_METHOD_LENGTH, "PAYMENT_METHOD_INVALID_LENGTH", warnings);
 		warnLength(invoice.amountInWords(), MAX_AMOUNT_IN_WORDS_LENGTH, "AMOUNT_IN_WORDS_ABNORMAL_LENGTH", warnings);
 		warnLength(invoice.taxAuthorityCode(), MAX_TAX_AUTHORITY_CODE_LENGTH, "TAX_AUTHORITY_CODE_INVALID_LENGTH", warnings);
-		if (invoice.items() != null) invoice.items().forEach(item -> {
-			if (item != null) warnLength(item.productName(), MAX_REASONABLE_ITEM_NAME_LENGTH,
-					"INVOICE_ITEM_NAME_ABNORMAL_LENGTH", warnings);
-		});
+		if (invoice.items() != null) {
+			for (int index = 0; index < invoice.items().size(); index++)
+				validateInvoiceItem(invoice.items().get(index), index + 1, warnings);
+		}
 		if (invoice.sellerTaxCode() != null && !TAX_CODE.matcher(invoice.sellerTaxCode().trim()).matches()) {
 			warnings.add("INVALID_SELLER_TAX_CODE: mã số thuế người bán không hợp lệ");
 		}
@@ -121,6 +147,40 @@ public class AiDocumentResultValidator {
 				&& invoice.subtotal().add(invoice.vatAmount()).subtract(invoice.totalAmount()).abs().compareTo(MONEY_TOLERANCE) > 0) {
 			warnings.add("TOTAL_MISMATCH: tổng tiền trước thuế cộng VAT không khớp với tổng thanh toán");
 		}
+		warnNegative(invoice.subtotal(), "NEGATIVE_SUBTOTAL", warnings);
+		warnNegative(invoice.vatAmount(), "NEGATIVE_VAT_AMOUNT", warnings);
+		warnNegative(invoice.totalAmount(), "NEGATIVE_TOTAL_AMOUNT", warnings);
+	}
+
+	private void validateInvoiceItem(AiDocumentResult.AiInvoiceItemExtraction item, int row,
+			List<String> warnings) {
+		if (item == null) {
+			warnings.add("INVALID_INVOICE_ITEM: row=" + row + ", item is null");
+			return;
+		}
+		warnLength(item.productName(), MAX_REASONABLE_ITEM_NAME_LENGTH,
+				"INVOICE_ITEM_NAME_ABNORMAL_LENGTH", warnings);
+		if (item.productName() == null || item.productName().isBlank())
+			warnings.add("MISSING_INVOICE_ITEM_NAME: row=" + row);
+		warnNegative(item.quantity(), "NEGATIVE_ITEM_QUANTITY: row=" + row, warnings);
+		warnNegative(item.unitPrice(), "NEGATIVE_ITEM_UNIT_PRICE: row=" + row, warnings);
+		warnNegative(item.taxAmount(), "NEGATIVE_ITEM_TAX_AMOUNT: row=" + row, warnings);
+		warnNegative(item.amount(), "NEGATIVE_ITEM_AMOUNT: row=" + row, warnings);
+		if (item.taxRate() != null && (item.taxRate().compareTo(BigDecimal.ZERO) < 0
+				|| item.taxRate().compareTo(BigDecimal.ONE) > 0))
+			warnings.add("INVALID_ITEM_TAX_RATE: row=" + row + ", expected decimal fraction from 0 to 1");
+		if (item.quantity() != null && item.unitPrice() != null && item.amount() != null
+				&& item.quantity().multiply(item.unitPrice()).subtract(item.amount()).abs()
+						.compareTo(MONEY_TOLERANCE) > 0)
+			warnings.add("ITEM_AMOUNT_MISMATCH: row=" + row + ", quantity * unitPrice does not match amount");
+		if (item.amount() != null && item.taxRate() != null && item.taxAmount() != null
+				&& item.amount().multiply(item.taxRate()).subtract(item.taxAmount()).abs()
+						.compareTo(MONEY_TOLERANCE) > 0)
+			warnings.add("ITEM_TAX_MISMATCH: row=" + row + ", amount * taxRate does not match taxAmount");
+	}
+
+	private void warnNegative(BigDecimal value, String code, List<String> warnings) {
+		if (value != null && value.compareTo(BigDecimal.ZERO) < 0) warnings.add(code);
 	}
 
 	private void warnLength(String value, int maximum, String code, List<String> warnings) {
@@ -150,20 +210,24 @@ public class AiDocumentResultValidator {
 
 	public record ValidatedAiDocumentResult(AiDocumentResult result, BigDecimal confidence, List<String> warnings) {
 		public boolean requiresReview(BigDecimal threshold) {
-			return confidence.compareTo(threshold) < 0 || warnings.stream().anyMatch(this::isCritical);
+			return confidence == null || confidence.compareTo(threshold) < 0 || warnings.stream().anyMatch(this::isCritical);
 		}
 
 		public List<String> reviewReasons(BigDecimal threshold) {
 			List<String> reasons = new ArrayList<>();
-			if (confidence.compareTo(threshold) < 0)
+			if (confidence == null)
+				reasons.add("MISSING_CLASSIFICATION_CONFIDENCE: AI không cung cấp độ tin cậy");
+			else if (confidence.compareTo(threshold) < 0)
 				reasons.add("LOW_CLASSIFICATION_CONFIDENCE: confidence=" + confidence + ", threshold=" + threshold);
-			warnings.stream().filter(this::isCritical).forEach(reasons::add);
+			warnings.stream().filter(warning -> isCritical(warning)
+					|| AiDocumentResultValidator.hasDocumentTypeEvidence(warning)).forEach(reasons::add);
 			return List.copyOf(reasons);
 		}
 
 		private boolean isCritical(String warning) {
 			if (warning == null || warning.isBlank()) return false;
 			String value = warning.toLowerCase(java.util.Locale.ROOT);
+			if (AiDocumentResultValidator.hasDocumentTypeEvidence(warning)) return false;
 			return !(value.startsWith("non_critical:")
 					|| value.contains("thiếu dấu") || value.contains("mất dấu")
 					|| value.contains("diacritic") || value.contains("hoa/thường")
@@ -171,5 +235,6 @@ public class AiDocumentResultValidator {
 					|| value.contains("định dạng địa chỉ") || value.contains("address format")
 					|| value.contains("preprocessing warning"));
 		}
+
 	}
 }

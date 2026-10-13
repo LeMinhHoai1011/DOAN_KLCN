@@ -7,9 +7,11 @@ import com.example.invoice.entity.ClassificationStatus;
 import com.example.invoice.entity.AccountingCategory;
 import com.example.invoice.entity.Document;
 import com.example.invoice.entity.DocumentStatus;
+import com.example.invoice.entity.DocumentType;
 import com.example.invoice.entity.ReviewStatus;
 import com.example.invoice.exception.ResourceNotFoundException;
 import com.example.invoice.repository.ClassificationRepository;
+import com.example.invoice.repository.DocumentTypeRepository;
 import com.example.invoice.repository.AccountingCategoryRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,7 +23,9 @@ public class ClassificationService {
 	private final ClassificationRepository classificationRepository;
 	private final AccountingCategoryRepository accountingCategoryRepository;
 	private final DocumentService documentService;
+	private final DocumentTypeRepository documentTypeRepository;
 
+	@Transactional(readOnly = true)
 	public ClassificationResponse findByDocumentId(Long documentId) {
 		return toResponse(loadByDocumentId(documentId));
 	}
@@ -29,6 +33,7 @@ public class ClassificationService {
 	@Transactional
 	public ClassificationResponse upsert(Long documentId, ClassificationUpdateRequest request) {
 		Document document = documentService.load(documentId);
+		assertEditable(document);
 		Classification classification = classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(documentId).orElseGet(Classification::new);
 		classification.setDocument(document);
 		apply(classification, request);
@@ -47,6 +52,7 @@ public class ClassificationService {
 	@Transactional
 	public ClassificationResponse review(Long documentId) {
 		Classification classification = loadByDocumentId(documentId);
+		assertEditable(classification.getDocument());
 		classification.setStatus(ClassificationStatus.NEED_REVIEW);
 		return toResponse(classification);
 	}
@@ -54,9 +60,11 @@ public class ClassificationService {
 	@Transactional
 	public ClassificationResponse correction(Long documentId, ClassificationUpdateRequest request) {
 		Classification classification = loadByDocumentId(documentId);
+		assertEditable(classification.getDocument());
 		// Keep predictedLabel, confidence and reason as the original AI evidence.
 		// The effective category is the user's correction and is marked separately below.
 		if (request.category() != null) applyAccountingCategory(classification, request.category());
+		if (request.documentType() != null) applyDocumentType(classification.getDocument(), request.documentType());
 		classification.setStatus(ClassificationStatus.CORRECTED);
 		classification.setAiGenerated(false);
 		return toResponse(classification);
@@ -74,6 +82,25 @@ public class ClassificationService {
 		if (request.reason() != null) classification.setReason(request.reason());
 		if (request.status() != null) classification.setStatus(request.status());
 		if (request.aiGenerated() != null) classification.setAiGenerated(request.aiGenerated());
+		if (request.documentType() != null) {
+			applyDocumentType(classification.getDocument(), request.documentType());
+			classification.setAiGenerated(false);
+			classification.setStatus(ClassificationStatus.CORRECTED);
+		}
+	}
+
+	private void applyDocumentType(Document document, String typeCode) {
+		if (typeCode.isBlank()) throw new IllegalArgumentException("Loại chứng từ không được để trống");
+		DocumentType type = documentTypeRepository.findByCodeAndActiveTrue(typeCode.trim().toUpperCase(java.util.Locale.ROOT))
+				.orElseThrow(() -> new IllegalArgumentException("Loại chứng từ không hoạt động hoặc không tồn tại"));
+		document.setType(type);
+		document.setDocumentType(type.getCode());
+	}
+
+	private void assertEditable(Document document) {
+		if (document.getReviewStatus() == ReviewStatus.APPROVED) {
+			throw new IllegalStateException("Không thể thay đổi chứng từ đã được duyệt");
+		}
 	}
 
 	private void applyAccountingCategory(Classification classification, String categoryCode) {
@@ -93,7 +120,10 @@ public class ClassificationService {
 
 	private ClassificationResponse toResponse(Classification classification) {
 		AccountingCategory accountingCategory = classification.getAccountingCategory();
-		return new ClassificationResponse(classification.getId(), classification.getDocument().getId(),
+		Document document = classification.getDocument();
+		String documentType = document.getType() == null ? document.getDocumentType() : document.getType().getCode();
+		return new ClassificationResponse(classification.getId(), document.getId(), documentType,
+				classification.getPredictedLabel(),
 				classification.getCategory(), accountingCategory == null ? null : accountingCategory.getId(),
 				accountingCategory == null ? classification.getCategory() : accountingCategory.getCategoryCode(),
 				accountingCategory == null ? null : accountingCategory.getCategoryName(), classification.getAccountingAccount(),

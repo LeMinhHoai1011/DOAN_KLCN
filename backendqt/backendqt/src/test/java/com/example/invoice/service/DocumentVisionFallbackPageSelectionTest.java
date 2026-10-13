@@ -55,6 +55,34 @@ class DocumentVisionFallbackPageSelectionTest {
 		verify(fixture.ai, times(1)).analyzeTextDocument(any());
 		verify(fixture.ai, never()).analyzeDocument(any());
 	}
+
+	@Test
+	void highConfidenceOcrWithoutLayoutUsesVision() {
+		Fixture fixture = fixture(1);
+		OcrPageResult missingLayout = new OcrPageResult(1, 100, 100, "invoice 41NVNO036", 95f,
+				List.of(), 1L, null, "vie+eng");
+
+		fixture.service.analyzeSingleImage("invoice.png", "image/png", new byte[] {1},
+				List.of("INVOICE"), List.of(), null, missingLayout);
+
+		verify(fixture.ai, never()).analyzeTextDocument(any());
+		verify(fixture.ai).analyzeDocument(any());
+	}
+
+	@Test
+	void suspiciousVietnameseOcrWithoutDiacriticsUsesVision() {
+		Fixture fixture = fixture(1);
+		OcrPageResult suspicious = new OcrPageResult(1, 100, 100, "CONG TY ABC DIA CHI HA NOI", 95f,
+				List.of(new OcrWord("w1", "CONG", 95f, .1, .1, .2, .05)), 1L, null, "vie+eng",
+				List.of(new OcrLine("l1", 1, "CONG TY ABC", 95f, .1, .1, .2, .05, List.of("w1"))),
+				List.of(new OcrBlock("b1", 1, "CONG TY ABC", 95f, .1, .1, .2, .05, List.of("l1"))));
+
+		fixture.service.analyzeSingleImage("invoice.png", "image/png", new byte[] {1},
+				List.of("INVOICE"), List.of(), null, suspicious);
+
+		verify(fixture.ai, never()).analyzeTextDocument(any());
+		verify(fixture.ai).analyzeDocument(any());
+	}
 	@Test
 	void goodPageOneLowPageTwoSendsPageTwo() {
 		Fixture fixture = fixture(2);
@@ -113,7 +141,10 @@ class DocumentVisionFallbackPageSelectionTest {
 	}
 
 	private OcrPageResult reliableOcr() {
-		return new OcrPageResult(1, 100, 100, "invoice 41NVNO036", 95f, List.of(), 1L, null, "vie+eng");
+		return new OcrPageResult(1, 100, 100, "invoice 41NVNO036", 95f,
+				List.of(new OcrWord("w1", "invoice", 95f, .1, .1, .2, .05)), 1L, null, "vie+eng",
+				List.of(new OcrLine("l1", 1, "invoice", 95f, .1, .1, .2, .05, List.of("w1"))),
+				List.of(new OcrBlock("b1", 1, "invoice", 95f, .1, .1, .2, .05, List.of("l1"))));
 	}
 
 	private DocumentTextExtractionResult extraction(DocumentTextExtractionResult.PageText... pages) {

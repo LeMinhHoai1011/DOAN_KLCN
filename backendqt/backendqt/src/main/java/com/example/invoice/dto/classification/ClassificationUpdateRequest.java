@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 
 public record ClassificationUpdateRequest(
 		String category,
+		String documentType,
 		@PositiveOrZero BigDecimal confidence,
 		String reason,
 		ClassificationStatus status,

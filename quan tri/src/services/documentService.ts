@@ -15,7 +15,7 @@ export interface DocumentResponse {
   originalFileName: string
   fileType: string
   fileSize: number
-  filePath: string
+  filePath: string | null
   status: DocumentStatus
   processingStatus: DocumentStatus
   reviewStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CORRECTED'

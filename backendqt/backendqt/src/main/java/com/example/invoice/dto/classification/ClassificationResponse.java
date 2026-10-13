@@ -7,6 +7,8 @@ import java.time.LocalDateTime;
 public record ClassificationResponse(
 		Long id,
 		Long documentId,
+		String documentType,
+		String predictedDocumentType,
 		String category,
 		Long accountingCategoryId,
 		String accountingCategoryCode,

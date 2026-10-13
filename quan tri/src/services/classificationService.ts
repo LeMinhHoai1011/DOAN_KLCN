@@ -14,6 +14,8 @@ export type ClassificationStatus =
 export interface ClassificationResponse {
   id: number
   documentId: number
+  documentType: string | null
+  predictedDocumentType: string | null
   category: string | null
   accountingCategoryId: number | null
   accountingCategoryCode: string | null
@@ -29,6 +31,7 @@ export interface ClassificationResponse {
 
 export interface ClassificationUpdateRequest {
   category?: string
+  documentType?: string
   confidence?: number
   reason?: string
   status?: ClassificationStatus

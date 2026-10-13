@@ -21,6 +21,7 @@ import com.example.invoice.repository.InvoiceRepository;
 import com.example.invoice.repository.OCRResultRepository;
 import com.example.invoice.config.AiProperties;
 import java.math.BigDecimal;
+import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
@@ -92,13 +93,19 @@ public class DocumentAiResultPersistenceService {
 	@Transactional
 	public boolean persist(Long documentId, ValidatedAiDocumentResult validated, OcrDocumentResult tessOcr) {
 		Document document = documentService.load(documentId);
+		if (document.getReviewStatus() == ReviewStatus.APPROVED) {
+			log.info("AI_PERSISTENCE_SKIPPED documentId={} reason=approved_document", documentId);
+			return false;
+		}
 		AiDocumentResult result = validated.result();
 		DocumentType type = documentTypeRepository.findByCode(result.documentType())
 				.orElseThrow(() -> new IllegalStateException("Loại chứng từ đã xác thực không còn tồn tại"));
 		if (!type.isActive()) throw new IllegalStateException("Loại chứng từ đã xác thực không còn hoạt động");
 		boolean manuallyConfirmedType = document.getReviewStatus() == ReviewStatus.APPROVED
 				|| classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(document.getId())
-						.filter(classification -> !classification.isAiGenerated() && classification.getPredictedLabel() != null).isPresent();
+						.filter(classification -> !classification.isAiGenerated()
+								&& (classification.getPredictedLabel() != null
+										|| classification.getStatus() == ClassificationStatus.CORRECTED)).isPresent();
 		if (!manuallyConfirmedType) {
 			document.setType(type);
 			document.setDocumentType(type.getCode());
@@ -109,7 +116,7 @@ public class DocumentAiResultPersistenceService {
 		}
 		persistIntelligence(document, result);
 
-		persistOcrWhenPresent(document, result, validated.confidence(), tessOcr);
+		persistOcrWhenPresent(document, tessOcr);
 		BigDecimal reviewThreshold = aiProperties.getDocument().getReviewThreshold();
 		boolean requiresReview = validated.requiresReview(reviewThreshold);
 		List<String> classificationReasons = requiresReview ? validated.reviewReasons(reviewThreshold) : validated.warnings();
@@ -138,25 +145,27 @@ public class DocumentAiResultPersistenceService {
 	public void persistOcr(Long documentId, OcrDocumentResult tessOcr) {
 		if (tessOcr == null || !tessOcr.successful()) return;
 		Document document = documentService.load(documentId);
-		persistOcrWhenPresent(document, null,
-				BigDecimal.valueOf(tessOcr.confidence()).movePointLeft(2), tessOcr);
+		if (document.getReviewStatus() == ReviewStatus.APPROVED) {
+			log.info("OCR_PERSISTENCE_SKIPPED documentId={} reason=approved_document", documentId);
+			return;
+		}
+		persistOcrWhenPresent(document, tessOcr);
 	}
 
-	private void persistOcrWhenPresent(Document document, AiDocumentResult result, BigDecimal confidence, OcrDocumentResult tessOcr) {
-		String rawText = tessOcr != null && tessOcr.successful() ? tessOcr.rawText() : result == null ? null : result.rawText();
-		if (rawText == null || rawText.isBlank()) return;
+	private void persistOcrWhenPresent(Document document, OcrDocumentResult tessOcr) {
+		if (tessOcr == null || !tessOcr.successful()) return;
+		String rawText = tessOcr.rawText();
 		OCRResult ocr = ocrResultRepository.findFirstByDocumentIdOrderByProcessedAtDesc(document.getId()).orElseGet(OCRResult::new);
 		ocr.setDocument(document);
-		ocr.setOcrEngine(tessOcr != null && tessOcr.successful() ? "tesseract" : result.provider());
-		ocr.setModelVersion(tessOcr != null && tessOcr.successful() ? aiProperties.getOcr().getLanguage() : result.model());
-		ocr.setLanguage(tessOcr != null && tessOcr.successful()
-				? tessOcr.pages().stream().map(OcrPageResult::language).filter(java.util.Objects::nonNull).findFirst().orElse(aiProperties.getOcr().getLanguage())
-				: null);
-		ocr.setSourceType(tessOcr != null && tessOcr.successful() ? "TESS4J_WORD_LAYOUT" : "AI");
+		ocr.setOcrEngine("tesseract");
+		ocr.setModelVersion(aiProperties.getOcr().getLanguage());
+		ocr.setLanguage(tessOcr.pages().stream().map(OcrPageResult::language).filter(java.util.Objects::nonNull)
+				.findFirst().orElse(aiProperties.getOcr().getLanguage()));
+		ocr.setSourceType("TESS4J_WORD_LAYOUT");
 		ocr.setRawText(rawText);
-		ocr.setConfidence(tessOcr != null && tessOcr.successful() ? BigDecimal.valueOf(tessOcr.confidence()).movePointLeft(2) : confidence);
-		ocr.setProcessingTime(tessOcr != null && tessOcr.successful() ? tessOcr.durationMs() : result.durationMs());
-		ocr.setLayoutJson(tessOcr == null ? null : serializeLayout(tessOcr));
+		ocr.setConfidence(BigDecimal.valueOf(tessOcr.confidence()).movePointLeft(2));
+		ocr.setProcessingTime(tessOcr.durationMs());
+		ocr.setLayoutJson(serializeLayout(tessOcr));
 		ocr.setStatus("SUCCESS");
 		ocrResultRepository.save(ocr);
 	}
@@ -236,13 +245,13 @@ public class DocumentAiResultPersistenceService {
 		invoice.setInvoiceNumber(boundedIdentifier(extraction.invoiceNumber(), AiDocumentResultValidator.MAX_INVOICE_NUMBER_LENGTH));
 		invoice.setInvoiceSeries(boundedIdentifier(extraction.invoiceSeries(), AiDocumentResultValidator.MAX_INVOICE_SERIES_LENGTH));
 		invoice.setInvoiceDate(parseDate(extraction.invoiceDate()));
-		invoice.setSellerName(extraction.sellerName());
+		invoice.setSellerName(preferExistingText(invoice.getSellerName(), extraction.sellerName()));
 		invoice.setSellerTaxCode(boundedIdentifier(extraction.sellerTaxCode(), AiDocumentResultValidator.MAX_TAX_CODE_LENGTH));
-		invoice.setSellerAddress(extraction.sellerAddress());
+		invoice.setSellerAddress(preferExistingText(invoice.getSellerAddress(), extraction.sellerAddress()));
 		invoice.setSellerPhone(boundedIdentifier(extraction.sellerPhone(), AiDocumentResultValidator.MAX_SELLER_PHONE_LENGTH));
-		invoice.setBuyerName(extraction.buyerName());
+		invoice.setBuyerName(preferExistingText(invoice.getBuyerName(), extraction.buyerName()));
 		invoice.setBuyerTaxCode(boundedIdentifier(extraction.buyerTaxCode(), AiDocumentResultValidator.MAX_TAX_CODE_LENGTH));
-		invoice.setBuyerAddress(extraction.buyerAddress());
+		invoice.setBuyerAddress(preferExistingText(invoice.getBuyerAddress(), extraction.buyerAddress()));
 		invoice.setSubtotal(extraction.subtotal());
 		invoice.setVatAmount(extraction.vatAmount());
 		invoice.setTotalAmount(extraction.totalAmount());
@@ -425,6 +434,30 @@ public class DocumentAiResultPersistenceService {
 
 	private boolean hasText(String value) {
 		return value != null && !value.isBlank();
+	}
+
+	private String preferExistingText(String existing, String candidate) {
+		if (!hasText(candidate)) return hasText(existing) ? existing : candidate;
+		if (!hasText(existing)) return candidate;
+		if (hasVietnameseDiacritics(existing) && !hasVietnameseDiacritics(candidate)
+				&& foldedText(existing).equals(foldedText(candidate))) {
+			log.info("AI_INVOICE_TEXT_PRESERVED reason=diacritic_regression");
+			return existing;
+		}
+		return candidate;
+	}
+
+	private boolean hasVietnameseDiacritics(String value) {
+		return value != null && (value.matches("(?s).*[À-ưǍ-ǜẠ-ỹ].*")
+				|| value.indexOf('Đ') >= 0 || value.indexOf('đ') >= 0);
+	}
+
+	private String foldedText(String value) {
+		return Normalizer.normalize(value, Normalizer.Form.NFD)
+				.replaceAll("\\p{M}+", "")
+				.replace('Đ', 'D').replace('đ', 'd')
+				.replaceAll("[^\\p{Alnum}]", "")
+				.toLowerCase(java.util.Locale.ROOT);
 	}
 
 	private void persistIntelligence(Document document, AiDocumentResult result) {

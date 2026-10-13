@@ -76,6 +76,31 @@ PUT /api/v1/documents/{id}/classification/correction
 GET /api/v1/dashboard/statistics
 ```
 
+## AI document type classification
+
+AI classification uses only rows with `document_types.active = true`; the catalog is
+loaded from the database at request time. The recognized codes are
+`VAT_INVOICE`, `RECEIPT`, `PAYMENT_VOUCHER`, `RECEIPT_VOUCHER`, `CONTRACT`, and
+`OTHER`, when those exact codes are active in the deployment. No document type
+codes are implicitly created or enabled by the AI pipeline.
+
+The classification confidence is returned as `confidence`; OCR confidence remains
+separate on the OCR result. `reason` stores the AI's `DOCUMENT_TYPE_REASON`
+evidence and review reasons. Missing document-type evidence requires review.
+Classification responses expose the effective `documentType` separately from
+the original AI proposal in `predictedDocumentType`.
+
+An administrator or accountant can correct the effective type through
+`PUT /api/v1/documents/{id}/classification/correction`:
+
+```json
+{"documentType":"RECEIPT"}
+```
+
+The selected code must exist and be active. A correction preserves the AI proposal
+as evidence. Corrections and reprocessing cannot change an `APPROVED` document.
+Reprocessing a PDF re-renders and analyzes its pages individually.
+
 No OpenRouter, OpenAI, Gemini, Redis, Kafka, or Docker integration is implemented in this phase.
 
 ## Tess4J OCR runtime

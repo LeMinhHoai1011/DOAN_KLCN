@@ -6,18 +6,21 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.never;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.invoice.ai.AiDocumentResultValidator;
 import com.example.invoice.config.AiProperties;
 import com.example.invoice.dto.ai.AiDocumentResult;
+import com.example.invoice.entity.Classification;
 import com.example.invoice.entity.Document;
 import com.example.invoice.entity.DocumentType;
 import com.example.invoice.entity.Invoice;
 import com.example.invoice.entity.OCRResult;
 import com.example.invoice.entity.ExtractedField;
 import com.example.invoice.entity.DocumentStatus;
+import com.example.invoice.entity.ReviewStatus;
 import com.example.invoice.repository.ClassificationRepository;
 import com.example.invoice.repository.DocumentTypeRepository;
 import com.example.invoice.repository.ExtractedFieldRepository;
@@ -68,6 +71,7 @@ class DocumentAiResultPersistenceServiceTest {
 				15L, List.of()));
 
 		verify(ocrResultRepository).save(same(existing));
+		assertEquals(0, new BigDecimal("0.92").compareTo(existing.getConfidence()));
 		assertTrue(existing.getLayoutJson().contains("\"width\":2480"));
 		assertTrue(existing.getLayoutJson().contains("\"x\":248"));
 		assertTrue(existing.getLayoutJson().contains("\"version\":2"));
@@ -104,6 +108,55 @@ class DocumentAiResultPersistenceServiceTest {
 	}
 
 	@Test
+	void reprocessDoesNotEraseExistingNamesAndAddressesWhenAiReturnsNullOrBlank() {
+		Document document = new Document(); document.setId(71L);
+		DocumentType type = new DocumentType(); type.setCode("VAT_INVOICE");
+		Invoice existing = new Invoice(); existing.setId(72L); existing.setAiGenerated(true);
+		existing.setSellerName("Công ty Ánh Dương");
+		existing.setSellerAddress("123 Đường Nguyễn Huệ");
+		existing.setBuyerName("Công ty Mua");
+		existing.setBuyerAddress("45 Phố Huế");
+		AiDocumentResult.AiInvoiceExtraction extraction = new AiDocumentResult.AiInvoiceExtraction(
+				"INV-71", null, null, null, null, "  ", null, "", null, null,
+				null, null, null, null, null, null, null, List.of());
+		AiDocumentResult result = invoiceResult(extraction);
+		when(documentService.load(71L)).thenReturn(document);
+		when(documentTypeRepository.findByCode("VAT_INVOICE")).thenReturn(Optional.of(type));
+		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(71L)).thenReturn(Optional.empty());
+		when(invoiceRepository.findByDocumentId(71L)).thenReturn(Optional.of(existing));
+		when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		service().persist(71L, new AiDocumentResultValidator().validate(result, Set.of("VAT_INVOICE")));
+
+		assertEquals("Công ty Ánh Dương", existing.getSellerName());
+		assertEquals("123 Đường Nguyễn Huệ", existing.getSellerAddress());
+		assertEquals("Công ty Mua", existing.getBuyerName());
+		assertEquals("45 Phố Huế", existing.getBuyerAddress());
+	}
+
+	@Test
+	void reprocessPreservesAccentedValueWhenAiReturnsOnlyItsAsciiFold() {
+		Document document = new Document(); document.setId(73L);
+		DocumentType type = new DocumentType(); type.setCode("VAT_INVOICE");
+		Invoice existing = new Invoice(); existing.setId(74L); existing.setAiGenerated(true);
+		existing.setSellerName("CÔNG TY ÁNH DƯƠNG");
+		existing.setBuyerAddress("45 Phố Huế");
+		AiDocumentResult.AiInvoiceExtraction extraction = new AiDocumentResult.AiInvoiceExtraction(
+				"INV-73", null, null, "CONG TY ANH DUONG", null, null, null, null, null, "45 Pho Hue",
+				null, null, null, null, null, null, null, List.of());
+		when(documentService.load(73L)).thenReturn(document);
+		when(documentTypeRepository.findByCode("VAT_INVOICE")).thenReturn(Optional.of(type));
+		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(73L)).thenReturn(Optional.empty());
+		when(invoiceRepository.findByDocumentId(73L)).thenReturn(Optional.of(existing));
+		when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		service().persist(73L, new AiDocumentResultValidator().validate(invoiceResult(extraction), Set.of("VAT_INVOICE")));
+
+		assertEquals("CÔNG TY ÁNH DƯƠNG", existing.getSellerName());
+		assertEquals("45 Phố Huế", existing.getBuyerAddress());
+	}
+
+	@Test
 	void reprocessFromVatInvoiceToReceiptReplacesCurrentTypeAndRemovesAiInvoice() {
 		Document document = new Document(); document.setId(8L);
 		DocumentType previousType = new DocumentType(); previousType.setCode("VAT_INVOICE");
@@ -130,6 +183,89 @@ class DocumentAiResultPersistenceServiceTest {
 		assertEquals("RECEIPT", classification.getValue().getPredictedLabel());
 		verify(invoiceRepository).deleteAiGeneratedByDocumentId(8L);
 		verify(invoiceRepository, never()).save(stale);
+	}
+
+	@Test
+	void reprocessDoesNotOverwriteManuallyCorrectedDocumentType() {
+		Document document = new Document();
+		document.setId(22L);
+		DocumentType confirmedType = new DocumentType();
+		confirmedType.setCode("CONTRACT");
+		document.setType(confirmedType);
+		document.setDocumentType("CONTRACT");
+		Classification manualCorrection = new Classification();
+		manualCorrection.setId(31L);
+		manualCorrection.setDocument(document);
+		manualCorrection.setStatus(com.example.invoice.entity.ClassificationStatus.CORRECTED);
+		manualCorrection.setAiGenerated(false);
+		DocumentType aiProposal = new DocumentType();
+		aiProposal.setCode("OTHER");
+		AiDocumentResult result = new AiDocumentResult("ollama", "qwen3-vl", "OTHER", new BigDecimal("0.95"),
+				null, null, List.of(), List.of("DOCUMENT_TYPE_REASON: Chứng từ không khớp loại hợp đồng"),
+				"raw", 10L);
+		when(documentService.load(22L)).thenReturn(document);
+		when(documentTypeRepository.findByCode("OTHER")).thenReturn(Optional.of(aiProposal));
+		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(22L))
+				.thenReturn(Optional.of(manualCorrection));
+		when(invoiceRepository.findByDocumentId(22L)).thenReturn(Optional.empty());
+
+		service().persist(22L, new AiDocumentResultValidator().validate(result, Set.of("OTHER")));
+
+		assertEquals(confirmedType, document.getType());
+		assertEquals("CONTRACT", document.getDocumentType());
+		verify(classificationRepository, never()).save(any(Classification.class));
+	}
+
+	@Test
+	void persistenceDoesNotChangeApprovedDocument() {
+		Document document = new Document();
+		document.setId(23L);
+		document.setDocumentType("CONTRACT");
+		document.setReviewStatus(ReviewStatus.APPROVED);
+		document.setStatus(DocumentStatus.COMPLETED);
+		when(documentService.load(23L)).thenReturn(document);
+		AiDocumentResult result = new AiDocumentResult("ollama", "qwen3-vl", "OTHER", new BigDecimal("0.95"),
+				null, null, List.of(), List.of("DOCUMENT_TYPE_REASON: Chứng từ khác"), "raw", 10L);
+
+		boolean requiresReview = service().persist(23L,
+				new AiDocumentResultValidator().validate(result, Set.of("OTHER")));
+
+		assertFalse(requiresReview);
+		assertEquals("CONTRACT", document.getDocumentType());
+		assertEquals(ReviewStatus.APPROVED, document.getReviewStatus());
+		assertEquals(DocumentStatus.COMPLETED, document.getStatus());
+		verify(documentTypeRepository, never()).findByCode("OTHER");
+		verify(classificationRepository, never()).findFirstByDocumentIdOrderByCreatedAtDesc(23L);
+	}
+
+	@Test
+	void retryUpdatesExistingAiClassificationInsteadOfInsertingAnother() {
+		Document document = new Document();
+		document.setId(24L);
+		Classification existing = new Classification();
+		existing.setId(41L);
+		existing.setDocument(document);
+		existing.setAiGenerated(true);
+		existing.setStatus(com.example.invoice.entity.ClassificationStatus.NEED_REVIEW);
+		DocumentType type = new DocumentType();
+		type.setCode("RECEIPT");
+		AiDocumentResult result = new AiDocumentResult("ollama", "qwen3-vl", "RECEIPT",
+				new BigDecimal("0.95"), null, null, List.of(),
+				List.of("DOCUMENT_TYPE_REASON: Có nội dung xác nhận đã thu tiền"), "raw", 10L);
+		when(documentService.load(24L)).thenReturn(document);
+		when(documentTypeRepository.findByCode("RECEIPT")).thenReturn(Optional.of(type));
+		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(24L))
+				.thenReturn(Optional.of(existing), Optional.of(existing));
+		when(classificationRepository.save(any(Classification.class)))
+				.thenAnswer(invocation -> invocation.getArgument(0));
+		when(invoiceRepository.findByDocumentId(24L)).thenReturn(Optional.empty());
+
+		DocumentAiResultPersistenceService service = service();
+		var validated = new AiDocumentResultValidator().validate(result, Set.of("RECEIPT"));
+		service.persist(24L, validated);
+		service.persist(24L, validated);
+
+		verify(classificationRepository, org.mockito.Mockito.times(2)).save(same(existing));
 	}
 
 	@Test
@@ -161,7 +297,8 @@ class DocumentAiResultPersistenceServiceTest {
 		Document document = new Document(); document.setId(19L);
 		DocumentType type = new DocumentType(); type.setCode("RECEIPT");
 		AiDocumentResult result = new AiDocumentResult("ollama", "text", "RECEIPT", new BigDecimal("0.84"),
-				"receipt", null, List.of(), List.of("NON_CRITICAL: địa chỉ có thể thiếu dấu tiếng Việt"), "raw", 10L);
+				"receipt", null, List.of(), List.of("DOCUMENT_TYPE_REASON: Có nội dung xác nhận đã thu tiền",
+						"NON_CRITICAL: địa chỉ có thể thiếu dấu tiếng Việt"), "raw", 10L);
 		when(documentService.load(19L)).thenReturn(document);
 		when(documentTypeRepository.findByCode("RECEIPT")).thenReturn(Optional.of(type));
 		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(19L)).thenReturn(Optional.empty());
@@ -170,6 +307,29 @@ class DocumentAiResultPersistenceServiceTest {
 		service().persist(19L, new AiDocumentResultValidator().validate(result, Set.of("RECEIPT")));
 
 		assertEquals(DocumentStatus.PROCESSED, document.getStatus());
+		ArgumentCaptor<Classification> classification = ArgumentCaptor.forClass(Classification.class);
+		verify(classificationRepository).save(classification.capture());
+		assertTrue(classification.getValue().getReason()
+				.contains("DOCUMENT_TYPE_REASON: Có nội dung xác nhận đã thu tiền"));
+	}
+
+	@Test
+	void aiClassificationConfidenceIsNotPersistedAsOcrConfidence() {
+		Document document = new Document();
+		document.setId(20L);
+		DocumentType type = new DocumentType();
+		type.setCode("RECEIPT");
+		AiDocumentResult result = new AiDocumentResult("ollama", "qwen3-vl", "RECEIPT",
+				new BigDecimal("0.95"), null, null, "AI-derived text", null, List.of(), List.of(
+						"DOCUMENT_TYPE_REASON: Có nội dung xác nhận đã thu tiền"), "raw", 10L);
+		when(documentService.load(20L)).thenReturn(document);
+		when(documentTypeRepository.findByCode("RECEIPT")).thenReturn(Optional.of(type));
+		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(20L)).thenReturn(Optional.empty());
+		when(invoiceRepository.findByDocumentId(20L)).thenReturn(Optional.empty());
+
+		service().persist(20L, new AiDocumentResultValidator().validate(result, Set.of("RECEIPT")));
+
+		verify(ocrResultRepository, never()).save(any(OCRResult.class));
 	}
 
 	@Test
@@ -319,5 +479,14 @@ class DocumentAiResultPersistenceServiceTest {
 	private DocumentAiResultPersistenceService service() {
 		return new DocumentAiResultPersistenceService(documentService, documentTypeRepository, ocrResultRepository,
 				classificationRepository, invoiceRepository, extractedFieldRepository, processingLogService, new AiProperties());
+	}
+
+	private AiDocumentResult invoiceResult(AiDocumentResult.AiInvoiceExtraction extraction) {
+		return new AiDocumentResult("ollama", "qwen3-vl", "VAT_INVOICE", BigDecimal.ONE,
+				null, null, null, extraction, List.of(),
+				List.of("DOCUMENT_TYPE_REASON: Hóa đơn có thông tin người bán và người mua"), "raw", 1L,
+				AiDocumentResult.DocumentDirection.UNKNOWN,
+				new AiDocumentResult.AiTransactionAssessment(AiDocumentResult.TransactionAssessmentType.UNKNOWN, null, null),
+				List.of(), new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.UNKNOWN, null, null));
 	}
 }
