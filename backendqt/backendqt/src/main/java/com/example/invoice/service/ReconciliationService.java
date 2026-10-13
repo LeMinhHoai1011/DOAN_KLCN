@@ -12,31 +12,160 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-@Service @RequiredArgsConstructor
+@Service
+@RequiredArgsConstructor
 public class ReconciliationService {
- private static final BigDecimal TOLERANCE=new BigDecimal("0.01");
- private final DocumentService documentService; private final InvoiceRepository invoiceRepository; private final ReconciliationRepository reconciliationRepository; private final ReconciliationBatchRepository batchRepository; private final UserService userService;
- @Transactional public List<ReconciliationResponse> run(Long documentId,Authentication authentication){
-  Document document=documentService.load(documentId); Invoice invoice=invoiceRepository.findByDocumentId(documentId).orElseThrow(()->new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ"));
-  List<Reconciliation> existing=reconciliationRepository.findByDocumentIdOrderByCreatedAtDesc(documentId); Map<String,Reconciliation> byType=new LinkedHashMap<>(); existing.forEach(r->byType.putIfAbsent(type(r),r));
-  ReconciliationBatch batch=existing.isEmpty()?batch(document,invoice,authentication):existing.getFirst().getReconciliationBatch();
-  return checks(invoice).stream().map(c->save(byType.get(c.type()),batch,document,invoice,c)).map(this::response).toList();
- }
- @Transactional public ReconciliationResponse decide(Long documentId,Long id,String status,String comment,Authentication authentication){Reconciliation r=reconciliationRepository.findById(id).orElseThrow(()->new ResourceNotFoundException("Không tìm thấy kết quả đối soát"));if(!r.getDocument().getId().equals(documentId))throw new ResourceNotFoundException("Không tìm thấy kết quả đối soát");documentService.load(documentId);if(!"MATCHED".equals(status)&&!"NEED_REVIEW".equals(status))throw new IllegalArgumentException("Quyết định đối soát không được hỗ trợ");String checkType=type(r);r.setStatus(status);r.setComment(checkType+": "+(comment==null?"Manual decision":comment));r.setReviewedBy(userService.loadCurrent(authentication));r.setReviewedAt(java.time.LocalDateTime.now());return response(r);}
- public List<ReconciliationResponse> find(Long documentId){documentService.load(documentId);return reconciliationRepository.findByDocumentIdOrderByCreatedAtDesc(documentId).stream().map(this::response).toList();}
- private List<Check> checks(Invoice invoice){
-  List<Check> result=new ArrayList<>(); List<InvoiceItem> items=invoice.getItems()==null?List.of():invoice.getItems();
-  if(items.isEmpty())result.add(new Check("ITEMS_PRESENT",BigDecimal.ZERO,BigDecimal.ZERO,true,"Không có dòng hàng hóa để đối soát"));
-  for(int i=0;i<items.size();i++){InvoiceItem item=items.get(i);BigDecimal amount=multiply(item.getQuantity(),item.getUnitPrice());result.add(check("ITEM_"+(i+1)+"_AMOUNT",item.getAmount(),amount,item.getQuantity()==null||item.getUnitPrice()==null||item.getAmount()==null,"Thành tiền dòng = số lượng × đơn giá"));BigDecimal rate=rate(item.getTaxRate());BigDecimal vat=item.getAmount()==null||rate==null?null:round(item.getAmount().multiply(rate));result.add(check("ITEM_"+(i+1)+"_VAT",item.getTaxAmount(),vat,item.getAmount()==null||item.getTaxRate()==null||item.getTaxAmount()==null,"VAT dòng theo thuế suất"));}
-  BigDecimal itemSum=sum(items.stream().map(InvoiceItem::getAmount).toList()),vatSum=sum(items.stream().map(InvoiceItem::getTaxAmount).toList());
-  result.add(check("SUBTOTAL",invoice.getSubtotal(),itemSum,invoice.getSubtotal()==null||items.isEmpty()||items.stream().anyMatch(i->i.getAmount()==null),"Tổng dòng so với tổng trước thuế"));
-  result.add(check("VAT_TOTAL",invoice.getVatAmount(),vatSum,invoice.getVatAmount()==null||items.isEmpty()||items.stream().anyMatch(i->i.getTaxAmount()==null),"Tổng VAT dòng, hỗ trợ nhiều thuế suất"));
-  BigDecimal total=invoice.getSubtotal()==null||invoice.getVatAmount()==null?null:round(invoice.getSubtotal().add(invoice.getVatAmount()));result.add(check("TOTAL",invoice.getTotalAmount(),total,invoice.getSubtotal()==null||invoice.getVatAmount()==null||invoice.getTotalAmount()==null,"Tổng trước thuế + VAT so với thanh toán"));return result;
- }
- private Check check(String type,BigDecimal declared,BigDecimal calculated,boolean missing,String message){return new Check(type,value(declared),value(calculated),missing,message);}
- private Reconciliation save(Reconciliation current,ReconciliationBatch batch,Document document,Invoice invoice,Check check){if(current!=null&&current.getReviewedAt()!=null)return current;Reconciliation r=current==null?new Reconciliation():current;r.setReconciliationBatch(batch);r.setDocument(document);r.setInvoice(invoice);r.setExpectedAmount(round(check.declared()));r.setActualAmount(round(check.calculated()));r.setDifferenceAmount(round(check.calculated().subtract(check.declared())));r.setStatus(!check.missing()&&r.getDifferenceAmount().abs().compareTo(TOLERANCE)<=0?"MATCHED":"NEED_REVIEW");r.setComment(check.type()+": "+(check.missing()?"MISSING_DATA; ":"")+check.message()+"; rounding=HALF_UP scale=2");return reconciliationRepository.save(r);}
- private ReconciliationBatch batch(Document d,Invoice i,Authentication a){User u=userService.loadCurrent(a);ReconciliationBatch b=new ReconciliationBatch();b.setCompany(d.getCompany());b.setBatchCode("DOC-"+d.getId()+"-"+System.currentTimeMillis());b.setPeriodFrom(i.getInvoiceDate()==null?LocalDate.now():i.getInvoiceDate());b.setPeriodTo(b.getPeriodFrom());b.setStatus("COMPLETED");b.setCreatedBy(u);return batchRepository.save(b);}
- private String type(Reconciliation r){return r.getComment()==null?"UNKNOWN_"+r.getId():r.getComment().split(":",2)[0];}
- private ReconciliationResponse response(Reconciliation r){return new ReconciliationResponse(r.getId(),type(r),r.getExpectedAmount(),r.getActualAmount(),r.getDifferenceAmount(),r.getStatus(),r.getComment());}
- private BigDecimal rate(BigDecimal v){return v==null?null:v.abs().compareTo(BigDecimal.ONE)<=0?v:v.movePointLeft(2);} private BigDecimal multiply(BigDecimal a,BigDecimal b){return a==null||b==null?null:round(a.multiply(b));} private BigDecimal sum(List<BigDecimal> v){return round(v.stream().filter(Objects::nonNull).reduce(BigDecimal.ZERO,BigDecimal::add));} private BigDecimal value(BigDecimal v){return v==null?BigDecimal.ZERO:v;} private BigDecimal round(BigDecimal v){return v.setScale(2,RoundingMode.HALF_UP);} private record Check(String type,BigDecimal declared,BigDecimal calculated,boolean missing,String message){}
+	private static final BigDecimal TOLERANCE = new BigDecimal("0.01");
+	private static final String MATCHED = "MATCHED";
+	private static final String MISMATCH = "MISMATCH";
+	private static final String INSUFFICIENT_DATA = "INSUFFICIENT_DATA";
+	private final DocumentService documentService;
+	private final InvoiceRepository invoiceRepository;
+	private final ReconciliationRepository reconciliationRepository;
+	private final ReconciliationBatchRepository batchRepository;
+	private final UserService userService;
+
+	@Transactional
+	public List<ReconciliationResponse> run(Long documentId, Authentication authentication) {
+		Document document = documentService.load(documentId);
+		Invoice invoice = invoiceRepository.findByDocumentId(documentId)
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ"));
+		List<Reconciliation> existing = reconciliationRepository.findByDocumentIdOrderByCreatedAtDesc(documentId);
+		Map<String, Reconciliation> byType = new LinkedHashMap<>();
+		existing.forEach(result -> byType.putIfAbsent(type(result), result));
+		ReconciliationBatch batch = existing.isEmpty()
+				? batch(document, invoice, authentication) : existing.getFirst().getReconciliationBatch();
+		return checks(invoice).stream().map(check -> save(byType.get(check.type()), batch, document, invoice, check))
+				.map(this::response).toList();
+	}
+
+	@Transactional
+	public ReconciliationResponse decide(Long documentId, Long id, String status, String comment,
+			Authentication authentication) {
+		Reconciliation result = reconciliationRepository.findById(id)
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy kết quả đối soát"));
+		if (!result.getDocument().getId().equals(documentId))
+			throw new ResourceNotFoundException("Không tìm thấy kết quả đối soát");
+		documentService.load(documentId);
+		if (!MATCHED.equals(status) && !"NEED_REVIEW".equals(status))
+			throw new IllegalArgumentException("Quyết định đối soát không được hỗ trợ");
+		String checkType = type(result);
+		result.setStatus(status);
+		result.setComment(checkType + ": " + (comment == null ? "Manual decision" : comment));
+		result.setReviewedBy(userService.loadCurrent(authentication));
+		result.setReviewedAt(java.time.LocalDateTime.now());
+		return response(result);
+	}
+
+	public List<ReconciliationResponse> find(Long documentId) {
+		documentService.load(documentId);
+		return reconciliationRepository.findByDocumentIdOrderByCreatedAtDesc(documentId).stream()
+				.map(this::response).toList();
+	}
+
+	private List<Check> checks(Invoice invoice) {
+		List<Check> result = new ArrayList<>();
+		List<InvoiceItem> items = invoice.getItems() == null ? List.of() : invoice.getItems();
+		if (items.isEmpty())
+			result.add(insufficient("ITEMS_PRESENT", null, null,
+					"Chưa đủ dữ liệu hàng hóa để đối soát; cần bổ sung ít nhất một dòng hàng hóa"));
+		for (int index = 0; index < items.size(); index++) {
+			InvoiceItem item = items.get(index);
+			BigDecimal amount = multiply(item.getQuantity(), item.getUnitPrice());
+			result.add(check("ITEM_" + (index + 1) + "_AMOUNT", item.getAmount(), amount,
+					item.getQuantity() == null || item.getUnitPrice() == null || item.getAmount() == null,
+					"Thành tiền dòng = số lượng × đơn giá; cần quantity, unitPrice và amount"));
+			BigDecimal rate = rate(item.getTaxRate());
+			BigDecimal vat = item.getAmount() == null || rate == null ? null : round(item.getAmount().multiply(rate));
+			result.add(check("ITEM_" + (index + 1) + "_VAT", item.getTaxAmount(), vat,
+					item.getAmount() == null || item.getTaxRate() == null || item.getTaxAmount() == null,
+					"VAT dòng theo thuế suất; cần amount, taxRate và taxAmount"));
+		}
+		BigDecimal itemSum = completeSum(items.stream().map(InvoiceItem::getAmount).toList());
+		BigDecimal vatSum = completeSum(items.stream().map(InvoiceItem::getTaxAmount).toList());
+		result.add(check("SUBTOTAL", invoice.getSubtotal(), itemSum,
+				invoice.getSubtotal() == null || items.isEmpty() || itemSum == null,
+				"Tổng dòng so với tổng trước thuế; cần items[].amount và subtotal"));
+		result.add(check("VAT_TOTAL", invoice.getVatAmount(), vatSum,
+				invoice.getVatAmount() == null || items.isEmpty() || vatSum == null,
+				"Tổng VAT dòng, hỗ trợ nhiều thuế suất; cần items[].taxAmount và vatAmount"));
+		BigDecimal total = invoice.getSubtotal() == null || invoice.getVatAmount() == null
+				? null : round(invoice.getSubtotal().add(invoice.getVatAmount()));
+		result.add(check("TOTAL", invoice.getTotalAmount(), total,
+				invoice.getSubtotal() == null || invoice.getVatAmount() == null || invoice.getTotalAmount() == null,
+				"Tổng trước thuế + VAT so với thanh toán; cần subtotal, vatAmount và totalAmount"));
+		return result;
+	}
+
+	private Check check(String type, BigDecimal declared, BigDecimal calculated, boolean missing, String message) {
+		return missing ? insufficient(type, declared, calculated, message)
+				: new Check(type, declared, calculated, false, message);
+	}
+
+	private Check insufficient(String type, BigDecimal declared, BigDecimal calculated, String message) {
+		return new Check(type, declared, calculated, true, message);
+	}
+
+	private Reconciliation save(Reconciliation current, ReconciliationBatch batch, Document document,
+			Invoice invoice, Check check) {
+		if (current != null && current.getReviewedAt() != null) return current;
+		Reconciliation result = current == null ? new Reconciliation() : current;
+		result.setReconciliationBatch(batch);
+		result.setDocument(document);
+		result.setInvoice(invoice);
+		result.setExpectedAmount(roundNullable(check.declared()));
+		result.setActualAmount(roundNullable(check.calculated()));
+		BigDecimal difference = check.missing() || check.declared() == null || check.calculated() == null
+				? null : round(check.calculated().subtract(check.declared()));
+		result.setDifferenceAmount(difference);
+		result.setStatus(check.missing() ? INSUFFICIENT_DATA
+				: difference.abs().compareTo(TOLERANCE) <= 0 ? MATCHED : MISMATCH);
+		result.setComment(check.type() + ": " + (check.missing() ? "INSUFFICIENT_DATA; " : "")
+				+ check.message() + "; rounding=HALF_UP scale=2");
+		return reconciliationRepository.save(result);
+	}
+
+	private ReconciliationBatch batch(Document document, Invoice invoice, Authentication authentication) {
+		User user = userService.loadCurrent(authentication);
+		ReconciliationBatch batch = new ReconciliationBatch();
+		batch.setCompany(document.getCompany());
+		batch.setBatchCode("DOC-" + document.getId() + "-" + System.currentTimeMillis());
+		batch.setPeriodFrom(invoice.getInvoiceDate() == null ? LocalDate.now() : invoice.getInvoiceDate());
+		batch.setPeriodTo(batch.getPeriodFrom());
+		batch.setStatus("COMPLETED");
+		batch.setCreatedBy(user);
+		return batchRepository.save(batch);
+	}
+
+	private String type(Reconciliation result) {
+		return result.getComment() == null ? "UNKNOWN_" + result.getId() : result.getComment().split(":", 2)[0];
+	}
+
+	private ReconciliationResponse response(Reconciliation result) {
+		return new ReconciliationResponse(result.getId(), type(result), result.getExpectedAmount(),
+				result.getActualAmount(), result.getDifferenceAmount(), result.getStatus(), result.getComment());
+	}
+
+	private BigDecimal rate(BigDecimal value) {
+		return value == null ? null : value.abs().compareTo(BigDecimal.ONE) <= 0 ? value : value.movePointLeft(2);
+	}
+
+	private BigDecimal multiply(BigDecimal left, BigDecimal right) {
+		return left == null || right == null ? null : round(left.multiply(right));
+	}
+
+	private BigDecimal completeSum(List<BigDecimal> values) {
+		if (values.isEmpty() || values.stream().anyMatch(Objects::isNull)) return null;
+		return round(values.stream().reduce(BigDecimal.ZERO, BigDecimal::add));
+	}
+
+	private BigDecimal roundNullable(BigDecimal value) {
+		return value == null ? null : round(value);
+	}
+
+	private BigDecimal round(BigDecimal value) {
+		return value.setScale(2, RoundingMode.HALF_UP);
+	}
+
+	private record Check(String type, BigDecimal declared, BigDecimal calculated, boolean missing, String message) {}
 }

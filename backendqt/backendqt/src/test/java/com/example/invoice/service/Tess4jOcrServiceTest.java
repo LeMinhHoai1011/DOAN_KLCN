@@ -12,6 +12,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.Charset;
 import java.util.List;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.io.TempDir;
@@ -62,15 +63,16 @@ class Tess4jOcrServiceTest {
 		OcrPageResult original = ocr.recognize(source, 1);
 
 		assertVietnameseText(original);
-		assertEquals("UTF8", System.getProperty("jna.encoding"));
+		assertEquals(Charset.forName("UTF-8"), Charset.forName(System.getProperty("jna.encoding")));
 
 		OpenCvImageProcessor processor = new OpenCvImageProcessor(properties);
 		ImageQualityResult quality = new ImageQualityResult(170, 50, 500, 0, 0, 100, 100, 0.8);
 		for (OcrProcessingProfile profile : List.of(OcrProcessingProfile.ENHANCED, OcrProcessingProfile.AGGRESSIVE)) {
 			OpenCvImageProcessor.ProcessedImage processed = processor.process(source, profile, quality);
 			OcrPageResult result = ocr.recognize(processed.bytes(), 1);
-			System.out.printf("OCR_PREPROCESS profile=%s operations=%s text=%s%n",
-					profile, processed.operations(), result.text());
+			System.out.printf("OCR_PREPROCESS profile=%s operations=%s utf8Base64=%s%n",
+					profile, processed.operations(), java.util.Base64.getEncoder().encodeToString(
+							result.text().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 			assertVietnameseText(result);
 		}
 	}

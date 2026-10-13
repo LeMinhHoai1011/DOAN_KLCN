@@ -22,5 +22,6 @@ class AiDocumentPromptFactoryTest {
 		assertTrue(prompt.contains("Distinguish absent from unreadable"));
 		assertTrue(prompt.contains("EXTRACTION_FAILED_<JSON_FIELD>"));
 		assertTrue(prompt.contains("8% as 0.08, 10% as 0.10"));
+		assertTrue(prompt.contains("\"items\":[{\"productName\":null,\"quantity\":null,\"unit\":null,\"unitPrice\":null"));
 	}
 }

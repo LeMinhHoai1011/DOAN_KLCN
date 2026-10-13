@@ -17,6 +17,7 @@ import com.example.invoice.entity.Classification;
 import com.example.invoice.entity.Document;
 import com.example.invoice.entity.DocumentType;
 import com.example.invoice.entity.Invoice;
+import com.example.invoice.entity.InvoiceItem;
 import com.example.invoice.entity.OCRResult;
 import com.example.invoice.entity.ExtractedField;
 import com.example.invoice.entity.DocumentStatus;
@@ -105,6 +106,48 @@ class DocumentAiResultPersistenceServiceTest {
 		service.persist(7L, validated);
 
 		verify(invoiceRepository).save(same(existing));
+	}
+
+	@Test
+	void reprocessWithEmptyItemsPreservesExistingValidItems() {
+		assertReprocessPreservesItems(List.of());
+	}
+
+	@Test
+	void reprocessWithNullItemsPreservesExistingValidItems() {
+		assertReprocessPreservesItems(null);
+	}
+
+	@Test
+	void reprocessWithOnlyInvalidItemsPreservesExistingValidItems() {
+		assertReprocessPreservesItems(List.of(new AiDocumentResult.AiInvoiceItemExtraction(
+				"  ", BigDecimal.ONE, "cái", BigDecimal.TEN, new BigDecimal("0.08"),
+				new BigDecimal("0.8"), BigDecimal.TEN)));
+	}
+
+	private void assertReprocessPreservesItems(List<AiDocumentResult.AiInvoiceItemExtraction> replacementItems) {
+		Document document = new Document(); document.setId(701L);
+		DocumentType type = new DocumentType(); type.setCode("VAT_INVOICE");
+		Invoice existing = new Invoice(); existing.setId(702L); existing.setAiGenerated(true);
+		InvoiceItem existingItem = new InvoiceItem(); existingItem.setId(703L); existingItem.setInvoice(existing);
+		existingItem.setProductName("Dòng hàng đã xác nhận"); existingItem.setQuantity(BigDecimal.ONE);
+		existingItem.setUnitPrice(new BigDecimal("100000")); existingItem.setAmount(new BigDecimal("100000"));
+		existing.getItems().add(existingItem);
+		AiDocumentResult.AiInvoiceExtraction extraction = new AiDocumentResult.AiInvoiceExtraction(
+				"INV-701", "1C26TEST", "2026-10-13", "Seller", "0312345678", null, null,
+				"Buyer", "0398765432", null, new BigDecimal("100000"), new BigDecimal("8000"),
+				new BigDecimal("108000"), null, null, null, null, replacementItems);
+		when(documentService.load(701L)).thenReturn(document);
+		when(documentTypeRepository.findByCode("VAT_INVOICE")).thenReturn(Optional.of(type));
+		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(701L)).thenReturn(Optional.empty());
+		when(invoiceRepository.findByDocumentId(701L)).thenReturn(Optional.of(existing));
+		when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		service().persist(701L, new AiDocumentResultValidator().validate(invoiceResult(extraction), Set.of("VAT_INVOICE")));
+
+		assertEquals(1, existing.getItems().size());
+		assertEquals(703L, existing.getItems().getFirst().getId());
+		assertEquals("Dòng hàng đã xác nhận", existing.getItems().getFirst().getProductName());
 	}
 
 	@Test

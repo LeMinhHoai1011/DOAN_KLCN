@@ -1,7 +1,6 @@
 package com.example.invoice.config;
 
 import com.example.invoice.entity.User;
-import com.example.invoice.entity.UserRole;
 import com.example.invoice.entity.Role;
 import com.example.invoice.entity.UserRoleAssignment;
 import com.example.invoice.repository.RoleRepository;
@@ -44,26 +43,16 @@ public class DemoAdminInitializer implements CommandLineRunner {
 	public void run(String... args) {
 		if (!enabled && !demoUsersEnabled) return;
 		allowLegacyPasswordColumnToBeEmpty();
-		allowSupportedRoles();
-
 		if (enabled) {
-			createIfMissing(username, password, "Smart Invoice Admin", email, UserRole.ADMIN);
+			createIfMissing(username, password, "Smart Invoice Admin", email, "ADMIN");
 		}
 		if (demoUsersEnabled) {
-			createIfMissing("accountant", "Accountant@123", "Smart Invoice Accountant", "accountant@smartinvoice.local", UserRole.ACCOUNTANT);
-			createIfMissing("employee", "Employee@123", "Smart Invoice Employee", "employee@smartinvoice.local", UserRole.EMPLOYEE);
+			createIfMissing("accountant", "Accountant@123", "Smart Invoice Accountant", "accountant@smartinvoice.local", "ACCOUNTANT");
+			createIfMissing("employee", "Employee@123", "Smart Invoice Employee", "employee@smartinvoice.local", "EMPLOYEE");
 		}
 	}
 
-	private void allowSupportedRoles() {
-		try {
-			jdbcTemplate.execute("alter table users drop constraint if exists users_role_check");
-			jdbcTemplate.execute("alter table users add constraint users_role_check check (role in ('ADMIN', 'ACCOUNTANT', 'EMPLOYEE', 'USER'))");
-		} catch (DataAccessException ignored) {
-		}
-	}
-
-	private void createIfMissing(String accountUsername, String accountPassword, String fullName, String accountEmail, UserRole role) {
+	private void createIfMissing(String accountUsername, String accountPassword, String fullName, String accountEmail, String roleCode) {
 		User user = userRepository.findByUsername(accountUsername).orElseGet(() -> {
 			User newUser = new User();
 			newUser.setUsername(accountUsername);
@@ -72,8 +61,7 @@ public class DemoAdminInitializer implements CommandLineRunner {
 			newUser.setEmail(accountEmail);
 			return userRepository.save(newUser);
 		});
-		user.setRole(role);
-		Role databaseRole = roleRepository.findByCode(role.name()).orElse(null);
+		Role databaseRole = roleRepository.findByCode(roleCode).orElse(null);
 		if (databaseRole != null && user.getUserRoles().stream()
 				.noneMatch(assignment -> assignment.getRole().getId().equals(databaseRole.getId()))) {
 			UserRoleAssignment assignment = new UserRoleAssignment();

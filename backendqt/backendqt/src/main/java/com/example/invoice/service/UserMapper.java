@@ -3,7 +3,6 @@ package com.example.invoice.service;
 import com.example.invoice.dto.user.UserResponse;
 import com.example.invoice.entity.User;
 import com.example.invoice.entity.Role;
-import com.example.invoice.entity.UserRole;
 import com.example.invoice.entity.UserRoleAssignment;
 import java.util.List;
 import java.util.Set;
@@ -18,10 +17,10 @@ public class UserMapper {
 				.filter(Role::isActive)
 				.map(Role::getCode)
 				.collect(Collectors.toUnmodifiableSet());
-		UserRole primaryRole = List.of(UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.EMPLOYEE, UserRole.USER).stream()
-				.filter(role -> roles.contains(role.name()))
+		String primaryRole = List.of("ADMIN", "ACCOUNTANT", "EMPLOYEE", "USER").stream()
+				.filter(roles::contains)
 				.findFirst()
-				.orElse(null);
+				.orElseGet(() -> roles.stream().sorted().findFirst().orElse(null));
 		return new UserResponse(
 				user.getId(),
 				user.getUsername(),

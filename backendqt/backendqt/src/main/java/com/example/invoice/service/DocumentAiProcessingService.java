@@ -25,6 +25,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.text.Normalizer;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -152,6 +153,8 @@ public class DocumentAiProcessingService {
 
 		AiDocumentResult result = resolveCompanyRole(aggregatePageResults(
 				analyzedPages.stream().map(PageAnalysis::aiResult).toList()), company);
+		logItemTelemetry(documentId, result);
+		result = addMissingInvoiceItemsWarning(result, ocr);
 
 		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes, Set.copyOf(categoryCodes));
 		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
@@ -227,6 +230,8 @@ public class DocumentAiProcessingService {
 
 		AiDocumentResult result = resolveCompanyRole(analyzeSingleImage(document.getOriginalFileName(), contentType,
 				bytes, typeCodes, categoryCodes, categoryOptions, company, pageOcr), company);
+		logItemTelemetry(documentId, result);
+		result = addMissingInvoiceItemsWarning(result, ocr);
 		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes, Set.copyOf(categoryCodes));
 		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
 				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
@@ -385,9 +390,20 @@ public class DocumentAiProcessingService {
 
 	private boolean looksLikeLostVietnameseDiacritics(String text, String language) {
 		if (text == null || language == null || !language.toLowerCase(Locale.ROOT).contains("vie")) return false;
-		if (text.matches("(?s).*[À-ưǍ-ǜẠ-ỹĐđ].*")) return false;
 		String lower = text.toLowerCase(Locale.ROOT);
-		return lower.matches("(?s).*(hoa don|cong ty|dia chi|ma so thue|nguoi mua|nguoi ban|thanh tien).*");
+		String[] suspiciousPhrases = {
+				"hoa don", "cong ty", "dia chi", "don vi", "noi that", "thanh pho", "ha noi",
+				"ma so thue", "nguoi mua", "nguoi ban", "thanh tien", "tong cong", "tien thue",
+				"so tien", "lam trieu"
+		};
+		long suspicious = java.util.Arrays.stream(suspiciousPhrases)
+				.filter(phrase -> lower.matches("(?s).*\\b" + java.util.regex.Pattern.quote(phrase) + "\\b.*"))
+				.count();
+		boolean hasVietnameseDiacritics = text.matches("(?s).*[À-ưǍ-ǜẠ-ỹĐđ].*");
+		// A single ASCII phrase can be a legitimate brand or bilingual label. Three or
+		// more known Vietnamese phrases without their marks, even inside otherwise
+		// accented OCR, is strong evidence that Tesseract confidence is over-optimistic.
+		return hasVietnameseDiacritics ? suspicious >= 3 : suspicious >= 1;
 	}
 
 	private boolean isStructuredOutputFailure(AiProviderException exception) {
@@ -477,6 +493,47 @@ public class DocumentAiProcessingService {
 				first.documentDirection(), first.transactionAssessment(),
 				pages.stream().flatMap(page -> page.extraFields() == null ? java.util.stream.Stream.empty() : page.extraFields().stream()).toList(),
 				first.companyRole());
+	}
+
+	AiDocumentResult addMissingInvoiceItemsWarning(AiDocumentResult result, OcrDocumentResult ocr) {
+		if (result == null || !"VAT_INVOICE".equals(normalizeType(result.documentType())) || !hasItemTable(ocr)) return result;
+		List<AiDocumentResult.AiInvoiceItemExtraction> items = result.invoice() == null ? null : result.invoice().items();
+		boolean hasValidItem = items != null && items.stream().anyMatch(item -> item != null
+				&& item.productName() != null && !item.productName().isBlank());
+		if (hasValidItem) return result;
+		List<String> warnings = new ArrayList<>(result.warnings() == null ? List.of() : result.warnings());
+		if (warnings.stream().noneMatch(warning -> warning != null && warning.startsWith("INVOICE_ITEMS_MISSING"))) {
+			warnings.add("INVOICE_ITEMS_MISSING: OCR indicates an item table but AI returned no valid invoice items");
+		}
+		return new AiDocumentResult(result.provider(), result.model(), result.documentType(), result.classificationConfidence(),
+				result.accountingCategoryCode(), result.accountingAccount(), result.rawText(), result.invoice(), result.fields(),
+				List.copyOf(warnings), result.rawResponse(), result.durationMs(), result.documentDirection(),
+				result.transactionAssessment(), result.extraFields(), result.companyRole());
+	}
+
+	private void logItemTelemetry(Long documentId, AiDocumentResult result) {
+		List<AiDocumentResult.AiInvoiceItemExtraction> items = result == null || result.invoice() == null
+				? null : result.invoice().items();
+		long invalidItemCount = items == null ? 0 : items.stream()
+				.filter(item -> item == null || item.productName() == null || item.productName().isBlank()).count();
+		log.info("AI_ITEMS_AFTER_PARSER documentId={} invoicePresent={} itemsPresent={} itemCount={} invalidItemCount={}",
+				documentId, result != null && result.invoice() != null, items != null,
+				items == null ? 0 : items.size(), invalidItemCount);
+	}
+
+	private boolean hasItemTable(OcrDocumentResult ocr) {
+		if (ocr == null || ocr.rawText() == null || ocr.rawText().isBlank()) return false;
+		String text = Normalizer.normalize(ocr.rawText(), Normalizer.Form.NFD)
+				.replaceAll("\\p{M}+", "").toLowerCase(java.util.Locale.ROOT);
+		boolean description = text.contains("ten hang hoa") || text.contains("hang hoa, dich vu") || text.contains("description");
+		boolean quantity = text.contains("so luong") || text.contains("quantity");
+		boolean unitPrice = text.contains("don gia") || text.contains("unit price");
+		boolean amount = text.contains("thanh tien") || text.contains("amount");
+		return description && quantity && unitPrice && amount;
+	}
+
+	private String normalizeType(String type) {
+		return type == null ? "" : type.trim().toUpperCase(java.util.Locale.ROOT).replace('-', '_').replace(' ', '_');
 	}
 
 	private AiDocumentResult.AiInvoiceExtraction mergeInvoice(AiDocumentResult.AiInvoiceExtraction left,

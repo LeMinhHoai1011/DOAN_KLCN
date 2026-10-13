@@ -42,13 +42,13 @@ public class Reconciliation {
     @JoinColumn(name = "financial_transaction_id")
     private FinancialTransaction financialTransaction;
 
-    @Column(nullable = false, precision = 19, scale = 2)
+    @Column(precision = 19, scale = 2)
     private BigDecimal expectedAmount;
 
-    @Column(nullable = false, precision = 19, scale = 2)
+    @Column(precision = 19, scale = 2)
     private BigDecimal actualAmount;
 
-    @Column(nullable = false, precision = 19, scale = 2)
+    @Column(precision = 19, scale = 2)
     private BigDecimal differenceAmount;
 
     @Column(nullable = false, length = 30)

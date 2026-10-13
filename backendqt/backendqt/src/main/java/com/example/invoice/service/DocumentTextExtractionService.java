@@ -33,7 +33,7 @@ public class DocumentTextExtractionService {
 		TesseractOcrService.OcrPage page = tesseractOcrService.recognize(processed.bytes(), 1);
 		List<String> warnings = qualityWarnings(page.text(), page.confidence());
 		return result(List.of(ocrPage(1, page.text(), page.confidence())),
-				"tesseract", "tess4j-5.13.0", "IMAGE_OCR", page.durationMs(), warnings);
+				"tesseract", "tess4j-5.18.0", "IMAGE_OCR", page.durationMs(), warnings);
 	}
 
 	private DocumentTextExtractionResult extractPdf(byte[] bytes) {
@@ -59,7 +59,7 @@ public class DocumentTextExtractionService {
 			pages.add(ocrPage(rendered.pageNumber(), ocr.text(), ocr.confidence()));
 		}
 		List<String> warnings = pages.stream().flatMap(page -> qualityWarnings(page.text(), page.confidence()).stream()).distinct().toList();
-		return result(pages, "tesseract", "tess4j-5.13.0", "SCANNED_PDF_OCR", ocrDuration, warnings);
+		return result(pages, "tesseract", "tess4j-5.18.0", "SCANNED_PDF_OCR", ocrDuration, warnings);
 	}
 
 	private List<DocumentTextExtractionResult.PageText> extractPdfTextPages(byte[] bytes) {

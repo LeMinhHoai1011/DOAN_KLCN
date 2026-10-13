@@ -9,6 +9,7 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
+import java.util.List;
 import javax.imageio.ImageIO;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -88,20 +89,28 @@ class DocumentTextExtractionRuntimeTest {
 	@Test
 	void vietnameseImageRunsRealViePlusEngModel() throws Exception {
 		assertEquals("vie+eng", properties.getOcr().getLanguage());
-		byte[] image = vietnameseImage(
+		String groundTruth = String.join("\n",
 				"HÓA ĐƠN GIÁ TRỊ GIA TĂNG / VAT INVOICE",
 				"CÔNG TY CỔ PHẦN ÁNH DƯƠNG",
 				"Địa chỉ: 123 Nguyễn Huệ, Quận 1, Thành phố Hồ Chí Minh",
 				"Mã số thuế: 0312345678    Ngày hóa đơn: 02/10/2026",
 				"Tiền thuế GTGT: 1.580.000 VND",
 				"Tổng tiền thanh toán: 17.380.000 VND");
+		byte[] image = vietnameseImage(groundTruth.split("\\n"));
 		java.nio.file.Files.createDirectories(java.nio.file.Path.of("target"));
 		java.nio.file.Files.write(java.nio.file.Path.of("target", "vietnamese-ocr-fixture.png"), image);
 		java.nio.file.Files.write(java.nio.file.Path.of("target", "vietnamese-ocr-preprocessed.png"),
 				new ImagePreprocessingService(properties).preprocess(image, "image/png").bytes());
 		DocumentTextExtractionResult result = service.extract(image, "image/png");
 		String text = result.text();
-		System.out.println("RUNTIME_VIETNAMESE_OCR=" + text.replace('\n', '|'));
+		String recognized = result.pages().getFirst().text();
+		double cer = errorRate(groundTruth.codePoints().boxed().toList(), recognized.codePoints().boxed().toList());
+		double wer = errorRate(List.of(groundTruth.split("\\s+")), List.of(recognized.split("\\s+")));
+		System.out.printf(java.util.Locale.ROOT, "RUNTIME_VIETNAMESE_METRICS CER=%.6f WER=%.6f durationMs=%d%n",
+				cer, wer, result.durationMs());
+		System.out.println("RUNTIME_VIETNAMESE_UTF8_BASE64="
+				+ java.util.Base64.getEncoder().encodeToString(recognized.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+		assertFalse(recognized.contains("\uFFFD"), "OCR result contains Unicode replacement characters");
 		assertTrue(text.contains("HÓA ĐƠN GIÁ TRỊ GIA TĂNG"));
 		assertTrue(text.contains("CÔNG TY") && text.contains("DƯƠNG"));
 		assertTrue(text.contains("Nguyễn Huệ"));
@@ -109,6 +118,22 @@ class DocumentTextExtractionRuntimeTest {
 		assertTrue(text.contains("02/10/2026"));
 		assertTrue(text.contains("thuế GTGT"));
 		assertTrue(text.contains("17.380.000 VND"));
+	}
+
+	private static <T> double errorRate(List<T> expected, List<T> actual) {
+		int[] previous = new int[actual.size() + 1];
+		for (int column = 0; column <= actual.size(); column++) previous[column] = column;
+		for (int row = 1; row <= expected.size(); row++) {
+			int[] current = new int[actual.size() + 1];
+			current[0] = row;
+			for (int column = 1; column <= actual.size(); column++) {
+				int substitution = previous[column - 1]
+						+ (expected.get(row - 1).equals(actual.get(column - 1)) ? 0 : 1);
+				current[column] = Math.min(Math.min(previous[column] + 1, current[column - 1] + 1), substitution);
+			}
+			previous = current;
+		}
+		return expected.isEmpty() ? (actual.isEmpty() ? 0 : 1) : (double) previous[actual.size()] / expected.size();
 	}
 
 	private byte[] image(String... lines) throws Exception {

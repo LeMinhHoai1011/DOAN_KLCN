@@ -1,5 +1,6 @@
 package com.example.invoice.dto.ai;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.math.BigDecimal;
 import java.util.List;
@@ -129,7 +130,7 @@ public record AiDocumentResult(
 			String amountInWords,
 			String taxAuthorityCode,
 			String signDate,
-			List<AiInvoiceItemExtraction> items) {
+			@JsonAlias("invoiceItems") List<AiInvoiceItemExtraction> items) {
 		public AiInvoiceExtraction(String invoiceNumber, String invoiceSeries, String invoiceDate,
 				String sellerName, String sellerTaxCode, String sellerAddress, String buyerName,
 				String buyerTaxCode, String buyerAddress, BigDecimal subtotal, BigDecimal vatAmount,
@@ -142,7 +143,7 @@ public record AiDocumentResult(
 
 	@JsonIgnoreProperties(ignoreUnknown = true)
 	public record AiInvoiceItemExtraction(
-			String productName,
+			@JsonAlias({"description", "itemName", "name", "productDescription"}) String productName,
 			BigDecimal quantity,
 			String unit,
 			BigDecimal unitPrice,

@@ -29,7 +29,9 @@ import com.example.invoice.repository.AccountingCategoryRepository;
 import com.example.invoice.repository.DocumentTypeRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -172,6 +174,33 @@ class DocumentAiProcessingServiceTest {
 				.anyMatch(warning -> warning.startsWith("DOCUMENT_TYPE_PAGE_CONFLICT:")));
 		verify(pdfConversionService).convert(same(pdf));
 		verify(ocrResultService, never()).findByDocumentId(8L);
+	}
+
+	@Test
+	void document245RegressionFlagsMissingItemsWhenOcrContainsAnInvoiceTable() throws Exception {
+		String ocrText;
+		try (var stream = getClass().getResourceAsStream("/fixtures/document-245-ocr.txt")) {
+			org.junit.jupiter.api.Assertions.assertNotNull(stream);
+			ocrText = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+		}
+		AiDocumentResult.AiInvoiceExtraction invoice = new AiDocumentResult.AiInvoiceExtraction(
+				"00036", "1C26TPL", "2026-09-25", "Seller", "0319174875", null, null,
+				"Buyer", "0318334251", null, new BigDecimal("14800000"), new BigDecimal("1184000"),
+				new BigDecimal("15984000"), null, null, null, null, List.of());
+		AiDocumentResult parsed = new AiDocumentResult("ollama", "qwen3-vl", "VAT_INVOICE",
+				new BigDecimal("0.99"), null, null, null, invoice, List.of(),
+				List.of("DOCUMENT_TYPE_REASON: Có hóa đơn GTGT"), "raw", 1L,
+				AiDocumentResult.DocumentDirection.INCOMING,
+				new AiDocumentResult.AiTransactionAssessment(AiDocumentResult.TransactionAssessmentType.EXPENSE,
+						BigDecimal.ONE, "Hóa đơn đầu vào"), List.of(),
+				new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.BUYER, BigDecimal.ONE, "Khớp MST"));
+		OcrDocumentResult ocr = new OcrDocumentResult(ocrText, 92f, List.of(), 10L, List.of());
+
+		AiDocumentResult flagged = serviceWithLayoutReconstructor().addMissingInvoiceItemsWarning(parsed, ocr);
+		var validated = new AiDocumentResultValidator().validate(flagged, Set.of("VAT_INVOICE"));
+
+		assertTrue(validated.warnings().stream().anyMatch(warning -> warning.startsWith("INVOICE_ITEMS_MISSING:")));
+		assertTrue(validated.requiresReview(new AiProperties().getDocument().getReviewThreshold()));
 	}
 
 	private DocumentType documentType(String code) {

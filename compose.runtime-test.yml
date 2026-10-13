@@ -1,0 +1,102 @@
+# Runtime dependencies for local integration tests.
+#
+# Required variables are read from the repository .env file:
+#   DB_PASSWORD, MINIO_ACCESS_KEY, MINIO_SECRET_KEY
+#
+# Start dependencies:
+#   docker compose -f compose.runtime-test.yml up -d --wait
+#
+# Pull the configured Ollama model once (large download):
+#   docker compose -f compose.runtime-test.yml --profile model run --rm ollama-model
+#
+# Run the existing runtime tests from backendqt/backendqt on the host:
+#   $env:RUNTIME_DB_TEST='true'
+#   $env:OLLAMA_RUNTIME_MODEL='qwen3-vl:8b'
+#   $env:TESSDATA_PATH=(Resolve-Path './tessdata')
+#   $env:DB_HOST='localhost'
+#   $env:DB_PORT='5432'
+#   $env:DB_NAME='invoice_db'
+#   $env:DB_USERNAME='postgres'
+#   # DB_PASSWORD is already supplied by the repository .env or current shell.
+#   .\mvnw.cmd test
+#
+# Important: the repository currently has no baseline dd.sql and no
+# Flyway/Liquibase dependency. PostgreSQL will therefore start empty. Apply the
+# real baseline schema and subsequent db/migration patches before enabling
+# RUNTIME_DB_TEST; ddl-auto=validate intentionally does not create tables.
+
+name: invoice-runtime-test
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: invoice_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env or the shell}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - runtime_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d invoice_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  minio:
+    # The legacy Docker Hub repository may be unavailable. Keep storage opt-in
+    # so DB/OCR/Ollama runtime tests can still run independently.
+    image: quay.io/minio/minio:latest
+    profiles: ["storage"]
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY in .env or the shell}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY in .env or the shell}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - runtime_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - runtime_ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+  ollama-model:
+    image: ollama/ollama:latest
+    profiles: ["model"]
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama"]
+    command: ["pull", "qwen3-vl:8b"]
+    volumes:
+      - runtime_ollama_data:/root/.ollama
+
+volumes:
+  runtime_postgres_data:
+  runtime_minio_data:
+  runtime_ollama_data:

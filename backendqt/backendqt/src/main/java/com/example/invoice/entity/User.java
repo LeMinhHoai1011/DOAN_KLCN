@@ -3,8 +3,8 @@ package com.example.invoice.entity;
 import jakarta.persistence.Column;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.EnumType;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -56,9 +56,6 @@ public class User {
 
 	private String phone;
 	private String avatar;
-
-	@Transient
-	private UserRole role = UserRole.USER;
 
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)

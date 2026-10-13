@@ -1,6 +1,7 @@
 import api from './api'
 
-export interface Reconciliation { id: number; type: string; expectedAmount: number; actualAmount: number; differenceAmount: number; status: string; comment: string | null }
+export type ReconciliationStatus = 'MATCHED' | 'MISMATCH' | 'INSUFFICIENT_DATA' | 'NEED_REVIEW'
+export interface Reconciliation { id: number; type: string; expectedAmount: number | null; actualAmount: number | null; differenceAmount: number | null; status: ReconciliationStatus; comment: string | null }
 interface ReconciliationApi extends Omit<Reconciliation, 'type'> { checkType: string }
 
 const fromApi = ({ checkType, ...value }: ReconciliationApi): Reconciliation => ({ ...value, type: checkType })

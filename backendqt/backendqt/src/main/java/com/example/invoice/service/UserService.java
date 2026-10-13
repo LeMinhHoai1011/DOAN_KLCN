@@ -21,6 +21,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -56,12 +57,10 @@ public class UserService {
 		user.setFullName(request.fullName());
 		user.setEmail(request.email());
 		user.setPhone(request.phone());
-		user.setRole(request.role()); // Legacy enum
 		user.setCompany(loadCompany(request.companyId()));
 
 		if (request.role() != null) {
-			Role role = roleRepository.findByCode(request.role().name())
-					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy vai trò"));
+			Role role = loadActiveRole(request.role());
 			replaceRoleAssignments(user, List.of(role));
 		}
 
@@ -76,9 +75,7 @@ public class UserService {
 		if (request.companyId() != null) user.setCompany(loadCompany(request.companyId()));
 
 		if (request.role() != null) {
-			user.setRole(request.role()); // Legacy enum
-			Role role = roleRepository.findByCode(request.role().name())
-					.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy vai trò"));
+			Role role = loadActiveRole(request.role());
 			boolean alreadyAssigned = user.getUserRoles().stream()
 					.anyMatch(assignment -> assignment.getRole().getId().equals(role.getId()));
 			if (!alreadyAssigned) {
@@ -120,15 +117,16 @@ public class UserService {
 			throw new BadRequestException("Một hoặc nhiều mã vai trò không hợp lệ");
 		}
 		replaceRoleAssignments(user, roles);
-		// Sync legacy enum with the primary role (first role in set)
-		if (!roles.isEmpty()) {
-			try {
-				user.setRole(com.example.invoice.entity.UserRole.valueOf(roles.get(0).getCode()));
-			} catch (IllegalArgumentException ignored) {
-				// custom role codes not in legacy enum — leave legacy field unchanged
-			}
-		}
 		return userMapper.toResponse(userRepository.save(user));
+	}
+
+	private Role loadActiveRole(String roleCode) {
+		String normalized = roleCode == null ? "" : roleCode.trim().toUpperCase(Locale.ROOT);
+		if (normalized.isBlank()) throw new BadRequestException("Mã vai trò không được để trống");
+		Role role = roleRepository.findByCode(normalized)
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy vai trò"));
+		if (!role.isActive()) throw new BadRequestException("Vai trò đã bị vô hiệu hóa");
+		return role;
 	}
 
 	private void replaceRoleAssignments(User user, List<Role> roles) {

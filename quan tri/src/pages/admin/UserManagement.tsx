@@ -13,7 +13,6 @@ import LoadingState from '../../components/ui/LoadingState'
 import PageHeader from '../../components/ui/PageHeader'
 
 type ManagedUser = User & { status: 'ACTIVE' | 'INACTIVE' }
-const assignableLegacyRoles = new Set(['ADMIN', 'ACCOUNTANT', 'EMPLOYEE', 'USER'])
 
 const UserManagement = () => {
   const [users, setUsers] = useState<ManagedUser[]>([])
@@ -119,7 +118,7 @@ const UserManagement = () => {
                 <input key={field} required type={field === 'password' ? 'password' : field === 'email' ? 'email' : 'text'} placeholder={field} value={form[field]} onChange={(event) => setForm({ ...form, [field]: event.target.value })} className="rounded-lg border border-slate-200 px-3 py-2" />
               ))}
               <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="rounded-lg border border-slate-200 px-3 py-2">
-                {roles.filter(r => assignableLegacyRoles.has(r.code)).map(r => <option key={r.id} value={r.code}>{r.name} ({r.code})</option>)}
+                {roles.filter(r => r.active).map(r => <option key={r.id} value={r.code}>{r.name} ({r.code})</option>)}
               </select>
             </div>
             <div className="mt-6 flex justify-end gap-3">

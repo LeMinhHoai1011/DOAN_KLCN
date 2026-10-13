@@ -46,14 +46,13 @@ public class AuthService {
 		user.setFullName(request.fullName());
 		user.setEmail(request.email());
 		user.setPhone(request.phone());
-		user.setRole(com.example.invoice.entity.UserRole.EMPLOYEE); // Keep legacy enum
-		
-		roleRepository.findByCode("EMPLOYEE").ifPresent(role -> {
-			UserRoleAssignment assignment = new UserRoleAssignment();
-			assignment.setUser(user);
-			assignment.setRole(role);
-			user.getUserRoles().add(assignment);
-		});
+		Role role = roleRepository.findByCode("EMPLOYEE")
+				.filter(Role::isActive)
+				.orElseThrow(() -> new IllegalStateException("Vai trò EMPLOYEE chưa được cấu hình hoặc đã bị vô hiệu hóa"));
+		UserRoleAssignment assignment = new UserRoleAssignment();
+		assignment.setUser(user);
+		assignment.setRole(role);
+		user.getUserRoles().add(assignment);
 
 		return userMapper.toResponse(userRepository.save(user));
 	}

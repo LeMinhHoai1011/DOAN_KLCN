@@ -11,6 +11,7 @@ import java.util.List;
 import javax.imageio.ImageIO;
 import lombok.RequiredArgsConstructor;
 import net.sourceforge.tess4j.ITessAPI.TessPageIteratorLevel;
+import net.sourceforge.tess4j.ITessAPI.TessPageSegMode;
 import net.sourceforge.tess4j.Tesseract;
 import net.sourceforge.tess4j.TesseractException;
 import net.sourceforge.tess4j.Word;
@@ -33,6 +34,10 @@ public class TesseractOcrService {
 			Utf8Tesseract engine = new Utf8Tesseract();
 			if (!properties.getOcr().getDataPath().isBlank()) engine.setDatapath(properties.getOcr().getDataPath());
 			engine.setLanguage(properties.getOcr().getLanguage());
+			engine.setPageSegMode(TessPageSegMode.PSM_AUTO);
+			// ImageIO-created and camera images often expose invalid or missing DPI metadata.
+			// Give Tesseract a stable source resolution without resampling the original bitmap.
+			engine.setVariable("user_defined_dpi", "300");
 			String text = engine.doOCRUtf8(image);
 			List<Word> words = engine.getWords(image, TessPageIteratorLevel.RIL_WORD);
 			double average = words.stream().filter(word -> word.getText() != null && !word.getText().isBlank())

@@ -98,6 +98,12 @@ public class DocumentAiResultPersistenceService {
 			return false;
 		}
 		AiDocumentResult result = validated.result();
+		List<AiDocumentResult.AiInvoiceItemExtraction> parsedItems = result.invoice() == null ? null : result.invoice().items();
+		long validItemCount = validItems(parsedItems).size();
+		long invalidItemCount = parsedItems == null ? 0 : parsedItems.size() - validItemCount;
+		log.info("AI_ITEMS_BEFORE_PERSISTENCE documentId={} invoicePresent={} itemsPresent={} itemCount={} validItemCount={} invalidItemCount={}",
+				documentId, result.invoice() != null, parsedItems != null, parsedItems == null ? 0 : parsedItems.size(),
+				validItemCount, invalidItemCount);
 		DocumentType type = documentTypeRepository.findByCode(result.documentType())
 				.orElseThrow(() -> new IllegalStateException("Loại chứng từ đã xác thực không còn tồn tại"));
 		if (!type.isActive()) throw new IllegalStateException("Loại chứng từ đã xác thực không còn hoạt động");
@@ -260,10 +266,11 @@ public class DocumentAiResultPersistenceService {
 		invoice.setTaxAuthorityCode(boundedIdentifier(extraction.taxAuthorityCode(), AiDocumentResultValidator.MAX_TAX_AUTHORITY_CODE_LENGTH));
 		invoice.setSignDate(parseDate(extraction.signDate()));
 		invoice.setAiGenerated(true);
-		invoice.getItems().clear();
-		if (extraction.items() != null) {
-			for (AiDocumentResult.AiInvoiceItemExtraction item : extraction.items()) {
-				if (item.productName() == null || item.productName().isBlank()) continue;
+		List<AiDocumentResult.AiInvoiceItemExtraction> validItems = validItems(extraction.items());
+		boolean preserveExistingItems = validItems.isEmpty() && !invoice.getItems().isEmpty();
+		if (!preserveExistingItems) {
+			invoice.getItems().clear();
+			for (AiDocumentResult.AiInvoiceItemExtraction item : validItems) {
 				InvoiceItem entity = new InvoiceItem();
 				entity.setInvoice(invoice);
 				entity.setProductName(item.productName());
@@ -276,7 +283,17 @@ public class DocumentAiResultPersistenceService {
 				invoice.getItems().add(entity);
 			}
 		}
-		return invoiceRepository.save(invoice);
+		Invoice saved = invoiceRepository.save(invoice);
+		log.info("AI_ITEMS_AFTER_PERSISTENCE documentId={} invoiceId={} persistedItemCount={} preservedExistingItems={}",
+				document.getId(), saved.getId(), saved.getItems().size(), preserveExistingItems);
+		return saved;
+	}
+
+	private List<AiDocumentResult.AiInvoiceItemExtraction> validItems(
+			List<AiDocumentResult.AiInvoiceItemExtraction> items) {
+		if (items == null) return List.of();
+		return items.stream().filter(item -> item != null && item.productName() != null
+				&& !item.productName().isBlank()).toList();
 	}
 
 	/** Removes obsolete AI type-specific data while retaining user-managed fields. */
