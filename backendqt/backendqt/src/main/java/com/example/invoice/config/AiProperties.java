@@ -62,6 +62,8 @@ public class AiProperties {
 			private double lowConfidencePercent = 45;
 			private double upscaleFactor = 2.0;
 			private int maxAttempts = 3;
+			private double minimumQualityImprovement = 0.02;
+			private double textBranchQualityScore = 0.55;
 			private double minimumDeskewAngleDegrees = 0.5;
 			private double maximumDeskewAngleDegrees = 5.0;
 
@@ -79,6 +81,10 @@ public class AiProperties {
 			public void setUpscaleFactor(double value) { this.upscaleFactor = value; }
 			public int getMaxAttempts() { return maxAttempts; }
 			public void setMaxAttempts(int value) { this.maxAttempts = value; }
+			public double getMinimumQualityImprovement() { return minimumQualityImprovement; }
+			public void setMinimumQualityImprovement(double value) { this.minimumQualityImprovement = value; }
+			public double getTextBranchQualityScore() { return textBranchQualityScore; }
+			public void setTextBranchQualityScore(double value) { this.textBranchQualityScore = value; }
 			public double getMinimumDeskewAngleDegrees() { return minimumDeskewAngleDegrees; }
 			public void setMinimumDeskewAngleDegrees(double value) { this.minimumDeskewAngleDegrees = value; }
 			public double getMaximumDeskewAngleDegrees() { return maximumDeskewAngleDegrees; }

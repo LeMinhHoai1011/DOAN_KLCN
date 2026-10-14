@@ -163,11 +163,13 @@ public class DocumentAiResultPersistenceService {
 		String rawText = tessOcr.rawText();
 		OCRResult ocr = ocrResultRepository.findFirstByDocumentIdOrderByProcessedAtDesc(document.getId()).orElseGet(OCRResult::new);
 		ocr.setDocument(document);
-		ocr.setOcrEngine("tesseract");
-		ocr.setModelVersion(aiProperties.getOcr().getLanguage());
+		boolean digitalPdf = !tessOcr.pages().isEmpty() && tessOcr.pages().stream()
+				.allMatch(page -> "pdf-text-layer".equals(page.language()));
+		ocr.setOcrEngine(digitalPdf ? "pdfbox" : "tesseract");
+		ocr.setModelVersion(digitalPdf ? "3.0.4" : aiProperties.getOcr().getLanguage());
 		ocr.setLanguage(tessOcr.pages().stream().map(OcrPageResult::language).filter(java.util.Objects::nonNull)
 				.findFirst().orElse(aiProperties.getOcr().getLanguage()));
-		ocr.setSourceType("TESS4J_WORD_LAYOUT");
+		ocr.setSourceType(digitalPdf ? "DIGITAL_PDF_TEXT" : "TESS4J_WORD_LAYOUT");
 		ocr.setRawText(rawText);
 		ocr.setConfidence(BigDecimal.valueOf(tessOcr.confidence()).movePointLeft(2));
 		ocr.setProcessingTime(tessOcr.durationMs());

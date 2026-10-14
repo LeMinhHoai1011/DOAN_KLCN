@@ -19,6 +19,9 @@ import org.springframework.stereotype.Component;
 public class OpenCvImageProcessor {
 	private static final double LOW_CONTRAST = 45;
 	private static final double LOW_SHARPNESS = 350;
+	private static final double HIGH_NOISE = 5.5;
+	private static final double UNEVEN_BACKGROUND = 24;
+	private static final double SMALL_TEXT_HEIGHT = 15;
 	private static final int SMALL_MINIMUM_DIMENSION = 1200;
 	private static final double SKEW_CONFIDENCE_REQUIRED = 0.30;
 	private final AiProperties properties;
@@ -33,25 +36,31 @@ public class OpenCvImageProcessor {
 		Mat current = color;
 		if (profile != OcrProcessingProfile.NORMAL) {
 			Mat gray = new Mat(); Imgproc.cvtColor(current, gray, Imgproc.COLOR_BGR2GRAY); current.release(); current = gray; operations.add("grayscale");
-			if (quality.contrast() < LOW_CONTRAST || profile == OcrProcessingProfile.AGGRESSIVE) {
+			if (quality.contrast() < LOW_CONTRAST
+					|| (profile == OcrProcessingProfile.AGGRESSIVE && quality.contrast() < 55)) {
 				Mat enhanced = new Mat(); CLAHE clahe = Imgproc.createCLAHE(2.0, new Size(8, 8)); clahe.apply(current, enhanced);
 				current.release(); current = enhanced; operations.add("clahe");
 			}
-			Mat denoised = new Mat(); Imgproc.bilateralFilter(current, denoised, 5, 35, 35); current.release(); current = denoised; operations.add("denoise");
-			if (quality.sharpness() < LOW_SHARPNESS || profile == OcrProcessingProfile.AGGRESSIVE) {
+			if (quality.noiseLevel() >= HIGH_NOISE) {
+				Mat denoised = new Mat(); Imgproc.bilateralFilter(current, denoised, 5, 35, 35); current.release(); current = denoised; operations.add("denoise");
+			}
+			if (quality.sharpness() < LOW_SHARPNESS
+					|| (profile == OcrProcessingProfile.AGGRESSIVE && quality.sharpness() < 500)) {
 				Mat blurred = new Mat(), sharpened = new Mat(); Imgproc.GaussianBlur(current, blurred, new Size(0, 0), 1.0);
 				Core.addWeighted(current, 1.5, blurred, -0.5, 0, sharpened); current.release(); blurred.release(); current = sharpened; operations.add("sharpen");
 			}
-			if (profile == OcrProcessingProfile.AGGRESSIVE && shouldDeskew(quality)) {
+			if (shouldDeskew(quality)) {
 				appliedAngle = quality.skewAngleDegrees();
 				Mat rotated = rotate(current, -appliedAngle); current.release(); current = rotated; operations.add("deskew");
 			}
-			if (Math.min(originalWidth, originalHeight) < SMALL_MINIMUM_DIMENSION) {
+			if (Math.min(originalWidth, originalHeight) < SMALL_MINIMUM_DIMENSION
+					|| (quality.estimatedTextHeight() > 0 && quality.estimatedTextHeight() < SMALL_TEXT_HEIGHT)) {
 				double factor = properties.getOcr().getAdaptive().getUpscaleFactor();
 				Mat upscaled = new Mat(); Imgproc.resize(current, upscaled, new Size(), factor, factor, Imgproc.INTER_CUBIC);
 				current.release(); current = upscaled; operations.add("upscale");
 			}
-			if (profile == OcrProcessingProfile.AGGRESSIVE) {
+			if (profile == OcrProcessingProfile.AGGRESSIVE
+					&& (quality.backgroundVariation() >= UNEVEN_BACKGROUND || quality.contrast() < LOW_CONTRAST)) {
 				Mat thresholded = new Mat(); Imgproc.adaptiveThreshold(current, thresholded, 255,
 						Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY, 31, 12);
 				current.release(); current = thresholded; operations.add("adaptive-threshold");

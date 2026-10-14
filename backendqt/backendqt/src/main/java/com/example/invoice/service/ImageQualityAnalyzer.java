@@ -10,6 +10,8 @@ import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.RotatedRect;
 import org.opencv.core.MatOfDouble;
+import org.opencv.core.MatOfPoint;
+import org.opencv.core.Rect;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 import org.springframework.stereotype.Component;
@@ -35,6 +37,9 @@ public class ImageQualityAnalyzer {
 		MatOfDouble lapMean = new MatOfDouble(), lapDeviation = new MatOfDouble();
 		Core.meanStdDev(laplacian, lapMean, lapDeviation);
 		double sharpness = lapDeviation.toArray()[0] * lapDeviation.toArray()[0];
+		double noise = estimateNoise(gray);
+		double backgroundVariation = estimateBackgroundVariation(gray);
+		double textHeight = estimateTextHeight(gray);
 		Skew skew = estimateSkew(gray);
 		double brightness = mean.toArray()[0], contrast = deviation.toArray()[0];
 		double brightnessScore = clamp01(1 - Math.abs(brightness - IDEAL_BRIGHTNESS) / BRIGHTNESS_TOLERANCE);
@@ -42,9 +47,47 @@ public class ImageQualityAnalyzer {
 		double sharpnessScore = clamp01(sharpness / TARGET_SHARPNESS);
 		double score = 0.30 * brightnessScore + 0.35 * contrastScore + 0.35 * sharpnessScore;
 		ImageQualityResult result = new ImageQualityResult(brightness, contrast, sharpness,
-				skew.angle(), skew.confidence(), image.cols(), image.rows(), clamp01(score));
+				skew.angle(), skew.confidence(), image.cols(), image.rows(), clamp01(score),
+				noise, backgroundVariation, textHeight);
 		image.release(); gray.release(); laplacian.release(); mean.release(); deviation.release(); lapMean.release(); lapDeviation.release();
 		return result;
+	}
+
+	private double estimateNoise(Mat gray) {
+		Mat blurred = new Mat(), difference = new Mat();
+		Imgproc.GaussianBlur(gray, blurred, new org.opencv.core.Size(3, 3), 0);
+		Core.absdiff(gray, blurred, difference);
+		double value = Core.mean(difference).val[0];
+		blurred.release(); difference.release();
+		return value;
+	}
+
+	private double estimateBackgroundVariation(Mat gray) {
+		Mat background = new Mat();
+		int block = Math.max(15, Math.min(gray.cols(), gray.rows()) / 12 | 1);
+		Imgproc.GaussianBlur(gray, background, new org.opencv.core.Size(block, block), 0);
+		MatOfDouble mean = new MatOfDouble(), deviation = new MatOfDouble();
+		Core.meanStdDev(background, mean, deviation);
+		double value = deviation.toArray()[0];
+		background.release(); mean.release(); deviation.release();
+		return value;
+	}
+
+	private double estimateTextHeight(Mat gray) {
+		Mat binary = new Mat();
+		Imgproc.threshold(gray, binary, 0, 255, Imgproc.THRESH_BINARY_INV | Imgproc.THRESH_OTSU);
+		List<MatOfPoint> contours = new ArrayList<>();
+		Mat hierarchy = new Mat();
+		Imgproc.findContours(binary, contours, hierarchy, Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE);
+		List<Integer> heights = contours.stream().map(Imgproc::boundingRect)
+				.filter(rect -> plausibleGlyph(rect, gray)).map(rect -> rect.height).sorted().toList();
+		contours.forEach(Mat::release); hierarchy.release(); binary.release();
+		return heights.isEmpty() ? 0 : heights.get(heights.size() / 2);
+	}
+
+	private boolean plausibleGlyph(Rect rect, Mat gray) {
+		return rect.height >= 3 && rect.width >= 1 && rect.height <= gray.rows() / 8
+				&& rect.width <= gray.cols() / 4 && rect.area() <= gray.total() * 0.02;
 	}
 
 	private Skew estimateSkew(Mat gray) {

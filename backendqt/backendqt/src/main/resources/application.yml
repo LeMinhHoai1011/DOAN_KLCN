@@ -67,6 +67,8 @@ ai:
       low-confidence-percent: ${OCR_LOW_CONFIDENCE_PERCENT:45}
       upscale-factor: ${OCR_UPSCALE_FACTOR:2.0}
       max-attempts: ${OCR_MAX_ATTEMPTS:3}
+      minimum-quality-improvement: ${OCR_MINIMUM_QUALITY_IMPROVEMENT:0.02}
+      text-branch-quality-score: ${OCR_TEXT_BRANCH_QUALITY_SCORE:0.55}
       minimum-deskew-angle-degrees: ${OCR_MINIMUM_DESKEW_ANGLE_DEGREES:0.5}
       maximum-deskew-angle-degrees: ${OCR_MAXIMUM_DESKEW_ANGLE_DEGREES:5.0}
   ollama:

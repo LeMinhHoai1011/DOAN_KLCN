@@ -70,6 +70,20 @@ class DocumentVisionFallbackPageSelectionTest {
 	}
 
 	@Test
+	void highConfidenceInvoiceOcrWithoutAnyCriticalFieldUsesVision() {
+		Fixture fixture = fixture(1);
+		String text = "random readable words without document labels or financial fields";
+		OcrPageResult suspicious = new OcrPageResult(1,100,100,text,96,
+				List.of(new OcrWord("w1","random",96,.1,.1,.2,.05)),1,null,"eng",
+				List.of(new OcrLine("l1",1,text,96,.1,.1,.8,.05,List.of("w1"))),
+				List.of(new OcrBlock("b1",1,text,96,.1,.1,.8,.05,List.of("l1"))));
+		fixture.service.analyzeSingleImage("invoice.png","image/png",new byte[]{1},
+				List.of("INVOICE"),List.of(),null,suspicious);
+		verify(fixture.ai,never()).analyzeTextDocument(any());
+		verify(fixture.ai).analyzeDocument(any());
+	}
+
+	@Test
 	void suspiciousVietnameseOcrWithoutDiacriticsUsesVision() {
 		Fixture fixture = fixture(1);
 		OcrPageResult suspicious = new OcrPageResult(1, 100, 100, "CONG TY ABC DIA CHI HA NOI", 95f,

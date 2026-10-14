@@ -264,14 +264,21 @@ public class DocumentAiProcessingService {
 				: ocrLayoutReconstructor == null ? ocr.text() : ocrLayoutReconstructor.structuredContext(ocr));
 		String prompt = AiDocumentPromptFactory.createWithCategories(documentTypes, categoryOptions,
 				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
+		AdaptiveOcrService.OcrQualityEvaluation quality = adaptiveOcrService == null
+				? null : adaptiveOcrService.evaluateDetailed(ocr);
 		boolean reliableOcr = ocr != null && ocr.successful()
 				&& Float.isFinite(ocr.confidence())
 				&& !ocr.words().isEmpty() && !ocr.lines().isEmpty() && !ocr.blocks().isEmpty()
 				&& !looksLikeLostVietnameseDiacritics(normalizedText, ocr.language())
-				&& BigDecimal.valueOf(ocr.confidence()).movePointLeft(2).compareTo(aiProperties.getOcr().getGoodConfidence()) >= 0;
+				&& BigDecimal.valueOf(ocr.confidence()).movePointLeft(2).compareTo(aiProperties.getOcr().getGoodConfidence()) >= 0
+				&& (quality == null || quality.score() >= aiProperties.getOcr().getAdaptive().getTextBranchQualityScore())
+				&& (documentTypes.stream().noneMatch(this::isInvoiceTypeCode)
+						|| (quality == null ? hasInvoiceCriticalEvidence(normalizedText)
+								: quality.criticalFieldCoverage() >= 0.20));
 		if (reliableOcr && !normalizedText.isBlank()) {
-			log.info("AI text input file={} ocrChars={} ocrWords={} confidence={} context={} reservedOutput={}",
+			log.info("AI text input file={} ocrChars={} ocrWords={} confidence={} quality={} context={} reservedOutput={}",
 					fileName, normalizedText.length(), ocr.words().size(), ocr.confidence(),
+					quality == null ? "legacy" : String.format("%.3f", quality.score()),
 					aiProperties.getOllama().getNumContext(), aiProperties.getOcr().getReservedOutputTokens());
 			String textPrompt = AiDocumentPromptFactory.forTextExtraction(prompt);
 			try {
@@ -296,6 +303,19 @@ public class DocumentAiProcessingService {
 		log.info("AI vision fallback file={} reason={} imageBytes={}", fileName,
 				ocr == null ? "OCR_UNAVAILABLE" : "OCR_LOW_CONFIDENCE", bytes.length);
 		return aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt));
+	}
+
+	private boolean isInvoiceTypeCode(String code) {
+		return code != null && (code.equalsIgnoreCase("INVOICE") || code.toUpperCase(Locale.ROOT).endsWith("_INVOICE"));
+	}
+
+	private boolean hasInvoiceCriticalEvidence(String text) {
+		if (text == null) return false;
+		String lower = text.toLowerCase(Locale.ROOT);
+		return lower.contains("hóa đơn") || lower.contains("hoa don") || lower.contains("invoice")
+				|| lower.contains("mã số thuế") || lower.contains("ma so thue") || lower.contains("mst")
+				|| lower.contains("tax code") || lower.contains("tổng") || lower.contains("tong")
+				|| lower.contains("total") || lower.contains("vat");
 	}
 
 	Optional<OcrPageResult> restoreStoredOcr(OCRResultResponse stored) {
@@ -416,7 +436,30 @@ public class DocumentAiProcessingService {
 			List<String> categoryCodes, List<AccountingCategoryOption> categoryOptions, Company company) {
 		List<PageAnalysis> results = new ArrayList<>();
 		List<OcrPageResult> recognizedPages = new ArrayList<>();
+		List<PdfImageConversionService.PdfTextPage> textPages = pdfImageConversionService.extractTextPages(pdfBytes);
+		if (!textPages.isEmpty() && textPages.stream().allMatch(PdfImageConversionService.PdfTextPage::usable)) {
+			for (PdfImageConversionService.PdfTextPage page : textPages) {
+				OcrPageResult textLayer = new OcrPageResult(page.pageNumber(), 0, 0, page.text(), 100,
+						List.of(), 0, null, "pdf-text-layer");
+				recognizedPages.add(textLayer);
+				results.add(new PageAnalysis(analyzeDigitalPdfText(fileName + "#page-" + page.pageNumber(), page.text(),
+						documentTypes, categoryOptions, company), textLayer));
+			}
+			persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
+			log.info("PDF text layer selected documentId={} pages={} renderedPages=0", documentId, textPages.size());
+			return List.copyOf(results);
+		}
 		for (PdfPageImage page : pdfImageConversionService.convert(pdfBytes)) {
+			PdfImageConversionService.PdfTextPage nativeText = textPages.stream()
+					.filter(value -> value.pageNumber() == page.pageNumber()).findFirst().orElse(null);
+			if (nativeText != null && nativeText.usable()) {
+				OcrPageResult textLayer = new OcrPageResult(page.pageNumber(), 0, 0, nativeText.text(), 100,
+						List.of(), 0, null, "pdf-text-layer");
+				recognizedPages.add(textLayer);
+				results.add(new PageAnalysis(analyzeDigitalPdfText(fileName + "#page-" + page.pageNumber(), nativeText.text(),
+						documentTypes, categoryOptions, company), textLayer));
+				continue;
+			}
 			AdaptiveOcrService.AdaptiveOcrResult adaptive = adaptiveOcrService.recognize(page.bytes(), page.contentType(), page.pageNumber());
 			OcrPageResult ocr = reconstructLayout(adaptive.page());
 			logOcr(documentId, ocr);
@@ -425,7 +468,16 @@ public class DocumentAiProcessingService {
 			results.add(new PageAnalysis(analyzeSingleImage(fileName + "#page-" + page.pageNumber(), adaptive.selectedContentType(),
 					adaptive.selectedImageBytes(), documentTypes, categoryCodes, categoryOptions, company, ocr), ocr));
 		}
+		persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
 		return List.copyOf(results);
+	}
+
+	private AiDocumentResult analyzeDigitalPdfText(String fileName, String text, List<String> documentTypes,
+			List<AccountingCategoryOption> categoryOptions, Company company) {
+		String prompt = AiDocumentPromptFactory.createWithCategories(documentTypes, categoryOptions,
+				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
+		return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizeOcrText(text),
+				AiDocumentPromptFactory.forTextExtraction(prompt)));
 	}
 
 	AiDocumentResult analyzeVisionFallback(Document document, byte[] pdfBytes, String prompt,

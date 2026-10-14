@@ -26,8 +26,24 @@ class OpenCvImageProcessorTest {
 		assertTrue(result.operations().contains("grayscale")); assertTrue(result.operations().contains("upscale"));
 	}
 
+	@Test void enhancedDoesNotDenoiseClearLargeImageUnconditionally() throws Exception {
+		byte[] source=image(1400,1400);
+		ImageQualityResult quality=new ImageQualityResult(175,60,600,0,0,1400,1400,.9,1,5,22);
+		var result=new OpenCvImageProcessor(new AiProperties()).process(source,OcrProcessingProfile.ENHANCED,quality);
+		assertFalse(result.operations().contains("denoise"));
+		assertFalse(result.operations().contains("adaptive-threshold"));
+	}
+
+	@Test void enhancedDeskewsOnlyWhenMeasuredSkewIsReliable() throws Exception {
+		byte[] source=image(1400,1400);
+		ImageQualityResult quality=new ImageQualityResult(175,60,600,2,.8,1400,1400,.7,1,5,22);
+		var result=new OpenCvImageProcessor(new AiProperties()).process(source,OcrProcessingProfile.ENHANCED,quality);
+		assertTrue(result.operations().contains("deskew"));
+		assertEquals(2,result.appliedDeskewAngleDegrees(),1e-9);
+	}
+
 	@Test void aggressiveAppliesAdaptiveThresholdWithoutBreakingDimensions() throws Exception {
-		byte[] source=image(1400,1400); ImageQualityResult quality=new ImageQualityAnalyzer().analyze(source);
+		byte[] source=image(1400,1400); ImageQualityResult quality=new ImageQualityResult(150,35,250,0,0,1400,1400,.4,8,30,20);
 		var result=new OpenCvImageProcessor(new AiProperties()).process(source,OcrProcessingProfile.AGGRESSIVE,quality);
 		assertEquals(1400,result.processedWidth()); assertEquals(1400,result.processedHeight());
 		assertTrue(result.operations().contains("adaptive-threshold"));

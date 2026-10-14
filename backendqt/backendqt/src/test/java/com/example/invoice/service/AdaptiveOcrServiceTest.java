@@ -47,6 +47,27 @@ class AdaptiveOcrServiceTest {
 		assertEquals(OcrProcessingProfile.ENHANCED,service.recognize(new byte[]{1},"image/png",1).selectedProfile());
 	}
 
+	@Test void processedVariantMustBeatOriginalByConfiguredMargin() {
+		properties.getOcr().getAdaptive().setGoodQualityScore(.99);
+		properties.getOcr().getAdaptive().setMinimumQualityImprovement(.02);
+		when(ocr.recognize(any(),eq(1))).thenReturn(page(88,10,160),page(88,10,160),page(88,10,160));
+		var result=service.recognize(new byte[]{1},"image/png",1);
+		assertEquals(OcrProcessingProfile.NORMAL,result.selectedProfile());
+		assertEquals(3,result.attempts());
+	}
+
+	@Test void qualityEvaluationCombinesLayoutCriticalFieldsAndNumericPlausibility() {
+		OcrPageResult result = new OcrPageResult(1,100,100,
+				"HÓA ĐƠN MST 0319174875 ngày 25/09/2026 tổng 15.984.000 VAT 8%",94,
+				List.of(new OcrWord("w1","HÓA",94,.1,.1,.1,.05),
+						new OcrWord("w2","0319174875",94,.3,.2,.2,.05),
+						new OcrWord("w3","15.984.000",94,.5,.3,.2,.05)),1,null,"vie+eng");
+		var quality=service.evaluateDetailed(result);
+		assertTrue(quality.layoutQuality()>.8);
+		assertEquals(1,quality.criticalFieldCoverage(),1e-9);
+		assertEquals(1,quality.numericConsistency(),1e-9);
+	}
+
 	@Test void enhancedFailureRetainsUsableNormalResult() {
 		properties.getOcr().getAdaptive().setGoodQualityScore(.99); properties.getOcr().getAdaptive().setMaxAttempts(2);
 		when(processor.process(any(),eq(OcrProcessingProfile.ENHANCED),any())).thenThrow(new IllegalStateException("boom"));

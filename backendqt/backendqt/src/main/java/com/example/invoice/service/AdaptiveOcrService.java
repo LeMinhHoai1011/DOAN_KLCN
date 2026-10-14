@@ -59,7 +59,11 @@ public class AdaptiveOcrService {
 			return new AdaptiveOcrResult(fallback, source, contentType, OcrProcessingProfile.NORMAL,
 					evaluate(fallback), 1, imageQuality, "OpenCV preprocessing unavailable; original image used");
 		}
-		Attempt best = attempts.stream().max(Comparator.comparingDouble(Attempt::qualityScore)).orElseThrow();
+		Attempt baseline = attempts.getFirst();
+		Attempt candidate = attempts.stream().max(Comparator.comparingDouble(Attempt::qualityScore)).orElseThrow();
+		double requiredGain = Math.max(0, properties.getOcr().getAdaptive().getMinimumQualityImprovement());
+		Attempt best = candidate.processed().profile() != OcrProcessingProfile.NORMAL
+				&& candidate.qualityScore() < baseline.qualityScore() + requiredGain ? baseline : candidate;
 		log.info("OCR page={} selected={} quality={} attempts={}", pageNumber, best.processed().profile(),
 				String.format("%.3f", best.qualityScore()), attempts.size());
 		return new AdaptiveOcrResult(best.page(), best.processed().bytes(), best.processed().contentType(),
@@ -67,7 +71,11 @@ public class AdaptiveOcrService {
 	}
 
 	double evaluate(OcrPageResult result) {
-		if (result == null || !result.successful()) return 0;
+		return evaluateDetailed(result).score();
+	}
+
+	OcrQualityEvaluation evaluateDetailed(OcrPageResult result) {
+		if (result == null || !result.successful()) return OcrQualityEvaluation.empty();
 		List<OcrWord> validWords = result.words().stream().filter(word -> word.text() != null
 				&& word.text().codePoints().anyMatch(Character::isLetterOrDigit)).toList();
 		String compact = result.text().replaceAll("\\s+", "");
@@ -80,8 +88,49 @@ public class AdaptiveOcrService {
 		double lowConfidenceRatio = validWords.isEmpty() ? 1 : validWords.stream()
 				.filter(word -> word.confidence() < properties.getOcr().getAdaptive().getLowConfidencePercent()).count()
 				/ (double) validWords.size();
-		return clamp01(0.35 * confidence + 0.25 * wordCoverage + 0.20 * validCharacterRatio
-				+ 0.20 * textCoverage - 0.15 * lowConfidenceRatio);
+		double layoutQuality = layoutQuality(validWords);
+		double criticalFieldCoverage = criticalFieldCoverage(result.text());
+		double numericConsistency = numericConsistency(validWords);
+		double score = clamp01(0.28 * confidence + 0.18 * wordCoverage + 0.14 * validCharacterRatio
+				+ 0.12 * textCoverage + 0.10 * layoutQuality + 0.10 * criticalFieldCoverage
+				+ 0.08 * numericConsistency - 0.12 * lowConfidenceRatio);
+		return new OcrQualityEvaluation(score, confidence, validCharacterRatio, textCoverage, layoutQuality,
+				criticalFieldCoverage, numericConsistency, lowConfidenceRatio, validWords.size());
+	}
+
+	private double layoutQuality(List<OcrWord> words) {
+		if (words.size() < 2) return words.isEmpty() ? 0 : 0.35;
+		long validBoxes = words.stream().filter(word -> Double.isFinite(word.x()) && Double.isFinite(word.y())
+				&& word.x() >= 0 && word.y() >= 0 && word.width() > 0 && word.height() > 0
+				&& word.x() + word.width() <= 1.001 && word.y() + word.height() <= 1.001).count();
+		double boxRatio = validBoxes / (double) words.size();
+		long approximateLines = words.stream().map(word -> Math.round(word.y() * 100)).distinct().count();
+		double lineEvidence = approximateLines >= 2 ? 1 : 0.6;
+		return clamp01(0.7 * boxRatio + 0.3 * lineEvidence);
+	}
+
+	private double criticalFieldCoverage(String text) {
+		String lower = text == null ? "" : text.toLowerCase(java.util.Locale.ROOT);
+		int groups = 0;
+		if (containsAny(lower, "hóa đơn", "hoa don", "invoice")) groups++;
+		if (containsAny(lower, "mã số thuế", "ma so thue", "mst", "tax code")) groups++;
+		if (containsAny(lower, "ngày", "ngay", "date")) groups++;
+		if (containsAny(lower, "tổng", "tong", "total")) groups++;
+		if (containsAny(lower, "thuế", "thue", "vat")) groups++;
+		return groups / 5.0;
+	}
+
+	private boolean containsAny(String value, String... candidates) {
+		for (String candidate : candidates) if (value.contains(candidate)) return true;
+		return false;
+	}
+
+	private double numericConsistency(List<OcrWord> words) {
+		List<String> numeric = words.stream().map(OcrWord::text).filter(java.util.Objects::nonNull)
+				.filter(value -> value.matches(".*\\d.*")).toList();
+		if (numeric.isEmpty()) return 0.5;
+		long plausible = numeric.stream().filter(value -> value.matches("[\\p{L}]*[+()\\-.,/:\\s%]*\\d[\\d+()\\-.,/:\\s%]*[\\p{L}]*")).count();
+		return plausible / (double) numeric.size();
 	}
 
 	private OcrPageResult mapToOriginal(OcrPageResult page, OpenCvImageProcessor.ProcessedImage image) {
@@ -119,6 +168,14 @@ public class AdaptiveOcrService {
 	private static double clip(double value, double min, double max) { return Math.max(min, Math.min(max, value)); }
 	private static String safe(String value) { return value == null ? "unknown error" : value.replaceAll("[\\r\\n]+", " "); }
 	private record Attempt(OcrPageResult page, OpenCvImageProcessor.ProcessedImage processed, double qualityScore) {}
+
+	record OcrQualityEvaluation(double score, double confidence, double validCharacterRatio,
+			double textCoverage, double layoutQuality, double criticalFieldCoverage,
+			double numericConsistency, double lowConfidenceRatio, int validWordCount) {
+		static OcrQualityEvaluation empty() {
+			return new OcrQualityEvaluation(0, 0, 0, 0, 0, 0, 0, 1, 0);
+		}
+	}
 
 	public record AdaptiveOcrResult(OcrPageResult page, byte[] selectedImageBytes, String selectedContentType,
 			OcrProcessingProfile selectedProfile, double qualityScore, int attempts,
