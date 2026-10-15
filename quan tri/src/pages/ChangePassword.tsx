@@ -1,7 +1,9 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { KeyRound } from 'lucide-react';
 import { changePassword, getErrorMessage } from '../services/authService';
+import ContentCard from '../components/ui/ContentCard';
+import PageHeader from '../components/ui/PageHeader';
 
 const ChangePassword = () => {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -40,38 +42,41 @@ const ChangePassword = () => {
   };
 
   return (
-    <section className="mx-auto w-full max-w-xl">
-      <div className="border-b border-slate-200 pb-5">
-        <h1 className="text-2xl font-semibold text-slate-900">Đổi mật khẩu</h1>
-        <p className="mt-1 text-sm text-slate-600">Cập nhật mật khẩu cho tài khoản đang đăng nhập.</p>
-      </div>
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-5">
+      <PageHeader
+        eyebrow="Tài khoản / Bảo mật"
+        title="Đổi mật khẩu"
+        description="Cập nhật mật khẩu cho tài khoản đang đăng nhập."
+      />
 
-      <form onSubmit={submit} className="mt-6 space-y-5 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <div>
-          <label htmlFor="current-password" className="mb-1.5 block text-sm font-medium text-slate-700">Mật khẩu hiện tại</label>
-          <input id="current-password" type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
-        </div>
-        <div>
-          <label htmlFor="new-password" className="mb-1.5 block text-sm font-medium text-slate-700">Mật khẩu mới</label>
-          <input id="new-password" type="password" autoComplete="new-password" required minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
-          <p className="mt-1.5 text-xs text-slate-500">Tối thiểu 8 ký tự, có ít nhất một chữ và một số.</p>
-        </div>
-        <div>
-          <label htmlFor="confirm-password" className="mb-1.5 block text-sm font-medium text-slate-700">Xác nhận mật khẩu mới</label>
-          <input id="confirm-password" type="password" autoComplete="new-password" required minLength={8} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
-        </div>
+      <ContentCard className="p-5">
+        <form onSubmit={submit} className="flex flex-col gap-5">
+          <div className="grid gap-1">
+            <label htmlFor="current-password" className="si-field-label">Mật khẩu hiện tại</label>
+            <input id="current-password" type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className="si-input" />
+          </div>
+          <div className="grid gap-1">
+            <label htmlFor="new-password" className="si-field-label">Mật khẩu mới</label>
+            <input id="new-password" type="password" autoComplete="new-password" required minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="si-input" />
+            <p className="text-2xs text-ink-muted">Tối thiểu 8 ký tự, có ít nhất một chữ và một số.</p>
+          </div>
+          <div className="grid gap-1">
+            <label htmlFor="confirm-password" className="si-field-label">Xác nhận mật khẩu mới</label>
+            <input id="confirm-password" type="password" autoComplete="new-password" required minLength={8} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="si-input" />
+          </div>
 
-        {error && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-        {success && <p role="status" className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</p>}
+          {error && <p role="alert" className="rounded-control bg-failed-surface text-failed px-3 py-2 text-[18px]">{error}</p>}
+          {success && <p role="status" className="rounded-control bg-parsed-surface text-parsed px-3 py-2 text-[18px]">{success}</p>}
 
-        <div className="flex justify-end">
-          <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300">
-            <KeyRound size={17} />
-            {submitting ? 'Đang cập nhật...' : 'Cập nhật mật khẩu'}
-          </button>
-        </div>
-      </form>
-    </section>
+          <div className="border-hairline flex justify-end border-t pt-4">
+            <button type="submit" disabled={submitting} className="si-btn-primary">
+              <KeyRound size={20} />
+              {submitting ? 'Đang cập nhật...' : 'Cập nhật mật khẩu'}
+            </button>
+          </div>
+        </form>
+      </ContentCard>
+    </div>
   );
 };
 

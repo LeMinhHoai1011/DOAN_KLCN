@@ -1,5 +1,4 @@
-import React from 'react';
-import clsx from 'clsx';
+﻿import clsx from 'clsx';
 
 interface StatusBadgeProps {
   status: string;
@@ -16,22 +15,37 @@ export const getStatusPresentation = (status: string, reviewStatus?: string | nu
   return { ...value, rawStatus: status, rawReviewStatus: reviewStatus };
 };
 
-const StatusBadge: React.FC<StatusBadgeProps> = ({ status, reviewStatus }) => {
+/**
+ * Status pill with a state dot (OCR pipeline palette from the design system).
+ * Sized for projection: 32px tall with 15px bold label text.
+ * The optional review status is exposed through the title tooltip when it differs.
+ */
+const StatusBadge = ({ status, reviewStatus }: StatusBadgeProps) => {
   const presentation = getStatusPresentation(status, reviewStatus);
-  const styles: Record<string, string> = {
-    success: 'bg-emerald-100 text-emerald-700 border-emerald-200', warning: 'bg-amber-100 text-amber-700 border-amber-200', info: 'bg-blue-100 text-blue-700 border-blue-200', error: 'bg-red-100 text-red-700 border-red-200', neutral: 'bg-slate-100 text-slate-700 border-slate-200',
+  const surfaces: Record<string, string> = {
+    success: 'border-parsed/25 bg-parsed-surface text-parsed',
+    warning: 'border-review/30 bg-review-surface text-review',
+    info: 'border-extracting/25 bg-extracting-surface text-extracting',
+    error: 'border-failed/25 bg-failed-surface text-failed',
+    neutral: 'border-hairline bg-subtle text-ink-soft',
   };
 
   const dots: Record<string, string> = {
-    success: 'bg-emerald-500', warning: 'bg-amber-500', info: 'bg-blue-500', error: 'bg-red-500', neutral: 'bg-slate-500',
+    success: 'bg-parsed',
+    warning: 'bg-review',
+    info: 'bg-extracting animate-pulse',
+    error: 'bg-failed',
+    neutral: 'bg-draft',
   };
 
-  const defaultStyle = 'bg-slate-100 text-slate-700 border-slate-200';
-  const defaultDot = 'bg-slate-500';
+  const surface = surfaces[presentation.tone] || surfaces.neutral;
 
   return (
-    <span title={`Processing: ${presentation.rawStatus}${presentation.rawReviewStatus ? ` · Review: ${presentation.rawReviewStatus}` : ''}`} className={clsx("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border", styles[presentation.tone] || defaultStyle)}>
-      <span className={clsx("w-1.5 h-1.5 rounded-full", dots[presentation.tone] || defaultDot)}></span>
+    <span
+      title={`Trạng thái xử lý: ${presentation.rawStatus}${presentation.rawReviewStatus ? ` · Kiểm tra: ${presentation.rawReviewStatus}` : ''}`}
+      className={clsx('inline-flex h-8 items-center gap-2 rounded-full border px-3 text-2xs font-bold whitespace-nowrap', surface)}
+    >
+      <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-full', dots[presentation.tone] || dots.neutral)}></span>
       {presentation.label}
     </span>
   );

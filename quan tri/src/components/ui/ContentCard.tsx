@@ -6,7 +6,7 @@ interface ContentCardProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 const ContentCard = ({ children, className, ...props }: ContentCardProps) => (
-  <section className={clsx('overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm', className)} {...props}>
+  <section className={clsx('rounded-card border-hairline bg-surface shadow-elev1 overflow-hidden border', className)} {...props}>
     {children}
   </section>
 );

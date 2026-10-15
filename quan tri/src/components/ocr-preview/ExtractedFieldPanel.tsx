@@ -29,16 +29,16 @@ export default function ExtractedFieldPanel({ fields, documentType, selectedId, 
     ? ['Thông tin hóa đơn', 'Người bán', 'Người mua', 'Thanh toán', 'Thông tin hóa đơn điện tử', 'Thông tin bổ sung']
     : ['Thông tin chính', 'Thông tin bổ sung']
 
-  return <aside className="min-h-0 overflow-y-auto border-t border-slate-200 bg-white lg:border-l lg:border-t-0">
-    <div className="sticky top-0 z-10 border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur">
-      <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-700">Dữ liệu trích xuất</h3>
-      <p className="mt-1 text-xs text-slate-500">Chọn một trường để xem vị trí trên chứng từ.</p>
+  return <aside className="min-h-0 overflow-y-auto border-hairline border-t bg-surface lg:border-l lg:border-t-0">
+    <div className="sticky top-0 z-10 border-hairline bg-surface/95 border-b px-5 py-4 backdrop-blur">
+      <h3 className="si-label">Dữ liệu trích xuất</h3>
+      <p className="mt-1.5 text-[17px] leading-[26px] text-ink-muted">Chọn một trường để xem vị trí trên chứng từ.</p>
     </div>
-    <div className="space-y-5 p-3 sm:p-4">
-      {visible.length === 0 && <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">Chưa có dữ liệu trích xuất.</p>}
+    <div className="space-y-5 p-4">
+      {visible.length === 0 && <p className="rounded-card bg-canvas p-4 text-[18px] text-ink-muted">Chưa có dữ liệu trích xuất.</p>}
       {order.map(group => (grouped.get(group)?.length ?? 0) > 0 && <section key={group}>
-        <h4 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{group}</h4>
-        <div className="space-y-1.5">
+        <h4 className="si-label mb-2 px-1">{group}</h4>
+        <div className="space-y-2">
           {grouped.get(group)?.map(field => {
             const location = bestLocation(field)
             const active = selectedId === field.id || hoveredId === field.id
@@ -46,22 +46,22 @@ export default function ExtractedFieldPanel({ fields, documentType, selectedId, 
             const fieldCanBeCorrected = canCorrect && field.source?.toUpperCase() === 'AI'
             return <article key={field.id}
               onMouseEnter={() => onHover(field)} onMouseLeave={() => onHover(null)}
-              className={`rounded-xl border px-3 py-2.5 transition ${active ? 'border-amber-300 bg-amber-50' : 'border-transparent hover:border-slate-200 hover:bg-slate-50'}`}>
+              className={`rounded-card border px-4 py-3 transition ${active ? 'border-review bg-review-surface' : 'border-hairline/60 hover:border-hairline-strong hover:bg-subtle'}`}>
               <button type="button" onClick={() => onSelect(field)} onFocus={() => onHover(field)} onBlur={() => onHover(null)}
                 className="flex w-full items-start gap-3 text-left">
                 <span className="min-w-0 flex-1">
-                  <span className="block text-xs font-medium text-slate-500">{fieldLabel(field.fieldName)}</span>
-                  {!editing && <span className="mt-0.5 block whitespace-pre-wrap break-words text-sm font-medium text-slate-800">{field.fieldValue}</span>}
-                  {!location && <span className="mt-1 block text-[11px] text-slate-400">Chưa xác định được vị trí</span>}
+                  <span className="text-2xs block font-semibold text-ink-soft">{fieldLabel(field.fieldName)}</span>
+                  {!editing && <span className="text-ink mt-1 block text-[19px] leading-[28px] font-semibold break-words whitespace-pre-wrap">{field.fieldValue}</span>}
+                  {!location && <span className="text-ink-muted mt-1 text-2xs block">Chưa xác định được vị trí</span>}
                 </span>
-                {location ? <Crosshair size={17} className="mt-2 shrink-0 text-blue-600" aria-label="Xem vị trí trên chứng từ" />
-                  : <MapPinOff size={16} className="mt-2 shrink-0 text-slate-300" aria-label="Chưa xác định được vị trí" />}
+                {location ? <Crosshair size={22} className="text-brand-700 mt-2 shrink-0" aria-label="Xem vị trí trên chứng từ" />
+                  : <MapPinOff size={20} className="text-ink-muted mt-2 shrink-0" aria-label="Chưa xác định được vị trí" />}
               </button>
-              {field.manuallyCorrected && <p className="mt-1 text-[11px] font-medium text-amber-700">Đã chỉnh sửa thủ công</p>}
-              {editing ? <div className="mt-2 space-y-2">
+              {field.manuallyCorrected && <p className="text-review mt-1.5 text-2xs font-semibold">Đã chỉnh sửa thủ công</p>}
+              {editing ? <div className="mt-3 space-y-2">
                 <input autoFocus value={draftValue} onChange={event => setDraftValue(event.target.value)}
                   aria-label={`Giá trị mới cho ${fieldLabel(field.fieldName)}`}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none" />
+                  className="si-input" />
                 <div className="flex gap-2">
                   <button type="button" disabled={savingFieldId === field.id || !draftValue.trim()}
                     onClick={async () => {
@@ -75,19 +75,19 @@ export default function ExtractedFieldPanel({ fields, documentType, selectedId, 
                         setSavingFieldId(null)
                       }
                     }}
-                    className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">
+                    className="si-btn-primary text-[17px]">
                     {savingFieldId === field.id ? 'Đang lưu...' : 'Lưu'}
                   </button>
                   <button type="button" disabled={savingFieldId === field.id}
                     onClick={() => { setEditingFieldId(null); setSaveError('') }}
-                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-60">
+                    className="si-btn-secondary text-[17px]">
                     Hủy
                   </button>
                 </div>
-                {saveError && <p role="alert" className="text-xs text-red-600">{saveError}</p>}
+                {saveError && <p role="alert" className="text-failed text-[17px] font-semibold">{saveError}</p>}
               </div> : fieldCanBeCorrected && <button type="button"
                 onClick={() => { onSelect(field); setDraftValue(field.fieldValue ?? ''); setEditingFieldId(field.id); setSaveError('') }}
-                className="mt-2 text-xs font-medium text-blue-700 hover:text-blue-900">
+                className="si-link mt-2">
                 Chỉnh sửa thủ công
               </button>}
             </article>

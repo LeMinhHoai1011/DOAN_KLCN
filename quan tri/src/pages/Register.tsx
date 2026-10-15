@@ -1,7 +1,14 @@
-import { Link, useNavigate } from "react-router-dom";
+﻿import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import "./Register.css";
+import { AlertCircle, CheckCircle2, FileSearch, ShieldCheck, Sparkles } from "lucide-react";
+import AuthShell from "../components/ui/AuthShell";
 import { getErrorMessage, register } from "../services/authService";
+
+const points = [
+  { icon: Sparkles, title: "Trích xuất bằng AI", description: "Đọc số hóa đơn, ngày, MST và số tiền trực tiếp từ ảnh hoặc PDF." },
+  { icon: FileSearch, title: "Phân loại & tra cứu", description: "Gắn loại chứng từ nghiệp vụ, lọc theo trạng thái xử lý và kiểm tra." },
+  { icon: ShieldCheck, title: "Kiểm soát phân quyền", description: "Kế toán, quản trị và nhân viên dùng chung một nguồn dữ liệu được giới hạn." },
+];
 
 function Register() {
   const navigate = useNavigate();
@@ -14,6 +21,7 @@ function Register() {
 
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +40,8 @@ function Register() {
       return;
     }
 
+    setIsSubmitting(true);
+
     try {
       await register({ username, fullName, email, password });
 
@@ -49,93 +59,68 @@ function Register() {
 
     } catch (error: unknown) {
       setError(getErrorMessage(error, "Đăng ký thất bại hoặc không thể kết nối đến Server"));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="register-page">
-      <div className="register-box">
-
-        <h1>SMART INVOICE</h1>
-        <p className="register-title">Tạo tài khoản</p>
-
-        <form onSubmit={handleRegister}>
-
-          <div className="form-group">
-            <label>Tên đăng nhập</label>
-            <input
-              type="text"
-              placeholder="Nhập tên đăng nhập"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Họ và tên</label>
-            <input
-              type="text"
-              placeholder="Nhập họ và tên"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Email</label>
-            <input
-              type="email"
-              placeholder="Nhập email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Mật khẩu</label>
-            <input
-              type="password"
-              placeholder="Nhập mật khẩu"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Xác nhận mật khẩu</label>
-            <input
-              type="password"
-              placeholder="Nhập lại mật khẩu"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-            />
-          </div>
-
-          {error && (
-            <p style={{ color: "red", marginBottom: "15px" }}>
-              {error}
-            </p>
-          )}
-
-          {message && (
-            <p style={{ color: "green", marginBottom: "15px" }}>
-              {message}
-            </p>
-          )}
-
-          <button type="submit">
-            ĐĂNG KÝ
-          </button>
-
-        </form>
-
-        <p className="login-text">
+    <AuthShell
+      title="Tạo tài khoản"
+      subtitle="Đăng ký tài khoản nội bộ, vai trò sẽ do quản trị viên gán sau."
+      points={points}
+      footer={
+        <>
           Đã có tài khoản?{" "}
-          <Link to="/login">Đăng nhập</Link>
-        </p>
+          <Link to="/login" className="si-link font-semibold">Đăng nhập</Link>
+        </>
+      }
+    >
+      <form onSubmit={handleRegister} className="flex flex-col gap-3.5">
+        <label className="grid gap-1.5">
+          <span className="si-field-label">Tên đăng nhập</span>
+          <input type="text" autoComplete="username" placeholder="Nhập tên đăng nhập" value={username} onChange={(e) => setUsername(e.target.value)} className="si-input" />
+        </label>
 
-      </div>
-    </div>
+        <label className="grid gap-1.5">
+          <span className="si-field-label">Họ và tên</span>
+          <input type="text" autoComplete="name" placeholder="Nhập họ và tên" value={fullName} onChange={(e) => setFullName(e.target.value)} className="si-input" />
+        </label>
+
+        <label className="grid gap-1.5">
+          <span className="si-field-label">Email</span>
+          <input type="email" autoComplete="email" placeholder="Nhập email" value={email} onChange={(e) => setEmail(e.target.value)} className="si-input" />
+        </label>
+
+        <label className="grid gap-1.5">
+          <span className="si-field-label">Mật khẩu</span>
+          <input type="password" autoComplete="new-password" placeholder="Nhập mật khẩu" value={password} onChange={(e) => setPassword(e.target.value)} className="si-input" />
+        </label>
+
+        <label className="grid gap-1.5">
+          <span className="si-field-label">Xác nhận mật khẩu</span>
+          <input type="password" autoComplete="new-password" placeholder="Nhập lại mật khẩu" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="si-input" />
+        </label>
+
+        {error && (
+          <p role="alert" className="rounded-control border-failed/25 bg-failed-surface text-failed flex items-start gap-2 border px-3 py-2 text-[17px] leading-relaxed">
+            <AlertCircle size={20} className="mt-px shrink-0" />
+            <span>{error}</span>
+          </p>
+        )}
+
+        {message && (
+          <p role="status" className="rounded-control border-parsed/25 bg-parsed-surface text-parsed flex items-start gap-2 border px-3 py-2 text-[17px] leading-relaxed">
+            <CheckCircle2 size={20} className="mt-px shrink-0" />
+            <span>{message}</span>
+          </p>
+        )}
+
+        <button type="submit" disabled={isSubmitting} className="si-btn-primary mt-1 w-full py-2.5">
+          {isSubmitting ? "Đang tạo tài khoản..." : "Đăng ký"}
+        </button>
+      </form>
+    </AuthShell>
   );
 }
 

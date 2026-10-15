@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from 'react'
+﻿import { memo, useEffect, useRef } from 'react'
 import { scaleBoundingBox } from './ocrPreviewUtils'
 
 export type OverlayBox = {
@@ -20,7 +20,7 @@ function OcrOverlayLayer({ boxes, renderedWidth, renderedHeight, focusKey }: {
       const scaled = scaleBoundingBox(box, box.pageWidth, box.pageHeight, renderedWidth, renderedHeight)
       const confidence = typeof box.confidence === 'number' ? ` · Độ khớp ${Math.round(box.confidence * (box.confidence <= 1 ? 100 : 1))}%` : ''
       return <span key={box.key} ref={box.key === focusKey ? focusRef : undefined} title={`${box.text}${confidence}`}
-        className={box.active ? 'absolute rounded-sm border-2 border-amber-500 bg-amber-300/30 shadow-[0_0_0_2px_rgba(255,255,255,.8)]' : 'absolute rounded-sm border border-cyan-400/80 bg-cyan-300/15'}
+        className={box.active ? 'absolute rounded-sm border-review border-2 bg-review/25 shadow-[0_0_0_2px_rgba(255,255,255,.8)]' : 'absolute rounded-sm border-extracting/80 bg-extracting/15 border'}
         style={scaled} />
     })}
   </div>

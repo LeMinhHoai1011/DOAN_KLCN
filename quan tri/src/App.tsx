@@ -10,11 +10,7 @@ import AccountantDocuments from './pages/accountant/AccountantDocuments';
 import AccountantDocumentDetail from './pages/accountant/AccountantDocumentDetail';
 import AccountantUpload from './pages/accountant/AccountantUpload';
 import FinancialTransactions from './pages/accountant/FinancialTransactions';
-import ClassificationWorkspace from './pages/accountant/ClassificationWorkspace';
-import ReconciliationWorkspace from './pages/accountant/ReconciliationWorkspace';
-import Storage from './pages/accountant/Storage';
 import Reports from './pages/accountant/Reports';
-import Settings from './pages/Settings';
 import RoleManagement from './pages/admin/RoleManagement';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import UserManagement from './pages/admin/UserManagement';
@@ -75,11 +71,8 @@ function App() {
               <Route path="documents/:id" element={<AccountantDocumentDetail />} />
               <Route path="upload" element={<AccountantUpload />} />
               <Route path="financial-transactions" element={<FinancialTransactions />} />
-              <Route path="storage" element={<Storage />} />
-              <Route path="classification" element={<ClassificationWorkspace />} />
-              <Route path="reconciliation" element={<ReconciliationWorkspace />} />
+              <Route path="review" element={<AccountantDocuments />} />
               <Route path="reports" element={<Reports />} />
-              <Route path="settings" element={<Settings />} />
               <Route path="password" element={<ChangePassword />} />
             </Route>
           </Route>
@@ -94,7 +87,6 @@ function App() {
               <Route path="upload" element={<AccountantUpload />} />
               <Route path="statistics" element={<SystemStatistics />} />
               <Route path="categories" element={<CatalogManagement />} />
-              <Route path="settings" element={<Settings admin />} />
               <Route path="password" element={<ChangePassword />} />
             </Route>
           </Route>
@@ -107,7 +99,6 @@ function App() {
               <Route element={<RoleGuard allowedRoles={['EMPLOYEE']} />}>
                 <Route path="upload" element={<AccountantUpload />} />
               </Route>
-              <Route path="settings" element={<Settings />} />
               <Route path="password" element={<ChangePassword />} />
             </Route>
           </Route>

@@ -11,9 +11,9 @@ export const reconciliationStatusLabel = (status: ReconciliationStatus) => ({
 })[status]
 
 export const reconciliationStatusClass = (status: ReconciliationStatus) => {
-  if (status === 'MATCHED') return 'rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700'
-  if (status === 'MISMATCH') return 'rounded-full bg-red-100 px-2 py-1 text-xs text-red-700'
-  return 'rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-700'
+  if (status === 'MATCHED') return 'si-chip border-parsed/30 bg-parsed-surface text-parsed'
+  if (status === 'MISMATCH') return 'si-chip border-failed/30 bg-failed-surface text-failed'
+  return 'si-chip border-review-surface bg-review-surface text-review'
 }
 
 export const hasInsufficientReconciliationData = (statuses: ReconciliationStatus[]) =>

@@ -140,6 +140,8 @@ export interface DocumentListItem {
   aiConfidence?: number
   documentTypeCode: string | null
   documentTypeName: string
+  /** ID người tải lên — dùng cho cột "Người tải lên" ở dashboard quản trị. */
+  uploadedById?: number
 }
 
 const statusLabels: Record<DocumentStatus, string> = {
@@ -169,6 +171,7 @@ export const mapDocument = (document: DocumentResponse): DocumentListItem => ({
   aiConfidence: document.aiConfidence == null ? undefined : Math.round(Number(document.aiConfidence) * 100),
   documentTypeCode: document.documentTypeCode || document.documentType,
   documentTypeName: document.documentTypeName || document.documentTypeCode || document.documentType || 'Chưa phân loại',
+  uploadedById: document.uploadedById == null ? undefined : document.uploadedById,
 })
 
 const getDocumentPage = async ({ page = 1, size = 50, sort = 'createdAt,desc', ...filters }: DocumentPageQuery = {}): Promise<DocumentPage> => {

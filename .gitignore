@@ -1,3 +1,68 @@
-config/config.local.json
+# ==============================================================================
+# SmartInvoice (DOAN_KLCN) - quy tắc bỏ qua ở cấp gốc, áp dụng cho toàn monorepo.
+# File .gitignore ở thư mục con (quan tri/, backendqt/backendqt/) có độ ưu tiên
+# cao hơn đối với các đường dẫn nằm trong thư mục đó.
+# ==============================================================================
+
+# ---------- Bí mật & cấu hình riêng của máy (KHÔNG bao giờ push) ----------
 .env
+.env.*
+!.env.example
+# Frontend env chỉ chứa biến public (VITE_API_BASE_URL) nên vẫn theo dõi trong repo.
+!quan tri/.env
+config/config.local.json
+config/config.*.local.json
+*.pem
+*.key
+*.p12
+*.jks
+*.pfx
+
+# ---------- Trạng thái / dữ liệu chạy cục bộ ----------
 .runtime/
+minio-data/
+
+# ---------- Dependencies & build output ----------
+node_modules/
+dist/
+dist-ssr/
+build/
+target/
+*.class
+*.jar
+*.war
+*.tsbuildinfo
+.vite/
+.vite-cache/
+
+# ---------- Log & file tạm ----------
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.tmp
+*.temp
+*.orig
+*.bak
+*.rej
+*.old
+*~
+*.stackdump
+*.pid
+_probe_*
+
+# ---------- Editor / OS ----------
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.suo
+*.sw?

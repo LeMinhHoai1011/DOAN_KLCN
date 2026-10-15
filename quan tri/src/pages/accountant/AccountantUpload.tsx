@@ -1,13 +1,18 @@
-import { useRef, useState } from 'react';
-import { CheckCircle2, FileType, Loader2, UploadCloud, XCircle } from 'lucide-react';
+﻿import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ArrowRight, CheckCircle2, FileType, Info, Loader2, Upload, UploadCloud, X, XCircle } from 'lucide-react';
 import documentService from '../../services/documentService';
 import type { DocumentUploadResponse } from '../../services/documentService';
 import { getCurrentUser, getEffectiveRole, getErrorMessage } from '../../services/authService';
 import PageHeader from '../../components/ui/PageHeader';
+import ContentCard from '../../components/ui/ContentCard';
 import ErrorState from '../../components/ui/ErrorState';
 
 type UploadState = 'idle' | 'uploading' | 'completed' | 'error';
+
+/** Must stay in sync with the `accept` attribute of the file input. */
+const ACCEPTED_TYPES = '.pdf,.jpg,.jpeg,.png';
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 const formatFileSize = (size: number) => {
   if (size < 1024 * 1024) {
@@ -18,20 +23,20 @@ const formatFileSize = (size: number) => {
 
 const AccountantUpload = () => {
   const navigate = useNavigate();
-    const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [uploadState, setUploadState] = useState<UploadState>('idle');
   const [uploadResult, setUploadResult] = useState<DocumentUploadResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const isEmployeeView = getEffectiveRole(getCurrentUser()) === 'EMPLOYEE';
-  
+
   const handleFileSelect = (selectedFile: File | undefined) => {
     if (!selectedFile) return;
 
     setUploadResult(null);
     setErrorMessage('');
 
-    if (selectedFile.size > 10 * 1024 * 1024) {
+    if (selectedFile.size > MAX_FILE_SIZE) {
       setFile(null);
       setUploadState('idle');
       setErrorMessage('Kích thước file không được vượt quá 10MB');
@@ -64,8 +69,9 @@ const AccountantUpload = () => {
     setUploadResult(null);
     setUploadState('idle');
     setErrorMessage('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
-  
+
   // Determine base path based on current location to navigate correctly back
   const getBasePath = () => {
     const role = getEffectiveRole(getCurrentUser());
@@ -74,104 +80,151 @@ const AccountantUpload = () => {
     return '/employee';
   };
 
+  const openFileDialog = () => fileInputRef.current?.click();
+
+  const stateLabel = uploadState === 'uploading'
+    ? 'Đang tải lên và phân loại tự động...'
+    : uploadState === 'completed'
+      ? 'Tải lên và xử lý hoàn tất'
+      : uploadState === 'error'
+        ? 'Tải lên thất bại'
+        : 'Sẵn sàng tải lên';
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <PageHeader title="Tải lên chứng từ" description={isEmployeeView ? 'Tải chứng từ của bạn lên hệ thống; trạng thái xử lý hiển thị từ API hiện có.' : 'Tải một tệp để tạo chứng từ; trạng thái xử lý hiển thị từ API hiện có.'} />
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        eyebrow={isEmployeeView ? 'Nghiệp vụ / Chứng từ cá nhân' : 'Nghiệp vụ / Xử lý hóa đơn điện tử'}
+        title="Tải lên & Số hóa Chứng từ"
+        description="Hệ thống tự động tiếp nhận, bóc tách OCR và phân loại chứng từ theo kỳ kế toán nội bộ."
+        actions={<span className="si-chip border-hairline text-ink-soft bg-surface"><Info size={20} />PDF · JPG · PNG · tối đa 10 MB</span>}
+      />
 
-      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-        {!file ? (
-          <div
-            className="border-2 border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-50 transition-colors rounded-xl p-12 flex flex-col items-center justify-center text-center cursor-pointer relative"
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => { event.preventDefault(); handleFileSelect(event.dataTransfer.files[0]); }}
-          >
-            <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4">
-              <UploadCloud className="text-blue-500" size={32} />
-            </div>
-            <h3 className="text-lg font-semibold text-slate-800 mb-1">Kéo thả chứng từ vào đây</h3>
-            <p className="text-sm text-slate-500 mb-6">Hỗ trợ các định dạng: PDF, JPG, PNG (tối đa 10MB)</p>
-            <button
-              type="button"
-              onClick={(event) => { event.stopPropagation(); fileInputRef.current?.click(); }}
-              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 shadow-sm transition-all"
-            >
-              Chọn File
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
-              className="hidden"
-              onChange={(event) => handleFileSelect(event.target.files?.[0])}
-            />
-          </div>
-        ) : (
-          <div className="flex flex-col items-center">
-            <div className="w-full flex items-center justify-between bg-slate-50 border border-slate-200 p-4 rounded-xl mb-6">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
-                  <FileType size={24} />
-                </div>
-                <div className="text-left">
-                  <div className="font-medium text-slate-800">{file.name}</div>
-                  <div className="text-xs text-slate-500">{formatFileSize(file.size)}</div>
-                </div>
-              </div>
-              {uploadState === 'completed' && <CheckCircle2 className="text-emerald-500" size={24} />}
-              {uploadState === 'error' && <XCircle className="text-red-500" size={24} />}
-            </div>
-            
-            <div className="w-full max-w-lg">
-              <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                {uploadState === 'uploading' && <Loader2 className="text-blue-500 animate-spin" size={22} />}
-                {uploadState === 'completed' && <CheckCircle2 className="text-emerald-500" size={22} />}
-                {uploadState === 'error' && <XCircle className="text-red-500" size={22} />}
-                {uploadState === 'idle' && <UploadCloud className="text-slate-400" size={22} />}
-                <span className="text-sm font-medium text-slate-700">
-                  {uploadState === 'uploading' && 'Đang tải lên và phân loại tự động...'}
-                  {uploadState === 'completed' && 'Upload và xử lý hoàn tất'}
-                  {uploadState === 'error' && 'Upload thất bại'}
-                  {uploadState === 'idle' && 'Sẵn sàng tải lên'}
+      <ContentCard className="p-6">
+            {!file ? (
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label="Chọn tệp chứng từ để tải lên"
+                onClick={openFileDialog}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openFileDialog(); } }}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => { event.preventDefault(); handleFileSelect(event.dataTransfer.files[0]); }}
+                className="hover:border-brand-600/60 hover:bg-subtle/40 border-hairline-strong flex cursor-pointer flex-col items-center rounded-panel border border-dashed px-6 py-12 text-center transition-colors"
+              >
+                <span className="border-hairline bg-subtle text-ink-soft flex h-11 w-11 items-center justify-center rounded-md border">
+                  <UploadCloud size={22} />
                 </span>
+                <h3 className="font-sans mt-4 text-[20px] font-bold tracking-tight text-ink">Kéo thả tệp hóa đơn vào đây hoặc duyệt từ máy tính</h3>
+                <p className="mt-1.5 max-w-md text-[18px] text-ink-muted">Hỗ trợ định dạng PDF, JPG, PNG. Dung lượng tối đa 10 MB trên mỗi tệp dữ liệu.</p>
+                <button type="button" onClick={(event) => { event.stopPropagation(); openFileDialog(); }} className="si-btn-primary mt-5">
+                  <Upload size={20} />Chọn tệp từ máy
+                </button>
+                <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES} className="hidden" onChange={(event) => handleFileSelect(event.target.files?.[0])} />
               </div>
-
-              {uploadResult && (
-                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                  <div>Đã tạo chứng từ với mã: <strong>{uploadResult.documentId}</strong></div>
-                  <div>Trạng thái: <strong>{uploadResult.processingStatus}</strong></div>
-                  <div>Loại chứng từ AI đề xuất: <strong>{uploadResult.documentTypeName || uploadResult.documentTypeCode || 'Chưa xác định'}</strong></div>
-                  {uploadResult.documentTypeConfidence != null && <div>Độ tin cậy: <strong>{new Intl.NumberFormat('vi-VN', { style: 'percent', maximumFractionDigits: 1 }).format(uploadResult.documentTypeConfidence)}</strong></div>}
+            ) : (
+              <div className="flex flex-col gap-4">
+                <div className="border-hairline bg-subtle/60 flex items-center justify-between gap-3 rounded-panel border p-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="border-hairline bg-surface text-ink-soft flex h-9 w-9 shrink-0 items-center justify-center rounded-md border">
+                      <FileType size={22} />
+                    </span>
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate text-[18px] font-semibold text-ink" title={file.name}>{file.name}</span>
+                      <span className="si-num text-2xs text-ink-muted">{formatFileSize(file.size)}</span>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {uploadState === 'completed' && <CheckCircle2 size={20} className="text-parsed" />}
+                    {uploadState === 'error' && <XCircle size={20} className="text-failed" />}
+                    {uploadState !== 'uploading' && (
+                      <button type="button" onClick={handleCancel} title="Bỏ tệp đã chọn" aria-label="Bỏ tệp đã chọn" className="text-ink-muted hover:bg-subtle hover:text-ink rounded p-1.5 transition-colors">
+                        <X size={20} />
+                      </button>
+                    )}
+                  </div>
                 </div>
-              )}
+              </div>
+            )}
+          </ContentCard>
+
+          <ContentCard>
+            <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-3.5">
+              <h2 className="si-section-title">Hàng đợi xử lý chứng từ</h2>
+              <span className="si-num text-[17px] text-ink-soft">{file ? '1 tệp' : '0 tệp'}</span>
             </div>
-          </div>
-        )}
-      </div>
+            <div className="overflow-x-auto">
+              <table className="si-table">
+                <thead>
+                  <tr>
+                    <th className="w-16">Thứ tự #</th>
+                    <th>Tên tệp &amp; Dung lượng</th>
+                    <th>Trạng thái xử lý AI</th>
+                    <th className="text-center">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!file ? (
+                    <tr><td colSpan={4} className="py-10 text-center text-ink-muted">Chưa có tệp nào trong phiên tải.</td></tr>
+                  ) : (
+                    <tr>
+                      <td className="si-num text-[17px] text-ink-soft">1</td>
+                      <td>
+                        <div className="flex flex-col">
+                          <span className="max-w-72 truncate text-[18px] font-medium text-ink" title={file.name}>{file.name}</span>
+                          <span className="si-num text-2xs text-ink-muted">{formatFileSize(file.size)}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-1">
+                          <span className="inline-flex items-center gap-2 text-[17px] text-ink-soft">
+                            {uploadState === 'uploading' && <Loader2 size={20} className="text-extracting shrink-0 animate-spin" />}
+                            {uploadState === 'completed' && <CheckCircle2 size={20} className="text-parsed shrink-0" />}
+                            {uploadState === 'error' && <XCircle size={20} className="text-failed shrink-0" />}
+                            {uploadState === 'idle' && <UploadCloud size={20} className="text-ink-muted shrink-0" />}
+                            {stateLabel}
+                          </span>
+                          {uploadResult?.success && (
+                            <>
+                              {uploadResult.documentTypeName && (
+                                <span className="text-2xs text-ink-muted">Loại chứng từ AI đề xuất: {uploadResult.documentTypeName}</span>
+                              )}
+                              <span className="si-num text-2xs text-ink-muted">
+                                Độ tin cậy phân loại: {uploadResult.documentTypeConfidence == null ? '—' : new Intl.NumberFormat('vi-VN', { style: 'percent', maximumFractionDigits: 1 }).format(uploadResult.documentTypeConfidence)}
+                              </span>
+                            </>
+                          )}
+                          {uploadResult?.message && <span className="text-2xs text-ink-muted">{uploadResult.message}</span>}
+                        </div>
+                      </td>
+                      <td className="text-center">
+                        <div className="inline-flex items-center gap-2">
+                          {uploadResult ? (
+                            <button type="button" onClick={() => navigate(`${getBasePath()}/documents/${uploadResult.documentId}`)} className="si-btn-secondary !px-2.5 !py-1 text-2xs">Xem chi tiết</button>
+                          ) : (
+                            <button type="button" disabled={uploadState === 'uploading'} onClick={() => void handleUpload()} className="si-btn-primary !px-2.5 !py-1 text-2xs">
+                              <Upload size={20} />Tải lên
+                            </button>
+                          )}
+                          <button type="button" onClick={handleCancel} className="si-btn-ghost !px-2.5 !py-1 text-2xs">Bỏ qua</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex flex-col items-center justify-between gap-3 border-t border-hairline px-5 py-3 sm:flex-row">
+              <span className="text-2xs text-ink-muted">Chứng từ sau khi tải lên sẽ xuất hiện trong danh sách chứng từ kèm trạng thái xử lý.</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => { handleCancel(); openFileDialog(); }} className="si-btn-secondary"><Upload size={20} />Tiếp tục tải thêm</button>
+                <button type="button" onClick={() => navigate(`${getBasePath()}/documents`)} className="si-btn-primary">Chuyển sang Danh sách chứng từ<ArrowRight size={20} /></button>
+              </div>
+            </div>
+          </ContentCard>
 
-      {errorMessage && (
-        <ErrorState message={errorMessage} />
-      )}
-
-      {file && uploadState !== 'uploading' && (
-        <div className="flex justify-end gap-3">
-          <button onClick={handleCancel} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">
-            Hủy
-          </button>
-          {uploadResult ? (
-            <button onClick={() => navigate(`${getBasePath()}/documents/${uploadResult?.documentId}`)} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors font-medium">
-              Xem chứng từ
-            </button>
-          ) : (
-            <button onClick={handleUpload} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors flex items-center gap-2 font-medium">
-              <UploadCloud size={18} /> Tải lên
-            </button>
-          )}
-        </div>
-      )}
+          {errorMessage && <ErrorState message={errorMessage} />}
     </div>
   );
 };
 
 export default AccountantUpload;
-

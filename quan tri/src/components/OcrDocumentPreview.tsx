@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist'
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
@@ -75,7 +75,7 @@ function PdfSurface({ url, pageNumber, width, onMetadata, onError }: {
 	return () => { renderTask?.cancel(); renderTask = null }
   }, [onError, pdfPage, width])
 
-  return <canvas ref={canvasRef} className="block bg-white shadow-xl" />
+  return <canvas ref={canvasRef} className="block bg-white shadow-elev2" />
 }
 
 export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, documentType, canCorrectFields, onCorrectField }: {
@@ -188,20 +188,20 @@ export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, 
     setFitMode('width'); setZoom(1); viewportRef.current?.scrollTo({ top: 0, left: 0, behavior: 'smooth' })
   }, [])
 
-  return <section className="flex h-full min-h-[620px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  return <section className="si-card flex h-full min-h-[620px] flex-col overflow-hidden">
     <OcrPreviewToolbar page={activePage} pageCount={pageCount} zoom={zoom} onPage={setActivePage}
       onZoom={value => setZoom(clampZoom(value))} onFitWidth={() => { setFitMode('width'); setZoom(1) }}
       onFitPage={() => { setFitMode('page'); setZoom(1) }} onReset={resetView} />
-    <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-      <div ref={viewportRef} className="relative min-h-[420px] overflow-auto bg-slate-800 p-4"
+    <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+      <div ref={viewportRef} className="border-hairline bg-subtle relative min-h-[420px] overflow-auto border-r p-5"
         onWheel={event => { if (!event.ctrlKey) return; event.preventDefault(); setZoom(value => clampZoom(value + (event.deltaY < 0 ? .1 : -.1))) }}>
-        {loadError && <div className="absolute inset-0 z-20 grid place-items-center bg-slate-800"><p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">Không thể tải bản xem trước chứng từ.</p></div>}
-        {!url && !loadError && <div className="absolute inset-0 grid place-items-center"><span className="animate-pulse text-sm text-slate-300">Đang tải bản xem trước...</span></div>}
+        {loadError && <div className="bg-subtle/95 absolute inset-0 z-20 grid place-items-center"><p className="rounded-control bg-failed-surface px-5 py-4 text-[18px] font-semibold text-failed">Không thể tải bản xem trước chứng từ.</p></div>}
+        {!url && !loadError && <div className="absolute inset-0 grid place-items-center"><span className="animate-pulse text-[18px] font-medium text-ink-soft">Đang tải bản xem trước...</span></div>}
         {url && !loadError && <div className="mx-auto w-fit" style={{ minHeight: renderedHeight }}>
           <div className="relative" style={{ width: renderedWidth, height: renderedHeight }}>
 			{previewContentType.startsWith('image/') ? <img src={url} alt="Bản xem trước chứng từ" draggable={false}
               onLoad={event => setSourceSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
-              onError={markLoadError} className="block bg-white object-fill shadow-xl" style={{ width: renderedWidth, height: renderedHeight }} />
+              onError={markLoadError} className="block bg-white object-fill shadow-elev2" style={{ width: renderedWidth, height: renderedHeight }} />
 			  : previewContentType === 'application/pdf' ? <PdfSurface url={url} pageNumber={activePage} width={renderedWidth}
                 onMetadata={updatePdfMetadata} onError={markLoadError} />
                 : <iframe title="Bản xem trước chứng từ" src={url} className="h-full w-full bg-white" />}
@@ -213,18 +213,18 @@ export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, 
       <ExtractedFieldPanel fields={fields} documentType={documentType} selectedId={selected?.id} hoveredId={hovered?.id}
         canCorrect={canCorrectFields} onSelect={selectField} onHover={setHovered} onCorrect={onCorrectField} />
     </div>
-    <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-2.5">
-      <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600">
-        <input type="checkbox" checked={overlayVisible} onChange={event => setOverlayVisible(event.target.checked)} className="rounded border-slate-300" />
+    <footer className="flex flex-wrap items-center justify-between gap-4 border-hairline border-t bg-surface px-5 py-3">
+      <label className="flex cursor-pointer items-center gap-2.5 text-[18px] font-semibold text-ink-soft">
+        <input type="checkbox" checked={overlayVisible} onChange={event => setOverlayVisible(event.target.checked)} className="h-5 w-5 rounded border-hairline-strong" />
         Hiện vùng nhận dạng
       </label>
-      <label className="flex items-center gap-2 text-xs text-slate-500">Overlay
+      <label className="flex items-center gap-2.5 text-[18px] text-ink-soft">Overlay
         <select value={overlayMode} onChange={event => setOverlayMode(event.target.value as OverlayMode)}
-          className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700" aria-label="Chế độ overlay">
+          className="si-select w-auto" aria-label="Chế độ overlay">
           <option value="field">Trường dữ liệu</option><option value="line">Dòng OCR</option><option value="word">Từ OCR</option><option value="block">Khối OCR (kiểm tra)</option>
         </select>
       </label>
-      {!fields.some(field => (field.locations?.length ?? 0) > 0) && <span className="text-xs text-slate-400">Chưa có dữ liệu vị trí để đánh dấu.</span>}
+      {!fields.some(field => (field.locations?.length ?? 0) > 0) && <span className="text-[17px] text-ink-muted">Chưa có dữ liệu vị trí để đánh dấu.</span>}
     </footer>
   </section>
 }

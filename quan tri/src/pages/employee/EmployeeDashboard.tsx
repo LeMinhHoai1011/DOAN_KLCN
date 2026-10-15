@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import StatCard from '../../components/StatCard';
 import StatusBadge from '../../components/StatusBadge';
 import dashboardService from '../../services/dashboardService';
 import type { DashboardStatistics } from '../../services/dashboardService';
 import documentService from '../../services/documentService';
 import type { DocumentListItem } from '../../services/documentService';
-import { AlertTriangle, CheckCircle2, FileText, Receipt } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle2, FileText, Receipt, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/ui/PageHeader';
 import ContentCard from '../../components/ui/ContentCard';
@@ -53,7 +53,7 @@ const EmployeeDashboard = () => {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Tổng quan của tôi" description="Theo dõi các chứng từ thuộc tài khoản của bạn." actions={<button type="button" onClick={() => navigate('/employee/upload')} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700">Tải lên chứng từ</button>} />
+      <PageHeader eyebrow="Nhân viên" title="Tổng quan của tôi" description="Theo dõi các chứng từ thuộc tài khoản của bạn." actions={<button type="button" onClick={() => navigate('/employee/upload')} className="si-btn-primary"><Upload size={20} />Tải lên chứng từ</button>} />
 
       {isLoading && (
         <LoadingState label="Đang tải dữ liệu của bạn..." />
@@ -65,62 +65,65 @@ const EmployeeDashboard = () => {
 
       {statistics && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard title="Tổng chứng từ" value={statistics.totalDocuments} icon={FileText} type="primary" />
-          <StatCard title="Tổng hóa đơn" value={statistics.totalInvoices} icon={Receipt} type="default" />
-          <StatCard title="Đã phân loại" value={statistics.totalClassified} icon={CheckCircle2} type="success" />
-          <StatCard title="Cần kiểm tra" value={statistics.totalReviewRequired} icon={AlertTriangle} type="warning" />
+          <StatCard title="Tổng chứng từ" value={statistics.totalDocuments} icon={FileText} type="primary" unit="chứng từ" />
+          <StatCard title="Tổng hóa đơn" value={statistics.totalInvoices} icon={Receipt} type="default" unit="hóa đơn" />
+          <StatCard title="Đã phân loại" value={statistics.totalClassified} icon={CheckCircle2} type="success" unit="chứng từ" />
+          <StatCard title="Cần kiểm tra" value={statistics.totalReviewRequired} icon={AlertTriangle} type="warning" unit="chứng từ" />
         </div>
       )}
 
-      <ContentCard className="p-6">
-        <h2 className="text-lg font-semibold text-slate-800 mb-2">Biểu đồ dashboard</h2>
-        <p className="text-sm text-slate-500">Chưa có API backend cho dữ liệu theo ngày hoặc phân loại để hiển thị biểu đồ.</p>
+      <ContentCard className="p-5">
+        <h2 className="si-section-title">Biểu đồ dashboard</h2>
+        <p className="si-section-subtitle mt-1">Chưa có API backend cho dữ liệu theo ngày hoặc phân loại để hiển thị biểu đồ.</p>
       </ContentCard>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-200 flex justify-between items-center">
-          <h2 className="text-lg font-semibold text-slate-800">Chứng từ mới nhất</h2>
-          <button onClick={() => navigate('/employee/documents')} className="text-sm text-blue-600 font-medium hover:text-blue-700">Xem tất cả</button>
+      <ContentCard>
+        <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-3.5">
+          <h2 className="si-section-title">Chứng từ mới nhất</h2>
+          <button type="button" onClick={() => navigate('/employee/documents')} className="si-link">Xem tất cả<ArrowRight size={20} /></button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="si-table">
             <thead>
-              <tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
-                <th className="py-3 px-6 font-medium">Mã</th>
-                <th className="py-3 px-6 font-medium">Tên chứng từ</th>
-                <th className="py-3 px-6 font-medium">Loại</th>
-                <th className="py-3 px-6 font-medium">Ngày</th>
-                <th className="py-3 px-6 font-medium">AI Confidence</th>
-                <th className="py-3 px-6 font-medium">Trạng thái</th>
+              <tr>
+                <th>Mã &amp; tệp</th>
+                <th>Loại</th>
+                <th>Ngày</th>
+                <th>Khớp AI</th>
+                <th>Trạng thái</th>
               </tr>
             </thead>
-            <tbody className="text-sm divide-y divide-slate-100">
+            <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={6} className="py-10 px-6 text-center text-slate-500">Đang tải chứng từ...</td>
+                  <td colSpan={5} className="py-10 text-center text-ink-muted">Đang tải chứng từ...</td>
                 </tr>
               )}
               {!isLoading && !error && recentDocuments.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-10 px-6 text-center text-slate-500">Chưa có chứng từ nào</td>
+                  <td colSpan={5} className="py-10 text-center text-ink-muted">Chưa có chứng từ nào</td>
                 </tr>
               )}
               {!isLoading && !error && recentDocuments.map((doc) => (
-                <tr key={doc.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="py-3 px-6 font-medium text-blue-600">{doc.id}</td>
-                  <td className="py-3 px-6">{doc.fileName}</td>
-                  <td className="py-3 px-6">{doc.documentTypeName}</td>
-                  <td className="py-3 px-6">{doc.date}</td>
-                  <td className="py-3 px-6">{doc.aiConfidence == null ? '-' : `${doc.aiConfidence}%`}</td>
-                  <td className="py-3 px-6">
-                    <StatusBadge status={doc.status} />
+                <tr key={doc.id} onClick={() => navigate(`/employee/documents/${doc.id}`)} className="cursor-pointer">
+                  <td>
+                    <div className="flex flex-col">
+                      <span className="si-num text-[17px] font-semibold text-brand-700">#{doc.id}</span>
+                      <span className="max-w-56 truncate text-2xs text-ink-muted" title={doc.fileName}>{doc.fileName}</span>
+                    </div>
+                  </td>
+                  <td className="text-ink-soft">{doc.documentTypeName}</td>
+                  <td className="si-num text-[17px] text-ink-soft">{doc.date}</td>
+                  <td className="si-num text-[17px] text-ink-soft">{doc.aiConfidence == null ? '—' : `${doc.aiConfidence}%`}</td>
+                  <td>
+                    <StatusBadge status={doc.status} reviewStatus={doc.reviewStatus} />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
+      </ContentCard>
     </div>
   );
 };

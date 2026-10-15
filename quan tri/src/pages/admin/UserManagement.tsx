@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { UserPlus, X } from 'lucide-react'
+import { Search, UserPlus, X } from 'lucide-react'
 import api from '../../services/api'
 import { getErrorMessage } from '../../services/authService'
 import type { User } from '../../services/authService'
@@ -75,7 +75,7 @@ const UserManagement = () => {
       setError(getErrorMessage(error, 'Không thể cập nhật trạng thái tài khoản.'))
     }
   }
-  
+
   const assignRole = async (user: ManagedUser, roleCode: string) => {
     try {
       const selectedRole = roles.find(r => r.code === roleCode)
@@ -95,60 +95,136 @@ const UserManagement = () => {
     return !value || user.fullName.toLocaleLowerCase().includes(value) || user.username.toLocaleLowerCase().includes(value) || user.email.toLocaleLowerCase().includes(value)
   })
 
+  const activeCount = users.filter(user => user.status === 'ACTIVE').length
+
   return (
-    <div className="space-y-6">
-      <PageHeader title="Quản lý người dùng" description="Tạo tài khoản, gán vai trò và khóa/mở khóa bằng API hiện có." actions={<button type="button" onClick={() => setIsCreating(true)} className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700"><UserPlus size={18} /> Thêm người dùng</button>} />
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        eyebrow="Quản trị / Người dùng"
+        title="Quản lý người dùng"
+        description="Tạo tài khoản, gán vai trò và khóa/mở khóa bằng API hiện có."
+        actions={
+          <button type="button" onClick={() => setIsCreating(true)} className="si-btn-primary">
+            <UserPlus size={20} />Thêm người dùng
+          </button>
+        }
+      />
 
       {error && <ErrorState message={error} onRetry={() => void loadData()} />}
 
       {isCreating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" onMouseDown={() => setIsCreating(false)}>
-          <form onSubmit={createUser} role="dialog" aria-modal="true" aria-labelledby="create-user-title" onMouseDown={(event) => event.stopPropagation()} className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onMouseDown={() => setIsCreating(false)}>
+          <form
+            onSubmit={createUser}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-user-title"
+            onMouseDown={(event) => event.stopPropagation()}
+            className="si-panel w-full max-w-2xl p-6 shadow-elev3"
+          >
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
-                <h2 id="create-user-title" className="text-lg font-semibold text-slate-800">Tao nguoi dung moi</h2>
-                <p className="mt-1 text-sm text-slate-500">Nhap thong tin tai khoan va vai tro ban dau.</p>
+                <h2 id="create-user-title" className="si-section-title">Thêm người dùng mới</h2>
+                <p className="si-section-subtitle mt-1">Nhập thông tin tài khoản và vai trò ban đầu.</p>
               </div>
-              <button type="button" onClick={() => setIsCreating(false)} aria-label="Dong" title="Dong" className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800">
-                <X size={20} />
+              <button type="button" onClick={() => setIsCreating(false)} aria-label="Đóng hộp thoại" className="text-ink-muted hover:bg-subtle hover:text-ink rounded p-1.5 transition-colors">
+                <X size={22} />
               </button>
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {(['username', 'password', 'fullName', 'email'] as const).map((field) => (
-                <input key={field} required type={field === 'password' ? 'password' : field === 'email' ? 'email' : 'text'} placeholder={field} value={form[field]} onChange={(event) => setForm({ ...form, [field]: event.target.value })} className="rounded-lg border border-slate-200 px-3 py-2" />
-              ))}
-              <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="rounded-lg border border-slate-200 px-3 py-2">
-                {roles.filter(r => r.active).map(r => <option key={r.id} value={r.code}>{r.name} ({r.code})</option>)}
-              </select>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="grid gap-1">
+                <span className="si-field-label">Tên đăng nhập</span>
+                <input required placeholder="username" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} className="si-input" />
+              </label>
+              <label className="grid gap-1">
+                <span className="si-field-label">Mật khẩu</span>
+                <input required type="password" placeholder="••••••••" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} className="si-input" />
+              </label>
+              <label className="grid gap-1">
+                <span className="si-field-label">Họ và tên</span>
+                <input required placeholder="Nguyễn Văn A" value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} className="si-input" />
+              </label>
+              <label className="grid gap-1">
+                <span className="si-field-label">Email</span>
+                <input required type="email" placeholder="email@congty.vn" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} className="si-input" />
+              </label>
+              <label className="grid gap-1 md:col-span-2">
+                <span className="si-field-label">Vai trò ban đầu</span>
+                <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="si-select">
+                  {roles.filter(r => r.active).map(r => <option key={r.id} value={r.code}>{r.name} ({r.code})</option>)}
+                </select>
+              </label>
             </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setIsCreating(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-50">Huy</button>
-              <button type="submit" className="rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700">Tao tai khoan</button>
+            <div className="border-hairline mt-6 flex justify-end gap-3 border-t pt-4">
+              <button type="button" onClick={() => setIsCreating(false)} className="si-btn-secondary">Hủy</button>
+              <button type="submit" className="si-btn-primary">Tạo tài khoản</button>
             </div>
           </form>
         </div>
       )}
 
       <ContentCard>
-        <div className="border-b border-slate-200 bg-slate-50 p-4"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm theo tên, username hoặc email..." className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" /></div>
-        {isLoading ? <LoadingState label="Đang tải người dùng..." /> : visibleUsers.length === 0 ? <EmptyState title={users.length === 0 ? 'Chưa có người dùng' : 'Không tìm thấy người dùng'} description="Thử thay đổi từ khóa tìm kiếm hoặc tạo tài khoản mới." /> : (
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500"><tr><th className="p-4">Nguoi dung</th><th className="p-4">Email</th><th className="p-4">Role</th><th className="p-4">Trang thai</th><th className="p-4">Thao tac</th></tr></thead>
-            <tbody className="divide-y divide-slate-100">
-              {visibleUsers.map((user) => <tr key={user.id} className="hover:bg-slate-50">
-                <td className="p-4"><div className="font-medium text-slate-800">{user.fullName}</div><div className="text-slate-500">@{user.username}</div></td>
-                <td className="p-4">{user.email}</td>
-                <td className="p-4">
-                  <select value={user.role || ''} onChange={(event) => void assignRole(user, event.target.value)} className="rounded border border-slate-200 px-2 py-1">
-                    <option value="" disabled>Chon role...</option>
-                    {roles.map(r => <option key={r.id} value={r.code}>{r.name}</option>)}
-                  </select>
-                </td>
-                <td className="p-4"><span className={user.status === 'ACTIVE' ? 'text-emerald-600' : 'text-red-600'}>{user.status === 'ACTIVE' ? 'Dang hoat dong' : 'Da khoa'}</span></td>
-                <td className="p-4"><button type="button" onClick={() => void updateStatus(user, user.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE')} className="text-blue-600 hover:underline">{user.status === 'ACTIVE' ? 'Khoa' : 'Mo khoa'}</button></td>
-              </tr>)}
-            </tbody>
-          </table>
+        <div className="border-hairline flex flex-wrap items-center gap-3 border-b p-4">
+          <div className="relative flex-1 sm:max-w-md">
+            <Search size={20} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-muted" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm theo tên, username hoặc email..." className="si-input !pl-9" />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="si-chip border-hairline bg-subtle text-ink-muted">{users.length} tài khoản</span>
+            <span className="si-chip border-parsed/30 bg-parsed-surface text-parsed">{activeCount} hoạt động</span>
+            {users.length - activeCount > 0 && (
+              <span className="si-chip border-failed/30 bg-failed-surface text-failed">{users.length - activeCount} đã khóa</span>
+            )}
+          </div>
+        </div>
+        {isLoading ? (
+          <LoadingState label="Đang tải người dùng..." />
+        ) : visibleUsers.length === 0 ? (
+          <EmptyState
+            title={users.length === 0 ? 'Chưa có người dùng' : 'Không tìm thấy người dùng'}
+            description="Thử thay đổi từ khóa tìm kiếm hoặc tạo tài khoản mới."
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="si-table">
+              <thead>
+                <tr>
+                  <th>Người dùng</th>
+                  <th>Email</th>
+                  <th>Vai trò</th>
+                  <th>Trạng thái</th>
+                  <th className="text-right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleUsers.map((user) => (
+                  <tr key={user.id}>
+                    <td>
+                      <div className="font-medium text-ink">{user.fullName}</div>
+                      <div className="si-num text-[17px] text-ink-muted">@{user.username}</div>
+                    </td>
+                    <td className="text-ink-soft">{user.email}</td>
+                    <td>
+                      <select value={user.role || ''} onChange={(event) => void assignRole(user, event.target.value)} className="si-select !py-1 !text-[17px]">
+                        <option value="" disabled>Chọn vai trò...</option>
+                        {roles.map(r => <option key={r.id} value={r.code}>{r.name}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <span className={user.status === 'ACTIVE' ? 'si-chip border-parsed/30 bg-parsed-surface text-parsed' : 'si-chip border-failed/30 bg-failed-surface text-failed'}>
+                        {user.status === 'ACTIVE' ? 'Đang hoạt động' : 'Đã khóa'}
+                      </span>
+                    </td>
+                    <td className="text-right">
+                      <button type="button" onClick={() => void updateStatus(user, user.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE')} className="si-btn-secondary !px-2.5 !py-1 !text-[17px]">
+                        {user.status === 'ACTIVE' ? 'Khóa' : 'Mở khóa'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </ContentCard>
     </div>

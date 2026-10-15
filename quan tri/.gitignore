@@ -12,6 +12,21 @@ dist
 dist-ssr
 *.local
 
+# Build cache / thông tin kiểu của TypeScript
+*.tsbuildinfo
+.vite
+.vite-cache
+
+# Kết quả test & coverage (không cần push)
+coverage
+test-results
+playwright-report
+.eslintcache
+
+# Ghi chú: file .env ở thư mục này ĐƯỢC theo dõi có chủ đích vì chỉ chứa
+# biến public VITE_API_BASE_URL. Mọi override riêng của máy (.env.local,
+# .env.*.local) đã bị bỏ qua bởi mẫu *.local ở trên.
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

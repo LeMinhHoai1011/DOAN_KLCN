@@ -31,3 +31,12 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Runtime (thêm cho DOAN_KLCN) ###
+# Log do Maven / Spring Boot sinh ra khi chạy test hoặc chạy app cục bộ.
+logs/
+*.log
+
+# Lưu ý: backendqt/backendqt/tessdata/*.traineddata ĐƯỢC theo dõi có chủ đích
+# (vie.traineddata + eng.traineddata cần cho OCR runtime; application.yml dùng
+# TESSDATA_PATH=./tessdata). Không bỏ qua thư mục này.

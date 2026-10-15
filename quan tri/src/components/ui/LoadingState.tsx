@@ -1,7 +1,7 @@
 interface LoadingStateProps { label?: string; }
 const LoadingState = ({ label = 'Đang tải dữ liệu...' }: LoadingStateProps) => (
-  <div className="flex min-h-32 items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500" role="status">
-    <span className="h-5 w-5 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" aria-hidden="true" />
+  <div className="rounded-card border-hairline bg-surface flex min-h-40 items-center justify-center gap-4 border p-8 text-[19px] font-medium text-ink-soft" role="status">
+    <span className="border-hairline border-t-brand-600 h-7 w-7 animate-spin rounded-full border-[3px]" aria-hidden="true" />
     {label}
   </div>
 );

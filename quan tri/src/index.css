@@ -1,19 +1,337 @@
 @import "tailwindcss";
 
+/* ============================================================================
+   SmartInvoice — Enterprise Design System
+   Tokens ported from:
+   stitch_smartinvoice_ui_ux_redesign/smartinvoice_enterprise_design_system/DESIGN.md
+   Aesthetic: "Modern Corporate Precision" — crisp white containers on a subtle
+   slate canvas, hairline delimiters instead of heavy shadows.
+   ============================================================================ */
 @theme {
-  --color-primary-50: #eff6ff;
-  --color-primary-100: #dbeafe;
-  --color-primary-500: #3b82f6;
-  --color-primary-600: #2563eb;
-  --color-primary-700: #1d4ed8;
-  
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
+  /* ---- Typography families -------------------------------------------------
+     Headlines  : Plus Jakarta Sans (geometric, contemporary)
+     Body/data  : Inter (high x-height, Vietnamese diacritics)
+     Numerals   : JetBrains Mono (ledgers, MST, currency)                     */
+  --font-sans: "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ---- Micro type steps ---------------------------------------------------
+     Projection pass: the smallest steps are already large enough to read from
+     the back of a lecture room, so micro copy never drops below 15px.        */
+  --text-2xs: 15px;
+  --text-2xs--line-height: 22px;
+  --text-label: 18px;
+  --text-label--line-height: 26px;
+
+  /* ---- Base type scale (projection pass) ---------------------------------
+     Small and mid steps are overridden so every `text-*` utility used across
+     the app grows together with the arbitrary sizes in the components.       */
+  --text-xs: 17px;
+  --text-xs--line-height: 26px;
+  --text-sm: 18px;
+  --text-sm--line-height: 28px;
+  --text-base: 19px;
+  --text-base--line-height: 30px;
+  --text-lg: 22px;
+  --text-lg--line-height: 32px;
+  --text-xl: 26px;
+  --text-xl--line-height: 36px;
+  --text-2xl: 32px;
+  --text-2xl--line-height: 40px;
+  --text-3xl: 40px;
+  --text-3xl--line-height: 48px;
+
+  /* ---- Brand blue (interaction & action) ---------------------------------- */
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a8a;
+
+  /* ---- Structural authority slate ---------------------------------------- */
+  --color-slate-850: #152033;
+  --color-slate-950: #090d16;
+
+  /* ---- Canvas / surface neutrals -----------------------------------------
+     Projection palette: pure white canvas and surfaces, hairline borders that
+     stay visible on a washed-out beam, and body copy that never drops into
+     light grey. Every ink step is a very dark slate.                         */
+  --color-canvas: #ffffff;
+  --color-subtle: #f1f5f9;
+  --color-surface: #ffffff;
+  --color-hairline: #cbd5e1;
+  --color-hairline-strong: #94a3b8;
+  --color-ink: #0f172a;
+  --color-ink-soft: #1e293b;
+  --color-ink-muted: #334155;
+
+  /* ---- OCR processing pipeline (dark text on pastel tint) ---------------- */
+  --color-parsed: #047857;
+  --color-parsed-surface: #d1fae5;
+  --color-extracting: #0369a1;
+  --color-extracting-surface: #e0f2fe;
+  --color-review: #b45309;
+  --color-review-surface: #fef3c7;
+  --color-failed: #b91c1c;
+  --color-failed-surface: #fee2e2;
+
+  /* ---- Approval workflow -------------------------------------------------- */
+  --color-approved: #15803d;
+  --color-pending: #c2410c;
+  --color-rejected: #be123c;
+  --color-draft: #475569;
+
+  /* ---- Document taxonomy (neutral & indigo series) ------------------------ */
+  --color-tax-vat: #3730a3;
+  --color-tax-vat-surface: #eef2ff;
+  --color-tax-receipt: #075985;
+  --color-tax-receipt-surface: #f0f9ff;
+  --color-tax-payment: #115e59;
+  --color-tax-payment-surface: #f0fdfa;
+  --color-tax-ticket: #5b21b6;
+  --color-tax-ticket-surface: #f5f3ff;
+  --color-tax-credit: #1e293b;
+  --color-tax-credit-surface: #f1f5f9;
+
+  /* ---- Radii & elevation -------------------------------------------------- */
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-panel: 10px;
+  --shadow-elev1: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  --shadow-elev2: 0 4px 6px -1px rgb(15 23 42 / 0.07), 0 2px 4px -2px rgb(15 23 42 / 0.05);
+  --shadow-elev3: 0 20px 25px -5px rgb(15 23 42 / 0.1), 0 8px 10px -6px rgb(15 23 42 / 0.04);
+
+  /* ---- Shell metrics ------------------------------------------------------
+     Rail and topbar grow with the type scale so the chrome keeps its rhythm. */
+  --spacing-rail: 280px;
+  --spacing-topbar: 72px;
 }
 
-body {
-  font-family: 'Inter', sans-serif;
-  background-color: #f3f4f6;
-  color: #1f2937;
+/* ============================================================================
+   Global UI zoom — "thu phóng toàn bộ giao diện"
+   ----------------------------------------------------------------------------
+   `--ui-zoom` is the single dial for how large the whole interface renders:
+   1 = 100 % (design size), 0.8 = every pixel of the app at 80 %. It is applied
+   on the root element so layout, type, icons, hairline borders, radii and chart
+   canvases all shrink together — the equivalent of browser page zoom, but
+   shipped with the app.
+
+   IMPORTANT — `zoom` does NOT scale viewport units. Inside a zoomed root a
+   `100vh` box still measures 100vh of the *unzoomed* viewport, so it would cover
+   only 80 % of the window and leave an empty band at the bottom (`100vw` would
+   stop short of the right edge). Every viewport-relative size therefore divides
+   by `--ui-zoom`:
+     - `h-screen` / `min-h-screen` / `max-h-screen` / `w-screen` are re-declared
+       in the utilities layer at the bottom of this file;
+     - ad-hoc viewport values are written `calc(…vh / var(--ui-zoom))`.
+   Pixels, rems and percentages need no compensation — `zoom` scales them.
+   ============================================================================ */
+:root {
+  /* 1 = 100 %, 0.8 = 80 % — change this single value to re-scale the whole app. */
+  --ui-zoom: 1;
 }
+
+/* Only shrink where `zoom` is actually implemented: engines without it keep
+   `--ui-zoom: 1`, otherwise the viewport compensation below would make
+   full-height screens 25 % taller than the window. */
+@supports (zoom: 0.8) {
+  :root {
+    --ui-zoom: 0.8;
+  }
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color-scheme: light;
+
+    /* Single dial for the size of the whole interface (declared in `:root`). */
+    zoom: var(--ui-zoom);
+  }
+
+  body {
+    font-family: var(--font-body);
+    /* Unstyled text inherits a large, dark baseline for projection. */
+    font-size: 18px;
+    line-height: 1.6;
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    overscroll-behavior: none;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5 {
+    font-family: var(--font-sans);
+    letter-spacing: -0.011em;
+  }
+
+  /* Slim, unobtrusive scrollbars — structural chrome stays quiet. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-hairline-strong);
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-ink-muted);
+    background-clip: content-box;
+  }
+
+  ::selection {
+    background-color: var(--color-brand-100);
+    color: var(--color-brand-900);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 1px;
+  }
+}
+
+@layer components {
+  /* ---- Surfaces ---------------------------------------------------------- */
+  .si-card {
+    @apply rounded-card border border-hairline bg-surface shadow-elev1;
+  }
+
+  .si-panel {
+    @apply rounded-panel border border-hairline-strong bg-surface shadow-elev2;
+  }
+
+  /* ---- Section heading (card header) ------------------------------------ */
+  .si-section-title {
+    @apply font-sans text-[24px] leading-[32px] font-bold tracking-tight text-ink;
+  }
+
+  .si-section-subtitle {
+    @apply text-[17px] leading-[26px] text-ink-soft;
+  }
+
+  /* ---- Label-sm: uppercase table headers & micro indicators -------------- */
+  .si-label {
+    @apply text-2xs font-semibold tracking-[0.06em] text-ink-soft uppercase;
+  }
+
+  .si-field-label {
+    @apply block text-[18px] leading-[26px] font-semibold text-ink-soft;
+  }
+
+  /* ---- Numeric data (currency, MST, quantities, dates) ------------------- */
+  .si-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* ---- Controls --------------------------------------------------------- */
+  .si-input,
+  .si-select {
+    @apply rounded-control border-hairline bg-surface text-ink placeholder:text-ink-muted
+      hover:border-hairline-strong focus:border-brand-600 focus:ring-brand-600/15
+      w-full border px-4 py-2.5 text-[18px] transition-colors
+      focus:ring-2 focus:outline-none disabled:cursor-not-allowed disabled:bg-subtle disabled:text-ink-muted;
+  }
+
+  .si-select {
+    @apply cursor-pointer appearance-none pr-10;
+  }
+
+  .si-btn,
+  .si-btn-primary,
+  .si-btn-secondary,
+  .si-btn-ghost,
+  .si-btn-danger {
+    @apply rounded-control inline-flex items-center justify-center gap-2 px-4 py-2.5 text-[18px]
+      font-semibold transition-colors select-none disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .si-btn-primary {
+    @apply bg-brand-600 shadow-elev1 hover:bg-brand-700 text-white;
+  }
+
+  .si-btn-secondary {
+    @apply border-hairline bg-surface text-ink hover:border-hairline-strong hover:bg-subtle border;
+  }
+
+  .si-btn-ghost {
+    @apply text-ink-soft hover:bg-subtle hover:text-ink;
+  }
+
+  .si-btn-danger {
+    @apply border-failed-surface bg-failed-surface text-failed border hover:bg-red-100;
+  }
+
+  /* ---- Inline action link ----------------------------------------------- */
+  .si-link {
+    @apply text-brand-700 hover:text-brand-900 inline-flex items-center gap-1 text-[17px] font-semibold transition-colors;
+  }
+
+  /* ---- Table ------------------------------------------------------------ */
+  .si-table {
+    @apply min-w-[1100px] w-full border-collapse text-left text-[18px];
+  }
+
+  .si-table thead tr {
+    @apply border-hairline bg-subtle border-b;
+  }
+
+  .si-table th {
+    @apply text-[16px] leading-[24px] text-ink-soft border-hairline bg-subtle px-4 py-3 font-bold tracking-[0.04em] uppercase;
+  }
+
+  .si-table tbody tr {
+    @apply border-hairline hover:bg-subtle/70 border-b transition-colors last:border-b-0;
+  }
+
+  .si-table td {
+    @apply text-ink px-4 py-3.5 align-middle;
+  }
+
+  /* ---- Chips / tags ----------------------------------------------------- */
+  .si-chip {
+    @apply inline-flex items-center gap-1.5 rounded border px-2 py-1 text-2xs font-semibold;
+  }
+
+}
+
+/* ---- Full-height / full-width utilities: follow the global UI zoom --------
+   Tailwind's viewport-sized helpers are restated through `--ui-zoom` so a
+   `h-screen` rail or a `min-h-screen` shell still reaches the bottom edge of the
+   window while the root element is zoomed. These rules sit in the utilities
+   layer *after* Tailwind's own, so they win the cascade; prefer `h-screen` /
+   `min-h-screen` (or `calc(…vh / var(--ui-zoom))`) over a raw `100vh`, never
+   use both for the same box.                                              */
+@layer utilities {
+  .h-screen {
+    height: calc(100vh / var(--ui-zoom));
+  }
+
+  .min-h-screen {
+    min-height: calc(100vh / var(--ui-zoom));
+  }
+
+  .max-h-screen {
+    max-height: calc(100vh / var(--ui-zoom));
+  }
+
+  .w-screen {
+    width: calc(100vw / var(--ui-zoom));
+  }
+}
+
+

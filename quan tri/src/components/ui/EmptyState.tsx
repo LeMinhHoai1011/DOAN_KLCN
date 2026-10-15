@@ -3,11 +3,13 @@ import { Inbox } from 'lucide-react';
 
 interface EmptyStateProps { title?: string; description?: string; action?: ReactNode; }
 const EmptyState = ({ title = 'Chưa có dữ liệu', description, action }: EmptyStateProps) => (
-  <div className="flex min-h-40 flex-col items-center justify-center px-6 py-10 text-center">
-    <Inbox className="mb-3 text-slate-300" size={32} aria-hidden="true" />
-    <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
-    {description && <p className="mt-1 max-w-md text-sm text-slate-500">{description}</p>}
-    {action && <div className="mt-4">{action}</div>}
+  <div className="flex min-h-56 flex-col items-center justify-center px-6 py-14 text-center">
+    <span className="bg-subtle text-ink-soft mb-4 flex h-16 w-16 items-center justify-center rounded-full" aria-hidden="true">
+      <Inbox size={32} />
+    </span>
+    <h3 className="font-sans text-[24px] leading-[32px] font-bold text-ink">{title}</h3>
+    {description && <p className="mt-2 max-w-2xl text-[19px] leading-[30px] text-ink-soft">{description}</p>}
+    {action && <div className="mt-5">{action}</div>}
   </div>
 );
 export default EmptyState;

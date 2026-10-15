@@ -14,6 +14,6 @@ export default class AppErrorBoundary extends Component<Props, State> {
 
   render() {
     if (!this.state.hasError) return this.props.children
-    return <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6"><div className="w-full max-w-lg rounded-2xl border border-red-200 bg-white p-8 text-center shadow-sm"><h1 className="text-xl font-semibold text-slate-800">Không thể hiển thị trang</h1><p className="mt-2 text-sm text-slate-600">Dữ liệu hoặc phiên bản ứng dụng chưa đồng bộ. Hãy tải lại trang sau khi backend đã được khởi động lại.</p><button type="button" onClick={() => window.location.reload()} className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">Tải lại trang</button></div></main>
+    return <main className="flex min-h-screen items-center justify-center bg-canvas p-8"><div className="w-full max-w-2xl rounded-panel border-failed/40 bg-surface border p-10 text-center shadow-elev1"><h1 className="font-sans text-[28px] leading-[38px] font-bold tracking-tight text-ink">Không thể hiển thị trang</h1><p className="mt-3 text-[19px] leading-[30px] text-ink-soft">Dữ liệu hoặc phiên bản ứng dụng chưa đồng bộ. Hãy tải lại trang sau khi backend đã được khởi động lại.</p><button type="button" onClick={() => window.location.reload()} className="si-btn-primary mt-6 text-[18px]">Tải lại trang</button></div></main>
   }
 }

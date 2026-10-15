@@ -1,105 +1,28 @@
-import { NavLink, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Files, 
-  UploadCloud, 
-  KeyRound,
-  LogOut,
-  BrainCircuit
-} from 'lucide-react';
-import clsx from 'clsx';
-import { getCurrentUser, getEffectiveRole, logout } from '../../services/authService';
-
-const menuItems = [
-  { name: 'Dashboard Nhân viên', path: '/employee/dashboard', icon: LayoutDashboard },
-  { name: 'Chứng từ của tôi', path: '/employee/documents', icon: Files },
-  { name: 'Upload chứng từ', path: '/employee/upload', icon: UploadCloud },
-];
+import { Files, KeyRound, LayoutDashboard, UploadCloud } from 'lucide-react'
+import NavRail, { type NavRailItem } from '../ui/NavRail'
+import { getCurrentUser, getEffectiveRole } from '../../services/authService'
 
 const EmployeeSidebar = () => {
-  const navigate = useNavigate();
-  const user = getCurrentUser();
-  const role = getEffectiveRole(user);
-  const displayName = user?.fullName || user?.username || 'Người dùng';
-  const initials = displayName
-    .split(' ')
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login', { replace: true });
-  };
+  const role = getEffectiveRole(getCurrentUser())
+  const menuItems: NavRailItem[] = [
+    { name: 'Tổng quan', path: '/employee/dashboard', icon: LayoutDashboard },
+    { name: 'Chứng từ của tôi', path: '/employee/documents', icon: Files },
+    { name: 'Tải lên chứng từ', path: '/employee/upload', icon: UploadCloud },
+  ]
 
   return (
-    <aside className="fixed left-0 top-0 z-20 hidden h-screen w-64 flex-col bg-[#0B1731] text-slate-300 shadow-xl lg:flex">
-      <div className="h-16 flex items-center px-6 border-b border-slate-700/50">
-        <div className="flex items-center gap-2 text-white font-bold text-lg">
-          <BrainCircuit className="text-blue-500" size={24} />
-          <span>SmartInvoice</span>
-        </div>
-      </div>
+    <NavRail
+      roleLabel="Nhân viên"
+      sections={[
+        {
+          label: 'Nghiệp vụ',
+          // Chỉ nhân viên (EMPLOYEE) được phép tải chứng từ lên.
+          items: menuItems.filter((item) => item.path !== '/employee/upload' || role === 'EMPLOYEE'),
+        },
+      ]}
+      footerItems={[{ name: 'Đổi mật khẩu', path: '/employee/password', icon: KeyRound }]}
+    />
+  )
+}
 
-      <div className="flex-1 overflow-y-auto py-6 px-3 flex flex-col gap-1">
-        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">Menu chính</div>
-        {menuItems.filter((item) => item.path !== '/employee/upload' || role === 'EMPLOYEE').map((item) => {
-          const Icon = item.icon;
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) => clsx(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
-                isActive 
-                  ? "bg-blue-600/10 text-blue-400 font-medium" 
-                  : "hover:bg-slate-800/50 hover:text-white"
-              )}
-            >
-              <Icon size={20} className="text-slate-400" />
-              <span>{item.name}</span>
-            </NavLink>
-          );
-        })}
-
-        <div className="mt-8 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">Hệ thống</div>
-        <NavLink
-          to="/employee/password"
-          className={({ isActive }) => clsx(
-            "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
-            isActive 
-              ? "bg-blue-600/10 text-blue-400 font-medium" 
-              : "hover:bg-slate-800/50 hover:text-white"
-          )}
-        >
-          <KeyRound size={20} className="text-slate-400" />
-          <span>Đổi mật khẩu</span>
-        </NavLink>
-      </div>
-      
-      <div className="p-4 border-t border-slate-700/50">
-        <div className="bg-slate-800/50 rounded-lg p-3 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-            {initials}
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <div className="text-sm font-medium text-white truncate">{displayName}</div>
-            <div className="text-xs text-slate-400 truncate">{user?.email || user?.username || ''}</div>
-          </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            title="Đăng xuất"
-            aria-label="Đăng xuất"
-            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
-          >
-            <LogOut size={16} />
-          </button>
-        </div>
-      </div>
-    </aside>
-  );
-};
-
-export default EmployeeSidebar;
+export default EmployeeSidebar
