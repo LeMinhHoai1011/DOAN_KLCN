@@ -20,6 +20,16 @@ import org.slf4j.LoggerFactory;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+	@ExceptionHandler({org.springframework.dao.OptimisticLockingFailureException.class, jakarta.persistence.OptimisticLockException.class})
+	ResponseEntity<ErrorResponse> handleOptimisticConflict(Exception ex, HttpServletRequest request) {
+		return error(HttpStatus.CONFLICT, "USER_UPDATE_CONFLICT", "Dữ liệu đã thay đổi. Vui lòng tải lại và thử lại.", request.getRequestURI());
+	}
+
+	@ExceptionHandler({org.springframework.dao.PessimisticLockingFailureException.class, jakarta.persistence.PessimisticLockException.class,
+			jakarta.persistence.LockTimeoutException.class})
+	ResponseEntity<ErrorResponse> handleLockConflict(Exception ex, HttpServletRequest request) {
+		return error(HttpStatus.CONFLICT, "AUTHENTICATION_CONFLICT", "Không thể xác thực do cập nhật đồng thời. Vui lòng thử lại.", request.getRequestURI());
+	}
 	@ExceptionHandler(ResourceNotFoundException.class)
 	ResponseEntity<ErrorResponse> handleNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
 		return error(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", ex.getMessage(), request.getRequestURI());

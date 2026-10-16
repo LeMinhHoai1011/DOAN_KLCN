@@ -27,6 +27,21 @@ import lombok.Setter;
 @Entity
 @Table(name = "users")
 public class User {
+	@Setter(lombok.AccessLevel.NONE)
+	@Column(name = "token_version", nullable = false)
+	private Long tokenVersion = 0L;
+
+	@Setter(lombok.AccessLevel.NONE)
+	@jakarta.persistence.Version
+	@Column(name = "row_version", nullable = false)
+	private Long rowVersion;
+
+	public void revokeTokens() {
+		if (tokenVersion == null || tokenVersion < 0 || tokenVersion == Long.MAX_VALUE) {
+			throw new com.example.invoice.exception.BadRequestException("TOKEN_VERSION_EXHAUSTED: Không thể tăng phiên bản xác thực");
+		}
+		tokenVersion++;
+	}
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	@Column(name = "user_id")
@@ -69,12 +84,18 @@ public class User {
 
 	@PrePersist
 	void prePersist() {
+		validateTokenVersion();
 		createdAt = LocalDateTime.now();
 		updatedAt = createdAt;
 	}
 
 	@PreUpdate
 	void preUpdate() {
+		validateTokenVersion();
 		updatedAt = LocalDateTime.now();
+	}
+
+	private void validateTokenVersion() {
+		if (tokenVersion == null || tokenVersion < 0) throw new IllegalStateException("Invalid token version");
 	}
 }

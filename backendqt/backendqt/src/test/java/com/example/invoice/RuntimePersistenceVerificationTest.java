@@ -21,7 +21,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest(properties = {"app.demo-admin.enabled=true", "app.demo-users.enabled=true"})
+// Existing runtime accounts must be provisioned separately; this test cannot enable demo seeding.
+@SpringBootTest(properties = {"app.demo-admin.enabled=false", "app.demo-users.enabled=false"})
 @EnabledIfEnvironmentVariable(named = "RUNTIME_DB_TEST", matches = "true")
 @Transactional
 class RuntimePersistenceVerificationTest {

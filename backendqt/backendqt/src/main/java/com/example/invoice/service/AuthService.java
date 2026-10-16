@@ -4,10 +4,7 @@ import com.example.invoice.dto.auth.LoginRequest;
 import com.example.invoice.dto.auth.LoginResponse;
 import com.example.invoice.dto.auth.RegisterRequest;
 import com.example.invoice.dto.user.UserResponse;
-import com.example.invoice.entity.Role;
 import com.example.invoice.entity.User;
-import com.example.invoice.entity.UserRoleAssignment;
-import com.example.invoice.exception.BadRequestException;
 import com.example.invoice.repository.RoleRepository;
 import com.example.invoice.repository.UserRepository;
 import com.example.invoice.security.CustomUserDetailsService;
@@ -31,37 +28,24 @@ public class AuthService {
 	private final UserMapper userMapper;
 	private final CustomUserDetailsService customUserDetailsService;
 
-	@Transactional
 	public UserResponse register(RegisterRequest request) {
-		if (userRepository.existsByUsername(request.username())) {
-			throw new BadRequestException("Tên đăng nhập đã tồn tại");
-		}
-		if (userRepository.existsByEmail(request.email())) {
-			throw new BadRequestException("Email đã tồn tại");
-		}
-
-		User user = new User();
-		user.setUsername(request.username());
-		user.setPassword(passwordEncoder.encode(request.password()));
-		user.setFullName(request.fullName());
-		user.setEmail(request.email());
-		user.setPhone(request.phone());
-		Role role = roleRepository.findByCode("EMPLOYEE")
-				.filter(Role::isActive)
-				.orElseThrow(() -> new IllegalStateException("Vai trò EMPLOYEE chưa được cấu hình hoặc đã bị vô hiệu hóa"));
-		UserRoleAssignment assignment = new UserRoleAssignment();
-		assignment.setUser(user);
-		assignment.setRole(role);
-		user.getUserRoles().add(assignment);
-
-		return userMapper.toResponse(userRepository.save(user));
+		throw new PublicRegistrationDisabledException();
 	}
 
-	@Transactional(readOnly = true)
+	/** Specific type lets the registration endpoint expose a code without changing global handlers. */
+	public static class PublicRegistrationDisabledException extends org.springframework.security.access.AccessDeniedException {
+		public PublicRegistrationDisabledException() {
+			super("PUBLIC_REGISTRATION_DISABLED: Đăng ký công khai đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên.");
+		}
+	}
+
+	@Transactional
 	public LoginResponse login(LoginRequest request) {
+		// Keep the authenticated password and token version from one locked database row.
+		User user = userRepository.findByUsernameForAuthentication(request.username())
+				.orElseThrow(() -> new org.springframework.security.authentication.BadCredentialsException("Invalid credentials"));
 		authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(request.username(), request.password()));
-		User user = userRepository.findByUsername(request.username()).orElseThrow();
-		UserDetails userDetails = customUserDetailsService.loadUserByUsername(user.getUsername());
+		UserDetails userDetails = customUserDetailsService.fromUser(user);
 		return new LoginResponse(jwtService.generateToken(userDetails), "Bearer", userMapper.toResponse(user));
 	}
 }

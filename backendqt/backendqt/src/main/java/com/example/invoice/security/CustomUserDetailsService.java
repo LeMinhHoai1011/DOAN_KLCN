@@ -28,6 +28,11 @@ public class CustomUserDetailsService implements UserDetailsService {
 		com.example.invoice.entity.User user = userRepository.findByUsername(username)
 				.orElseThrow(() -> new UsernameNotFoundException("Không tìm thấy người dùng"));
 		
+		return fromUser(user);
+	}
+
+	/** Caller must load the user and its lazy relationships inside a transaction. */
+	public VersionedUserDetails fromUser(com.example.invoice.entity.User user) {
 		List<GrantedAuthority> authorities = new ArrayList<>();
 		
 		for (UserRoleAssignment assignment : user.getUserRoles()) {
@@ -43,11 +48,7 @@ public class CustomUserDetailsService implements UserDetailsService {
 				}
 		}
 
-		return org.springframework.security.core.userdetails.User
-				.withUsername(user.getUsername())
-				.password(user.getPassword())
-				.authorities(authorities)
-				.disabled(user.getStatus() != com.example.invoice.entity.UserStatus.ACTIVE)
-				.build();
+		return new VersionedUserDetails(user.getUsername(), user.getPassword(),
+				user.getStatus() == com.example.invoice.entity.UserStatus.ACTIVE, authorities, user.getTokenVersion());
 	}
 }

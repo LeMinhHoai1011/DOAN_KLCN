@@ -14,7 +14,7 @@ spring:
 
 app:
   demo-admin:
-    enabled: true
+    enabled: false
     password: Admin@123456
   jwt:
     secret: test-only-secret-that-is-long-enough-for-hmac-signing

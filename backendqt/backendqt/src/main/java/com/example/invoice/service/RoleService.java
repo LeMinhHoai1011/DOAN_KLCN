@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class RoleService {
+	private static final Set<String> SYSTEM_ROLES = Set.of("ADMIN", "ACCOUNTANT", "EMPLOYEE", "USER");
 
 	private final RoleRepository roleRepository;
 	private final PermissionRepository permissionRepository;
@@ -57,6 +58,13 @@ public class RoleService {
 	@Transactional
 	public RoleResponse updateRole(Long id, RoleCreateRequest request) {
 		Role role = loadRole(id);
+		String code = request.code().trim().toUpperCase(java.util.Locale.ROOT);
+		if (SYSTEM_ROLES.contains(role.getCode().toUpperCase(java.util.Locale.ROOT))) {
+			if (!role.getCode().equals(code) || !request.active()) throw new BadRequestException(
+					"SYSTEM_ROLE_PROTECTED: Không được đổi code hoặc vô hiệu hóa role hệ thống");
+		} else if (SYSTEM_ROLES.contains(code)) {
+			throw new BadRequestException("SYSTEM_ROLE_PROTECTED: Không được đổi role khác thành role hệ thống");
+		}
 		// If code changed, check uniqueness
 		if (!role.getCode().equalsIgnoreCase(request.code())) {
 			if (roleRepository.findByCode(request.code().toUpperCase()).isPresent()) {
@@ -74,7 +82,7 @@ public class RoleService {
 	public void deleteRole(Long id) {
 		Role role = loadRole(id);
 		// Prevent deleting built-in system roles
-		if (Set.of("ADMIN", "ACCOUNTANT", "EMPLOYEE", "USER").contains(role.getCode())) {
+		if (SYSTEM_ROLES.contains(role.getCode().toUpperCase(java.util.Locale.ROOT))) {
 			throw new BadRequestException("Không thể xóa vai trò hệ thống mặc định: " + role.getCode());
 		}
 		roleRepository.delete(role);
@@ -93,6 +101,12 @@ public class RoleService {
 	@Transactional
 	public RoleResponse updateRolePermissions(Long roleId, RoleUpdatePermissionsRequest request) {
 		Role role = loadRole(roleId);
+		if ("USER".equalsIgnoreCase(role.getCode())) {
+			Set<Long> current = role.getRolePermissions().stream().map(a -> a.getPermission().getId()).collect(Collectors.toSet());
+			if (!current.equals(request.permissionIds())) throw new BadRequestException(
+					"HISTORICAL_USER_PERMISSIONS_PROTECTED: Không được thay đổi permission USER lịch sử");
+			return toRoleResponse(role);
+		}
 		List<Permission> permissions = permissionRepository.findAllById(request.permissionIds());
 		if (permissions.size() != request.permissionIds().size()) {
 			throw new BadRequestException("Một hoặc nhiều mã quyền không hợp lệ");

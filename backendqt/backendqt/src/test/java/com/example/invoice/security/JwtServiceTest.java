@@ -14,8 +14,8 @@ class JwtServiceTest {
 	@Test
 	void generatesAndValidatesJwtForTheAuthenticatedUser() {
 		JwtService jwtService = new JwtService("test-jwt-secret-key-that-is-long-enough-for-hmac", 60_000L);
-		UserDetails user = new User("alice", "ignored", List.of(new SimpleGrantedAuthority("ROLE_EMPLOYEE")));
-		UserDetails anotherUser = new User("bob", "ignored", List.of());
+		UserDetails user = new VersionedUserDetails("alice", "ignored", true, List.of(new SimpleGrantedAuthority("ROLE_EMPLOYEE")), 0);
+		UserDetails anotherUser = new VersionedUserDetails("bob", "ignored", true, List.of(), 0);
 
 		String token = jwtService.generateToken(user);
 

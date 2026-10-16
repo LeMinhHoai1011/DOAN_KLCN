@@ -21,9 +21,13 @@ public class JwtService {
 	}
 
 	public String generateToken(UserDetails userDetails) {
+		if (!(userDetails instanceof VersionedUserDetails versioned)) {
+			throw new IllegalArgumentException("Token version is required");
+		}
 		Date now = new Date();
 		return Jwts.builder()
 				.subject(userDetails.getUsername())
+				.claim("tv", versioned.getTokenVersion())
 				.issuedAt(now)
 				.expiration(new Date(now.getTime() + expirationMs))
 				.signWith(secretKey)
@@ -31,11 +35,25 @@ public class JwtService {
 	}
 
 	public String extractUsername(String token) {
-		return claims(token).getSubject();
+		Claims payload = claims(token);
+		tokenVersion(payload);
+		return payload.getSubject();
 	}
 
 	public boolean isTokenValid(String token, UserDetails userDetails) {
-		return extractUsername(token).equals(userDetails.getUsername()) && claims(token).getExpiration().after(new Date());
+		Claims payload = claims(token);
+		return userDetails instanceof VersionedUserDetails versioned
+				&& tokenVersion(payload) == versioned.getTokenVersion()
+				&& userDetails.getUsername().equals(payload.getSubject())
+				&& payload.getExpiration() != null && payload.getExpiration().after(new Date());
+	}
+
+	private long tokenVersion(Claims payload) {
+		Object value = payload.get("tv");
+		if (!(value instanceof Integer || value instanceof Long) || ((Number) value).longValue() < 0) {
+			throw new io.jsonwebtoken.MalformedJwtException("Invalid or missing token version");
+		}
+		return ((Number) value).longValue();
 	}
 
 	private Claims claims(String token) {
