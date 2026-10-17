@@ -1,3 +1,9 @@
+import {useDateFilter} from '../../hooks/useDateFilter'
+import { dateRangeError } from '../../utils/dateTime'
+import { formatDate } from '../../utils/dateTime'
+import DateInput from '../../components/ui/DateInput'
+import { canRetryProcessing } from '../../utils/pipelinePresentation';
+import type { PipelineHistory } from "../../services/documentService";
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import documentService from '../../services/documentService';
@@ -31,6 +37,9 @@ const AccountantDocuments = () => {
   const basePath = role === 'ADMIN' ? '/admin' : isEmployeeView ? '/employee' : '/accountant';
   /** `/accountant/review` — menu "Xử lý & kiểm tra" của Stitch: mở sẵn hàng đợi chứng từ cần kiểm tra. */
   const isReviewWorkspace = location.pathname.endsWith('/review');
+  const [processingHistory, setProcessingHistory] = useState<Record<number, PipelineHistory>>({});
+  const [retryingIds, setRetryingIds] = useState<number[]>([]);
+  const [reloadVersion, setReloadVersion] = useState(0);
   const [documents, setDocuments] = useState<DocumentListItem[]>([]);
   const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
   const [statistics, setStatistics] = useState<DashboardStatistics | null>(null);
@@ -40,8 +49,8 @@ const AccountantDocuments = () => {
   const [processingStatus, setProcessingStatus] = useState<DocumentStatus | 'ALL'>(isReviewWorkspace ? 'NEED_REVIEW' : 'ALL');
   const [reviewStatus, setReviewStatus] = useState<(typeof REVIEW_STATUSES)[number] | 'ALL'>('ALL');
   const [typeId, setTypeId] = useState('ALL');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useDateFilter('AccountantDocuments.from');
+  const [dateTo, setDateTo] = useDateFilter('AccountantDocuments.to');
   const [sort, setSort] = useState('createdAt,desc');
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
@@ -65,13 +74,19 @@ const AccountantDocuments = () => {
     let mounted = true;
     setIsLoading(true);
     void documentService.getDocumentPage({ page: pageNumber, size: pageSize, sort, search: search.trim() || undefined, processingStatus: processingStatus === 'ALL' ? undefined : processingStatus, reviewStatus: reviewStatus === 'ALL' ? undefined : reviewStatus, typeId: typeId === 'ALL' ? undefined : Number(typeId), dateFrom: dateFrom || undefined, dateTo: dateTo || undefined })
-      .then((page) => { if (mounted) { setDocuments(page.content); setTotalPages(page.totalPages); setTotalElements(page.totalElements); setError(''); } })
+      .then(async (page) => {
+        if (!mounted) return;
+        setDocuments(page.content); setTotalPages(page.totalPages); setTotalElements(page.totalElements); setError(''); setProcessingHistory({});
+        const histories = await Promise.allSettled(page.content.filter(doc => doc.status === 'FAILED').map(async doc => ({ id: doc.id, history: await documentService.getProcessingHistory(doc.id) })));
+        if (mounted) setProcessingHistory(Object.fromEntries(histories.flatMap(result => result.status === 'fulfilled' ? [[result.value.id, result.value.history]] : [])));
+      })
       .catch(() => { if (mounted) setError('Không thể tải danh sách chứng từ'); })
       .finally(() => { if (mounted) setIsLoading(false); });
     return () => { mounted = false; };
-  }, [dateFrom, dateTo, pageNumber, pageSize, processingStatus, reviewStatus, search, sort, typeId]);
+  }, [dateFrom, dateTo, pageNumber, pageSize, processingStatus, reviewStatus, search, sort, typeId, reloadVersion]);
 
   const exportExcel = async () => {
+    const rangeError=dateRangeError(dateFrom,dateTo);if(rangeError){setError(rangeError);return;}
     setExporting(true);
     try { await exportService.exportInvoices({ search: search.trim() || undefined, fromDate: dateFrom || undefined, toDate: dateTo || undefined }); }
     catch { setError('Không thể xuất danh sách chứng từ. Vui lòng thử lại.'); }
@@ -88,8 +103,8 @@ const AccountantDocuments = () => {
     if (processingStatus !== 'ALL') chips.push({ key: 'processing', label: `Xử lý: ${processingLabels[processingStatus]}`, clear: () => { setProcessingStatus('ALL'); firstPage(); } });
     if (reviewStatus !== 'ALL') chips.push({ key: 'review', label: `Kiểm tra: ${reviewLabels[reviewStatus]}`, clear: () => { setReviewStatus('ALL'); firstPage(); } });
     if (typeId !== 'ALL') chips.push({ key: 'type', label: `Loại: ${documentTypes.find((type) => String(type.id) === typeId)?.name ?? typeId}`, clear: () => { setTypeId('ALL'); firstPage(); } });
-    if (dateFrom) chips.push({ key: 'from', label: `Từ ${dateFrom}`, clear: () => { setDateFrom(''); firstPage(); } });
-    if (dateTo) chips.push({ key: 'to', label: `Đến ${dateTo}`, clear: () => { setDateTo(''); firstPage(); } });
+    if (dateFrom) chips.push({ key: 'from', label: `Từ ${formatDate(dateFrom)}`, clear: () => { setDateFrom(''); firstPage(); } });
+    if (dateTo) chips.push({ key: 'to', label: `Đến ${formatDate(dateTo)}`, clear: () => { setDateTo(''); firstPage(); } });
     return chips;
   }, [dateFrom, dateTo, documentTypes, processingStatus, reviewStatus, search, typeId]);
 
@@ -137,8 +152,8 @@ const AccountantDocuments = () => {
               <label className="grid gap-1"><span className="si-field-label">Xử lý</span><select value={processingStatus} onChange={(event) => { setProcessingStatus(event.target.value as DocumentStatus | 'ALL'); firstPage(); }} className="si-select"><option value="ALL">Tất cả</option>{PROCESSING_STATUSES.map((status) => <option key={status} value={status}>{processingLabels[status]}</option>)}</select></label>
               <label className="grid gap-1"><span className="si-field-label">Kiểm tra</span><select value={reviewStatus} onChange={(event) => { setReviewStatus(event.target.value as typeof reviewStatus); firstPage(); }} className="si-select"><option value="ALL">Tất cả</option>{REVIEW_STATUSES.map((status) => <option key={status} value={status}>{reviewLabels[status]}</option>)}</select></label>
               <label className="grid gap-1"><span className="si-field-label">Loại chứng từ</span><select value={typeId} onChange={(event) => { setTypeId(event.target.value); firstPage(); }} className="si-select"><option value="ALL">Tất cả</option>{documentTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
-              <label className="grid gap-1"><span className="si-field-label">Từ ngày</span><input type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); firstPage(); }} className="si-input" /></label>
-              <label className="grid gap-1"><span className="si-field-label">Đến ngày</span><input type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); firstPage(); }} className="si-input" /></label>
+              <label className="grid gap-1"><span className="si-field-label">Từ ngày</span><DateInput  value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); firstPage(); }} className="si-input" /></label>
+              <label className="grid gap-1"><span className="si-field-label">Đến ngày</span><DateInput  value={dateTo} onChange={(event) => { setDateTo(event.target.value); firstPage(); }} className="si-input" /></label>
               <label className="grid gap-1"><span className="si-field-label">Sắp xếp</span><select value={sort} onChange={(event) => { setSort(event.target.value); firstPage(); }} className="si-select"><option value="createdAt,desc">Mới nhất</option><option value="createdAt,asc">Cũ nhất</option><option value="originalFileName,asc">Tên A–Z</option><option value="originalFileName,desc">Tên Z–A</option></select></label>
             </FilterBar>
 
@@ -194,11 +209,20 @@ const AccountantDocuments = () => {
                       <td className="si-num text-[17px] text-ink-soft">{doc.date}</td>
                       <td className="si-num text-right text-[17px] font-medium">{doc.amount == null ? '—' : `${Number(doc.amount).toLocaleString('vi-VN')} ₫`}</td>
                       <td className="si-num text-[17px] text-ink-soft">{doc.aiConfidence == null ? '—' : `${doc.aiConfidence}%`}</td>
-                      <td><StatusBadge status={doc.status} reviewStatus={doc.reviewStatus} /></td>
+                      <td><StatusBadge status={doc.status} reviewStatus={doc.reviewStatus} />
+                        {doc.status === 'FAILED' && <p className="mt-2 max-w-60 text-xs text-review">{processingHistory[doc.id]?.attempts[0]?.failure?.userMessage || 'Chưa tải được nguyên nhân lỗi; mở chi tiết để kiểm tra.'}</p>}
+                      </td>
                       <td className="text-center">
                         <button type="button" onClick={(event) => { event.stopPropagation(); navigate(`${basePath}/documents/${doc.id}`); }} title="Xem chi tiết" aria-label={`Xem chi tiết chứng từ ${doc.id}`} className="text-ink-muted hover:bg-subtle hover:text-brand-600 inline-flex items-center justify-center rounded p-1.5 transition-colors">
                           <Eye size={22} />
                         </button>
+                        {canRetryProcessing(processingHistory[doc.id], doc.status, doc.reviewStatus) && <button className="si-btn-secondary ml-2" disabled={retryingIds.includes(doc.id)} onClick={event => {
+                          event.stopPropagation();
+                          if (retryingIds.includes(doc.id)) return;
+                          setRetryingIds(ids => [...ids, doc.id]);
+                          void documentService.retryProcessing(doc.id).catch(() => setError('Xử lý lại chưa hoàn tất. Vui lòng xem lịch sử lỗi.'))
+                            .finally(() => { setRetryingIds(ids => ids.filter(id => id !== doc.id)); setReloadVersion(version => version + 1); });
+                        }}>{retryingIds.includes(doc.id) ? 'Đang xử lý...' : 'Thử xử lý lại'}</button>}
                       </td>
                     </tr>
                   ))}

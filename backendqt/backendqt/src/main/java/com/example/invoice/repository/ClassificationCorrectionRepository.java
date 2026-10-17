@@ -5,5 +5,7 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ClassificationCorrectionRepository extends JpaRepository<ClassificationCorrection, Long> {
+ boolean existsByOldCategoryIdOrNewCategoryId(Long oldId, Long newId);
+
 	List<ClassificationCorrection> findByClassificationId(Long classificationId);
 }

@@ -37,6 +37,10 @@ public class AccountingCategory {
 
 	private String description;
 
+	@jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+	@Column(name = "category_type", length = 20)
+	private AccountingCategoryType categoryType; // NULL is preserved for legacy rows.
+
 	@Column(nullable = false, columnDefinition = "boolean default true")
 	private boolean active = true;
 

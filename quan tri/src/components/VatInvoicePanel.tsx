@@ -1,3 +1,5 @@
+import DateInput from './ui/DateInput'
+import { formatDate } from '../utils/dateTime'
 ﻿import type { InvoiceResponse, InvoiceUpdateRequest } from '../services/invoiceService'
 import type { ReactNode } from 'react'
 
@@ -41,7 +43,7 @@ export const toInvoiceUpdateRequest = (documentId: number, form: InvoiceFormData
 export const documentTypeLabel = (value: string | null) => value === 'VAT_INVOICE' ? 'Hóa đơn giá trị gia tăng' : value || 'Chưa xác định'
 
 const money = (value: number | null) => value == null ? '—' : `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(value)} đ`
-const date = (value: string) => value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.split('-').reverse().join('/') : '—'
+const date = formatDate
 const rate = (value: number | null) => value == null ? '—' : `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(Math.abs(value) <= 1 ? value * 100 : value)}%`
 
 const Section = ({ title, children }: { title: string; children: ReactNode }) => <section className="rounded-card border-hairline border p-4">
@@ -55,7 +57,7 @@ export default function VatInvoicePanel({ invoice, form, editable, onChange, raw
   const Input = ({ field, label, type = 'text', multiline = false, emphasis = false }: { field: keyof InvoiceFormData; label: string; type?: string; multiline?: boolean; emphasis?: boolean }) => <label className="block min-w-0">
     <span className="si-field-label mb-1">{label}</span>
     {multiline ? <textarea value={form[field]} onChange={event => onChange(field, event.target.value)} disabled={!editable} rows={3} className="si-input disabled:bg-subtle" />
-      : <input type={type} value={form[field]} onChange={event => onChange(field, event.target.value)} disabled={!editable} className={`si-input disabled:bg-subtle ${emphasis ? 'border-brand-500 font-semibold text-brand-700' : ''}`} />}
+      : type === 'date' ? <DateInput value={form[field]} onChange={event => onChange(field,event.target.value)} disabled={!editable} className="si-input disabled:bg-subtle" /> : <input type={type} value={form[field]} onChange={event => onChange(field, event.target.value)} disabled={!editable} className={`si-input disabled:bg-subtle ${emphasis ? 'border-brand-500 font-semibold text-brand-700' : ''}`} />}
     {type === 'date' && form[field] && <span className="mt-1 block text-xs text-ink-muted">{date(form[field])}</span>}
     {type === 'number' && form[field] && <span className="mt-1 block text-xs text-ink-muted">{money(Number(form[field]))}</span>}
   </label>

@@ -87,6 +87,7 @@ function App() {
               <Route path="upload" element={<AccountantUpload />} />
               <Route path="statistics" element={<SystemStatistics />} />
               <Route path="categories" element={<CatalogManagement />} />
+              <Route path="financial-transactions" element={<FinancialTransactions />} />
               <Route path="password" element={<ChangePassword />} />
             </Route>
           </Route>

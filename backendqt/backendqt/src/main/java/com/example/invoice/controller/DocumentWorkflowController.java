@@ -28,7 +28,7 @@ public class DocumentWorkflowController {
 		String action = request.action().trim().toUpperCase(java.util.Locale.ROOT);
 		if ("SUBMIT".equals(action) || "RESUBMIT".equals(action)) {
 			documentAiProcessingService.process(documentId, false);
-			return response;
+			return reviewWorkflowService.currentResponse(documentId);
 		}
 		return response;
 	}

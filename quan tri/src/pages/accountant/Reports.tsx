@@ -1,8 +1,12 @@
+import {apiLoadError} from '../../utils/apiLoadError'
+import {useFinancialTimeFilter} from '../../hooks/useFinancialTimeFilter'
+import FinancialTimeFilter from '../../components/FinancialTimeFilter'
+import { formatPeriod } from '../../utils/dateTime'
 import { useEffect, useState } from 'react'
 import { Line } from 'react-chartjs-2'
 import { CategoryScale, Chart as ChartJS, Legend, LinearScale, LineElement, PointElement, Tooltip } from 'chart.js'
 import { Download, TrendingDown, TrendingUp, WalletCards } from 'lucide-react'
-import dashboardService, { type DashboardStatistics, type FinancialDashboard, type FinancialSeriesPoint } from '../../services/dashboardService'
+import dashboardService, { type FinancialDashboard, type FinancialSeriesPoint } from '../../services/dashboardService'
 import exportService from '../../services/exportService'
 import StatCard from '../../components/StatCard'
 import ContentCard from '../../components/ui/ContentCard'
@@ -17,33 +21,34 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip,
 const money = (value: number) => `${Number(value || 0).toLocaleString('vi-VN')} ₫`
 
 export default function Reports() {
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  const time=useFinancialTimeFilter()
+  const {dateFrom,dateTo,interval,companyId,filterError}=time
+  const [refresh,setRefresh]=useState(0)
   const [financial, setFinancial] = useState<FinancialDashboard | null>(null)
-  const [statistics, setStatistics] = useState<DashboardStatistics | null>(null)
   const [series, setSeries] = useState<FinancialSeriesPoint[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
   const [feedback, setFeedback] = useState<{ tone: ToastTone; message: string } | null>(null)
 
-  const load = () => {
-    if (dateFrom && dateTo && dateFrom > dateTo) { setError('Ngày bắt đầu không được sau ngày kết thúc.'); return }
-    setLoading(true); setError('')
+  const load=()=>setRefresh(v=>v+1)
+  useEffect(()=>{
+    let active=true;setFinancial(null);setSeries([])
+    if(filterError){setError(filterError);setLoading(false);return;}
+    setLoading(true);setError('')
     Promise.all([
-      dashboardService.getFinancialDashboard({ dateFrom: dateFrom || undefined, dateTo: dateTo || undefined }),
-      dashboardService.getDashboardStatistics(),
-      dashboardService.getFinancialTimeSeries({ dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, interval: 'MONTHLY' }),
-    ])
-      .then(([finance, stats, points]) => { setFinancial(finance); setStatistics(stats); setSeries(points) })
-      .catch(() => setError('Không thể tải báo cáo. Vui lòng thử lại.'))
-      .finally(() => setLoading(false))
-  }
-  useEffect(load, [])
+      dashboardService.getFinancialDashboard({dateFrom,dateTo,companyId}),
+      dashboardService.getFinancialTimeSeries({dateFrom,dateTo,companyId,interval}),
+    ]).then(([finance,points])=>{if(active){setFinancial(finance);setSeries(points)}})
+      .catch(e=>{if(active)setError(apiLoadError(e,'Không thể tải báo cáo. Vui lòng thử lại.'))})
+      .finally(()=>{if(active)setLoading(false)})
+    return ()=>{active=false}
+  },[dateFrom,dateTo,companyId,interval,filterError,refresh])
 
   const exportReport = async () => {
+    if(filterError){setFeedback({tone:'error',message:filterError});return;}
     setExporting(true); setFeedback(null)
-    try { await exportService.exportFinancialReport({ fromDate: dateFrom || undefined, toDate: dateTo || undefined }); setFeedback({ tone: 'success', message: 'Đã xuất báo cáo Excel.' }) }
+    try { await exportService.exportFinancialReport({fromDate:dateFrom,toDate:dateTo,companyId}); setFeedback({ tone: 'success', message: 'Đã xuất báo cáo Excel.' }) }
     catch { setFeedback({ tone: 'error', message: 'Không thể xuất báo cáo. Vui lòng thử lại.' }) }
     finally { setExporting(false) }
   }
@@ -65,23 +70,13 @@ export default function Reports() {
 
       {feedback && <Toast tone={feedback.tone}>{feedback.message}</Toast>}
 
-      <ContentCard>
-        <div className="border-hairline flex items-center justify-between gap-3 border-b px-5 py-3.5">
-          <h2 className="si-section-title">Kỳ báo cáo</h2>
-          <span className="si-label">Tùy chọn</span>
-        </div>
-        <div className="flex flex-wrap items-end gap-3 p-5">
-          <label className="grid gap-1"><span className="si-field-label">Từ ngày</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="si-input" /></label>
-          <label className="grid gap-1"><span className="si-field-label">Đến ngày</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="si-input" /></label>
-          <button type="button" onClick={load} className="si-btn-primary">Áp dụng</button>
-        </div>
-      </ContentCard>
+      <FinancialTimeFilter value={time.filter} onChange={time.update} error={filterError}/>
 
       {loading ? (
         <LoadingState label="Đang tải báo cáo..." />
       ) : error ? (
         <ErrorState message={error} onRetry={load} />
-      ) : financial && statistics ? (
+      ) : financial ? (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <StatCard title="Tổng thu" value={money(financial.totalRevenue)} icon={TrendingUp} type="success" hint="Theo khoảng thời gian đã chọn" />
@@ -91,16 +86,17 @@ export default function Reports() {
 
           <ContentCard className="p-5">
             <div className="mb-4">
-              <h2 className="si-section-title">Diễn biến Dòng tiền Thu - Chi theo Tháng</h2>
+              <h2 className="si-section-title">Diễn biến Dòng tiền Thu - Chi {interval==='MONTHLY'?'theo tháng':'theo ngày'}</h2>
               <p className="si-section-subtitle mt-0.5">Chuẩn hạch toán theo kỳ kế toán đã chọn.</p>
             </div>
+            {Number(financial.totalRevenue)===0&&Number(financial.totalExpense)===0&&<p role="status" className="text-sm text-ink-muted">Không phát sinh số tiền Thu/Chi đủ điều kiện trong kỳ; các ngày hiển thị 0.</p>}
             {series.length === 0 ? (
               <p className="py-12 text-center text-[18px] text-ink-muted">Chưa có dữ liệu dòng tiền trong kỳ đã chọn.</p>
             ) : (
               <div className="h-72">
                 <Line
                   data={{
-                    labels: series.map((point) => point.period),
+                    labels: series.map((point) => formatPeriod(point.period)),
                     datasets: [
                       { label: 'Thu thực tế', data: series.map((point) => Number(point.income)), borderColor: '#059669', backgroundColor: '#059669', borderWidth: 3, tension: 0.3, pointRadius: 4.5 },
                       { label: 'Chi thực tế', data: series.map((point) => Number(point.expense)), borderColor: '#e11d48', backgroundColor: '#e11d48', borderWidth: 3, tension: 0.3, pointRadius: 4.5 },
@@ -130,6 +126,7 @@ export default function Reports() {
               <h2 className="si-section-title">Tổng hợp Chi phí theo Danh mục Kế toán</h2>
               <span className="si-num text-[17px] text-ink-soft">{money(categoryTotal)}</span>
             </div>
+            {financial.unverifiedTransactionCount>0&&<p className="mb-3 text-sm text-review">Có {financial.unverifiedTransactionCount} giao dịch cũ chưa xác minh, không được tính vào tiền thực thu/chi.</p>}
             {financial.expensesByCategory.length === 0 ? (
               <EmptyState title="Chưa có dữ liệu chi phí" description="Chưa có dữ liệu chi phí trong khoảng thời gian đã chọn." />
             ) : (

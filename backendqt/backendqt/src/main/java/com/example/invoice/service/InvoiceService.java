@@ -25,18 +25,24 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class InvoiceService {
+    @org.springframework.beans.factory.annotation.Autowired private DocumentAuditService documentAudit;
+    private String before(Document d){return documentAudit==null?null:documentAudit.capture(d);}
+    private void remember(Document d,String action,String previous){if(documentAudit!=null)documentAudit.append(d,action,previous);}
+
 	private final InvoiceRepository invoiceRepository;
 	private final ExtractedFieldRepository extractedFieldRepository;
 	private final FieldCorrectionRepository fieldCorrectionRepository;
 	private final DocumentService documentService;
 	private final UserService userService;
 	private final OcrFieldLocator ocrFieldLocator;
+    @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager mutationEntityManager;
 
 	@Transactional
 	public InvoiceResponse create(InvoiceRequest request) {
-		Invoice invoice = new Invoice();
+		Document document=documentService.lockForEdit(request.documentId());String previous=before(document);
+        Invoice invoice = new Invoice();
 		apply(invoice, request);
-		return toResponse(invoiceRepository.save(invoice));
+		invoiceRepository.saveAndFlush(invoice);remember(document,"INVOICE_CREATE",previous);return toResponse(invoice);
 	}
 
 	@Transactional(readOnly = true)
@@ -97,17 +103,23 @@ public class InvoiceService {
 	@Transactional
 	public InvoiceResponse update(Long id, InvoiceRequest request) {
 		Invoice invoice = load(id);
+		documentService.lockForEdit(invoice.getDocument().getId());
+		if(mutationEntityManager!=null)mutationEntityManager.refresh(invoice);
+        String previous=before(invoice.getDocument());
+        if (!invoice.getDocument().getId().equals(request.documentId())) throw new com.example.invoice.exception.BadRequestException("Không thể chuyển hóa đơn sang chứng từ khác");
 		apply(invoice, request);
+        remember(invoice.getDocument(),"INVOICE_UPDATE",previous);
 		return toResponse(invoice);
 	}
 
 	@Transactional
 	public void delete(Long id) {
-		invoiceRepository.delete(load(id));
+        Invoice invoice=load(id);documentService.load(invoice.getDocument().getId());
+        throw new com.example.invoice.exception.BadRequestException("DOCUMENT_RETENTION_REQUIRED: Chưa cho phép xóa cứng dữ liệu hóa đơn hoặc lịch sử");
 	}
 
 	private void apply(Invoice invoice, InvoiceRequest request) {
-		Document document = documentService.load(request.documentId());
+		Document document = documentService.lockForEdit(request.documentId());
 		invoice.setDocument(document);
 		invoice.setInvoiceNumber(request.invoiceNumber());
 		invoice.setInvoiceSeries(request.invoiceSeries());
@@ -194,7 +206,7 @@ public class InvoiceService {
 
 	private boolean hasRole(User user, String roleCode) {
 		return user.getUserRoles().stream()
-				.anyMatch(assignment -> roleCode.equals(assignment.getRole().getCode()));
+				.anyMatch(assignment -> assignment.getRole().isActive() && roleCode.equals(assignment.getRole().getCode()));
 	}
 
 	private boolean isEmployee(User user) {

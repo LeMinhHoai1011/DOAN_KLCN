@@ -59,7 +59,7 @@ class ExtractedFieldCorrectionServiceTest {
 		accountant = actor("ACCOUNTANT");
 		service = new ExtractedFieldCorrectionService(documents, users, fields, corrections);
 		lenient().when(users.loadCurrent(null)).thenReturn(accountant);
-		lenient().when(documents.load(documentId)).thenReturn(document);
+		lenient().when(documents.lockForEdit(documentId)).thenReturn(document);
 		lenient().when(fields.findById(fieldId)).thenReturn(Optional.of(field));
 		lenient().when(corrections.save(any(FieldCorrection.class))).thenAnswer(invocation -> invocation.getArgument(0));
 	}
@@ -96,7 +96,7 @@ class ExtractedFieldCorrectionServiceTest {
 
 	@Test
 	void accountantFromAnotherCompanyIsDeniedByDocumentServiceScope() {
-		when(documents.load(documentId)).thenThrow(new ResourceNotFoundException("Không tìm thấy chứng từ"));
+		when(documents.lockForEdit(documentId)).thenThrow(new ResourceNotFoundException("Không tìm thấy chứng từ"));
 
 		assertThrows(ResourceNotFoundException.class, () -> service.correct(documentId, fieldId,
 				new ExtractedFieldCorrectionRequest("Không được phép"), null));
@@ -111,7 +111,7 @@ class ExtractedFieldCorrectionServiceTest {
 		assertThrows(AccessDeniedException.class, () -> service.correct(documentId, fieldId,
 				new ExtractedFieldCorrectionRequest("Không được phép"), null));
 
-		verify(documents, never()).load(documentId);
+		verify(documents, never()).lockForEdit(documentId);
 		verify(corrections, never()).save(any());
 	}
 

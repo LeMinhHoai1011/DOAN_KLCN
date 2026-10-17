@@ -21,50 +21,31 @@ public class DocumentUploadProcessingService {
 	private final ProcessingLogService processingLogService;
 
 	public DocumentUploadResponse uploadAndProcess(MultipartFile file, Authentication authentication) {
-		DocumentResponse uploaded = documentService.createFromUpload(file, authentication);
+		DocumentResponse uploaded;
+        try { uploaded = documentService.createFromUpload(file, authentication); }
+        catch (com.example.invoice.exception.PipelineException exception) { throw exception; }
+        catch (com.example.invoice.exception.BadRequestException exception) {
+            throw new com.example.invoice.exception.PipelineException(PipelineFailures.create("INVALID_FILE", "FILE_VALIDATION", false, 0), 400);
+        } catch (org.springframework.dao.DataAccessException exception) {
+            throw new com.example.invoice.exception.PipelineException(PipelineFailures.classify(exception, "UPLOAD", 0), 500);
+        } catch (org.springframework.security.core.AuthenticationException | org.springframework.security.access.AccessDeniedException | com.example.invoice.exception.ResourceNotFoundException exception) { throw exception; }
+        catch (RuntimeException exception) { throw new com.example.invoice.exception.PipelineException(PipelineFailures.classify(exception, "UPLOAD", 0), 500); }
 		RuntimeException processingFailure = null;
 		try {
 			documentAiProcessingService.process(uploaded.id(), false);
 		} catch (RuntimeException exception) {
 			processingFailure = exception;
-			// The processor records FAILED and a ProcessingLog; preserve the upload for reprocess.
-			log.warn("Automatic AI processing failed for documentId={}: {}", uploaded.id(), exception.getMessage());
-			try {
-				if (documentService.findById(uploaded.id()).status() != DocumentStatus.FAILED) {
-					documentService.updateProcessingStatus(uploaded.id(), DocumentStatus.FAILED);
-					processingLogService.append(uploaded.id(), "DOCUMENT_PIPELINE", "FAILED", "FAILED", BigDecimal.ZERO,
-							null, sanitize(exception.getMessage()));
-				}
-			} catch (RuntimeException recoveryException) {
-				log.error("Could not record automatic processing failure for documentId={}", uploaded.id(), recoveryException);
-			}
+            log.warn("Automatic processing failed documentId={} exceptionClass={}", uploaded.id(), exception.getClass().getName());
 		}
 		DocumentResponse current = documentService.findById(uploaded.id());
 		if (processingFailure == null) return new DocumentUploadResponse(true, current.id(), current.status(), current.reviewStatus(),
 				current.documentTypeCode(), current.documentTypeName(), current.aiConfidence(),
 				"Tải lên và xử lý chứng từ thành công", null);
-		String code = errorCode(processingFailure);
+		var failure = PipelineFailures.classify(processingFailure, "AI_EXTRACTION", processingFailure instanceof com.example.invoice.exception.PipelineException p ? p.failure().attemptCount() : 0);
 		return new DocumentUploadResponse(false, current.id(), current.status(), current.reviewStatus(),
 				current.documentTypeCode(), current.documentTypeName(), current.aiConfidence(),
 				"Đã tải lên chứng từ nhưng xử lý tự động thất bại",
-				new DocumentUploadResponse.UploadError(code, sanitize(processingFailure.getMessage()), isRetryable(code)));
+				new DocumentUploadResponse.UploadError(failure));
 	}
 
-	private String errorCode(RuntimeException exception) {
-		String message = exception.getMessage() == null ? "" : exception.getMessage().toUpperCase(java.util.Locale.ROOT);
-		for (String code : java.util.List.of("OCR_LANGUAGE_DATA_MISSING", "OCR_FAILED", "AI_CONTEXT_EXCEEDED",
-				"OLLAMA_TIMEOUT", "OLLAMA_EMPTY_RESPONSE", "OLLAMA_INVALID_JSON", "OLLAMA_TOKEN_LIMIT",
-				"OLLAMA_MODEL_NOT_FOUND", "AI_CONNECTION_ERROR", "AI_INVALID_RESPONSE", "PERSISTENCE_FAILED"))
-			if (message.contains(code)) return code;
-		return "AI_PROCESSING_FAILED";
-	}
-
-	private boolean isRetryable(String code) {
-		return !"PERSISTENCE_FAILED".equals(code) && !"OCR_LANGUAGE_DATA_MISSING".equals(code);
-	}
-
-	private String sanitize(String message) {
-		return message == null || message.isBlank() ? "Xử lý chứng từ bằng AI thất bại"
-				: message.substring(0, Math.min(message.length(), 255));
-	}
 }

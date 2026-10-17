@@ -27,13 +27,13 @@ public class DashboardController {
 
 	@GetMapping("/financial")
 	@PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTANT')")
-	public FinancialDashboardResponse financial(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo) {
-		return dashboardService.financial(dateFrom, dateTo);
+	public FinancialDashboardResponse financial(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo, @RequestParam(required=false) Long companyId) {
+		return dashboardService.financialScoped(dateFrom, dateTo, companyId);
 	}
 
 	@GetMapping("/financial/time-series")
 	@PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTANT')")
-	public List<com.example.invoice.dto.FinancialTimeSeriesResponse> timeSeries(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo, @RequestParam(defaultValue = "DAILY") String interval) {
-		return dashboardService.timeSeries(dateFrom, dateTo, interval);
+	public List<com.example.invoice.dto.FinancialTimeSeriesResponse> timeSeries(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo, @RequestParam(defaultValue = "DAILY") String interval, @RequestParam(required=false) Long companyId) {
+		return dashboardService.timeSeriesScoped(dateFrom, dateTo, interval, companyId);
 	}
 }

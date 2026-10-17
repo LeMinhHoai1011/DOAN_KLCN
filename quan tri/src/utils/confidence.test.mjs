@@ -9,8 +9,8 @@ test('formats canonical 0-1 confidence as a percentage', () => {
   assert.equal(formatConfidence(1), '100%')
 })
 
-test('returns an em dash for missing or out-of-scale values', () => {
-  assert.equal(formatConfidence(null), '—')
-  assert.equal(formatConfidence(undefined), '—')
-  assert.equal(formatConfidence(84), '—')
+test('shows unknown for missing or out-of-scale values', () => {
+  assert.equal(formatConfidence(null), 'Chưa xác định')
+  assert.equal(formatConfidence(undefined), 'Chưa xác định')
+  assert.equal(formatConfidence(84), 'Chưa xác định')
 })

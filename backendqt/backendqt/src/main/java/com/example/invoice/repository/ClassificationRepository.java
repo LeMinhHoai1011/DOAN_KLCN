@@ -9,6 +9,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ClassificationRepository extends JpaRepository<Classification, Long> {
+ boolean existsByAccountingCategoryId(Long categoryId);
+
 	Optional<Classification> findFirstByDocumentIdOrderByCreatedAtDesc(Long documentId);
 
 	@Query("select c from Classification c where c.document.id in :documentIds and c.createdAt = (select max(latest.createdAt) from Classification latest where latest.document.id = c.document.id)")

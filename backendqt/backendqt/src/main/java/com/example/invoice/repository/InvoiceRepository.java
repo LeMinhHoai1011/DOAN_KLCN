@@ -9,7 +9,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
-public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
+public interface InvoiceRepository extends JpaRepository<Invoice, Long>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<Invoice> {
     List<Invoice> findAllByDocumentCompanyId(Long companyId);
     Optional<Invoice> findByIdAndDocumentCompanyId(Long id, Long companyId);
     Optional<Invoice> findByDocumentIdAndDocumentCompanyId(Long documentId, Long companyId);

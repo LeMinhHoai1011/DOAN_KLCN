@@ -20,6 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class ExtractedFieldCorrectionService {
+    @org.springframework.beans.factory.annotation.Autowired private DocumentAuditService documentAudit;
+    private String before(Document d){return documentAudit==null?null:documentAudit.capture(d);}
+    private void remember(Document d,String action,String previous){if(documentAudit!=null)documentAudit.append(d,action,previous);}
+
 	private static final Set<String> INVOICE_CORE_FIELDS = Set.of(
 			"invoiceNumber", "invoiceSeries", "invoiceDate", "sellerName", "sellerTaxCode", "sellerAddress",
 			"sellerPhone", "buyerName", "buyerTaxCode", "buyerAddress", "subtotal", "vatAmount", "taxAmount",
@@ -38,7 +42,7 @@ public class ExtractedFieldCorrectionService {
 			throw new AccessDeniedException("Chỉ kế toán hoặc quản trị viên mới có thể chỉnh sửa trường trích xuất");
 		}
 
-		Document document = documentService.load(documentId);
+		Document document = documentService.lockForEdit(documentId);
 		if (document.getStatus() != DocumentStatus.PROCESSED
 				&& document.getStatus() != DocumentStatus.NEED_REVIEW) {
 			throw new BadRequestException("Chỉ có thể chỉnh sửa trường khi chứng từ đang xử lý hoặc cần duyệt");
@@ -57,7 +61,8 @@ public class ExtractedFieldCorrectionService {
 			throw new BadRequestException("Trường này không thuộc dữ liệu trích xuất có thể chỉnh sửa");
 		}
 
-		FieldCorrection previous = fieldCorrectionRepository
+		String snapshot=before(document);
+        FieldCorrection previous = fieldCorrectionRepository
 				.findFirstByFieldIdOrderByCreatedAtDescIdDesc(fieldId).orElse(null);
 		FieldCorrection correction = new FieldCorrection();
 		correction.setField(field);
@@ -65,7 +70,7 @@ public class ExtractedFieldCorrectionService {
 		correction.setOldValue(previous == null ? field.getFieldValue() : previous.getNewValue());
 		correction.setNewValue(request.fieldValue().trim());
 		correction.setReason("Manual correction");
-		fieldCorrectionRepository.save(correction);
+		fieldCorrectionRepository.save(correction);remember(document,"FIELD_CORRECTION",snapshot);
 	}
 
 	private boolean hasRole(User user, String roleCode) {

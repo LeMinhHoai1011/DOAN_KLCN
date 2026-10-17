@@ -109,17 +109,17 @@ class DocumentAiResultPersistenceServiceTest {
 	}
 
 	@Test
-	void reprocessWithEmptyItemsPreservesExistingValidItems() {
+	void reprocessWithEmptyItemsPreservesItemsButFlagsStaleAiData() {
 		assertReprocessPreservesItems(List.of());
 	}
 
 	@Test
-	void reprocessWithNullItemsPreservesExistingValidItems() {
+	void reprocessWithNullItemsPreservesItemsButFlagsStaleAiData() {
 		assertReprocessPreservesItems(null);
 	}
 
 	@Test
-	void reprocessWithOnlyInvalidItemsPreservesExistingValidItems() {
+	void reprocessWithOnlyInvalidItemsPreservesItemsButFlagsStaleAiData() {
 		assertReprocessPreservesItems(List.of(new AiDocumentResult.AiInvoiceItemExtraction(
 				"  ", BigDecimal.ONE, "cái", BigDecimal.TEN, new BigDecimal("0.08"),
 				new BigDecimal("0.8"), BigDecimal.TEN)));
@@ -148,6 +148,10 @@ class DocumentAiResultPersistenceServiceTest {
 		assertEquals(1, existing.getItems().size());
 		assertEquals(703L, existing.getItems().getFirst().getId());
 		assertEquals("Dòng hàng đã xác nhận", existing.getItems().getFirst().getProductName());
+		assertEquals(DocumentStatus.NEED_REVIEW, document.getStatus());
+		var assessment = ArgumentCaptor.forClass(com.example.invoice.dto.document.DocumentAssessment.class);
+		verify(processingLogService).recordAssessment(org.mockito.ArgumentMatchers.eq(701L), assessment.capture());
+		assertTrue(assessment.getValue().warnings().stream().anyMatch(w -> "STALE_AI_ITEMS_PRESERVED".equals(w.code())));
 	}
 
 	@Test
@@ -338,16 +342,16 @@ class DocumentAiResultPersistenceServiceTest {
 	@Test
 	void confidence084WithOnlyMildTextWarningIsProcessed() {
 		Document document = new Document(); document.setId(19L);
-		DocumentType type = new DocumentType(); type.setCode("RECEIPT");
-		AiDocumentResult result = new AiDocumentResult("ollama", "text", "RECEIPT", new BigDecimal("0.84"),
+		DocumentType type = new DocumentType(); type.setCode("OTHER");
+		AiDocumentResult result = new AiDocumentResult("ollama", "text", "OTHER", new BigDecimal("0.84"),
 				"receipt", null, List.of(), List.of("DOCUMENT_TYPE_REASON: Có nội dung xác nhận đã thu tiền",
 						"NON_CRITICAL: địa chỉ có thể thiếu dấu tiếng Việt"), "raw", 10L);
 		when(documentService.load(19L)).thenReturn(document);
-		when(documentTypeRepository.findByCode("RECEIPT")).thenReturn(Optional.of(type));
+		when(documentTypeRepository.findByCode("OTHER")).thenReturn(Optional.of(type));
 		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(19L)).thenReturn(Optional.empty());
 		when(invoiceRepository.findByDocumentId(19L)).thenReturn(Optional.empty());
 
-		service().persist(19L, new AiDocumentResultValidator().validate(result, Set.of("RECEIPT")));
+		service().persist(19L, new AiDocumentResultValidator().validate(result, Set.of("OTHER")));
 
 		assertEquals(DocumentStatus.PROCESSED, document.getStatus());
 		ArgumentCaptor<Classification> classification = ArgumentCaptor.forClass(Classification.class);

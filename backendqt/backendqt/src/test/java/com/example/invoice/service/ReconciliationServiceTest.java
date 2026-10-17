@@ -61,7 +61,7 @@ class ReconciliationServiceTest {
 
 	List<ReconciliationResponse> run(Invoice invoice) {
 		Document document = doc();
-		when(docs.load(1L)).thenReturn(document);
+		lenient().when(docs.lockForEdit(1L)).thenReturn(document);
 		when(invoices.findByDocumentId(1L)).thenReturn(Optional.of(invoice));
 		when(users.loadCurrent(null)).thenReturn(new User());
 		return service().run(1L, null);
@@ -141,7 +141,7 @@ class ReconciliationServiceTest {
 		assertThrows(ResourceNotFoundException.class, () -> service().decide(9L, 2L, "MATCHED", null, null));
 	}
 
-	@Test void rerunUpdatesExistingTypesInsteadOfCreatingDuplicates() {
+	@Test void rerunAppendsFreshChecksAndPreservesHistoricalResults() {
 		Document document = doc();
 		Invoice invoice = invoice(new BigDecimal("100"), new BigDecimal("100"), new BigDecimal("10"), new BigDecimal("110"));
 		Reconciliation old = new Reconciliation();
@@ -150,11 +150,12 @@ class ReconciliationServiceTest {
 		old.setComment("SUBTOTAL: old");
 		ReconciliationBatch batch = new ReconciliationBatch();
 		old.setReconciliationBatch(batch);
-		when(docs.load(1L)).thenReturn(document);
+		when(docs.lockForEdit(1L)).thenReturn(document);
 		when(invoices.findByDocumentId(1L)).thenReturn(Optional.of(invoice));
-		when(reconciliations.findByDocumentIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(old));
+
 		service().run(1L, null);
-		verify(reconciliations).save(same(old));
-		verify(batches, never()).save(any());
+		verify(reconciliations, never()).save(same(old));
+		assertEquals("SUBTOTAL: old", old.getComment());
+		verify(batches).save(any());
 	}
 }

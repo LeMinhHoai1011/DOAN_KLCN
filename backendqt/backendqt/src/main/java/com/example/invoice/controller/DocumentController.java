@@ -43,6 +43,22 @@ public class DocumentController {
 	private final OCRResultService ocrResultService;
 	private final DocumentAiProcessingService documentAiProcessingService;
 	private final DocumentUploadProcessingService documentUploadProcessingService;
+	private final com.example.invoice.service.ProcessingLogService processingLogService;
+    private final com.example.invoice.service.PipelineExecutionService pipelineExecutionService;
+
+    @GetMapping("/{id}/processing-history")
+    @PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_VIEW') or hasRole('ADMIN')")
+    public com.example.invoice.dto.document.PipelineHistory processingHistory(@PathVariable Long id) { return pipelineExecutionService.history(id); }
+
+    @PostMapping("/{id}/retry")
+    @PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_CREATE') or hasAuthority('PERMISSION_DOCUMENT_UPDATE') or hasRole('ADMIN')")
+    public AiDocumentProcessingResponse retry(@PathVariable Long id) { return documentAiProcessingService.retry(id); }
+
+	@GetMapping("/{id}/assessment")
+	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_VIEW') or hasRole('ADMIN')")
+	public com.example.invoice.dto.document.DocumentAssessment assessment(@PathVariable Long id) {
+		return processingLogService.assessment(id);
+	}
 
 	@PostMapping
 	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_CREATE') or hasRole('ADMIN')")
@@ -104,10 +120,7 @@ public class DocumentController {
 	public ResponseEntity<Resource> download(@PathVariable Long id) {
 		DocumentResponse doc = documentService.findById(id);
 		Resource resource = documentService.download(id);
-		return ResponseEntity.ok()
-				.contentType(MediaType.parseMediaType(doc.fileType()))
-				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + doc.originalFileName() + "\"")
-				.body(resource);
+        return DocumentArchiveController.file(resource,doc.fileType(),doc.originalFileName(),false);
 	}
 
 	@GetMapping("/{id}/preview")
@@ -115,8 +128,7 @@ public class DocumentController {
 	public ResponseEntity<Resource> preview(@PathVariable Long id) {
 		DocumentResponse doc = documentService.findById(id);
 		Resource resource = documentService.download(id);
-		return ResponseEntity.ok().contentType(MediaType.parseMediaType(doc.fileType()))
-				.header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + doc.originalFileName() + "\"").body(resource);
+        return DocumentArchiveController.file(resource,doc.fileType(),doc.originalFileName(),true);
 	}
 
 	@PutMapping("/{id}")

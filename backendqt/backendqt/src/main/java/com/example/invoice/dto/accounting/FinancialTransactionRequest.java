@@ -16,5 +16,9 @@ public record FinancialTransactionRequest(
 		Long documentId,
 		Long invoiceId,
 		String paymentMethod,
-		Long companyId) {
+		Long companyId,
+        String requestKey, Boolean paymentConfirmed, java.time.LocalDateTime expectedUpdatedAt) {
+    public FinancialTransactionRequest(String type, BigDecimal amount, LocalDate date, String description, Long category, Long document, Long invoice, String method, Long company) {
+        this(type,amount,date,description,category,document,invoice,method,company,null,false,null);
+    }
 }

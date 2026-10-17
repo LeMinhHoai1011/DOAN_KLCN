@@ -61,6 +61,13 @@ public class FinancialTransaction {
     @Column(nullable = false, length = 30)
     private String status;
 
+    @Column(name="payment_confirmation",length=20)
+    private String paymentConfirmation; // NULL = legacy/unverified, never assumed paid.
+    @Column(name="request_key",length=36)
+    private String requestKey;
+    @Column(name="request_fingerprint",length=64)
+    private String requestFingerprint;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     private User createdBy;

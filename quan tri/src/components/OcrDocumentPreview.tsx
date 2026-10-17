@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist'
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
@@ -17,7 +17,7 @@ const logPdfFailure = (code: 'PDF_LOAD_FAILED' | 'PDF_PAGE_LOAD_FAILED' | 'PDF_R
   if (import.meta.env.DEV) console.error(`[document-preview] ${code}`, error)
 }
 
-function PdfSurface({ url, pageNumber, width, onMetadata, onError }: {
+export function PdfSurface({ url, pageNumber, width, onMetadata, onError }: {
   url: string; pageNumber: number; width: number
   onMetadata: (width: number, height: number, pages: number) => void; onError: () => void
 }) {

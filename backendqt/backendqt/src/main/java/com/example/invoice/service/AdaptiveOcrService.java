@@ -164,7 +164,7 @@ public class AdaptiveOcrService {
 				Math.max(0,x2-x1)/image.originalWidth(), Math.max(0,y2-y1)/image.originalHeight());
 	}
 
-	private static double clamp01(double value) { return Math.max(0, Math.min(1, value)); }
+	private static double clamp01(double value) { return Double.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0; }
 	private static double clip(double value, double min, double max) { return Math.max(min, Math.min(max, value)); }
 	private static String safe(String value) { return value == null ? "unknown error" : value.replaceAll("[\\r\\n]+", " "); }
 	private record Attempt(OcrPageResult page, OpenCvImageProcessor.ProcessedImage processed, double qualityScore) {}

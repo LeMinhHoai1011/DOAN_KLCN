@@ -38,15 +38,16 @@ public class AiDocumentResultValidator {
 			Set<String> allowedAccountingCategories) {
 		if (result.documentType() == null || !allowedTypes.contains(result.documentType())) {
 			log.warn("AI_SCHEMA_VALIDATION_FAILED field=documentType value={}", result.documentType());
-			throw new AiProviderException("AI_INVALID_RESPONSE: loại chứng từ không nằm trong danh sách được backend cho phép");
+			throw new UnresolvedDocumentTypeException();
 		}
 		List<String> warnings = new ArrayList<>(result.warnings() == null ? List.of() : result.warnings());
 		if (warnings.stream().noneMatch(AiDocumentResultValidator::hasDocumentTypeEvidence)) {
 			warnings.add("MISSING_DOCUMENT_TYPE_EVIDENCE: AI không cung cấp căn cứ nhận diện loại chứng từ");
 		}
 		BigDecimal confidence = normalizeConfidence(result.classificationConfidence(), warnings);
+		result = DocumentTypeValidationPolicy.validate(result, warnings);
 		if (isInvoiceType(result.documentType()) && result.invoice() == null) {
-			warnings.add("AI classified the document as INVOICE but structured invoice extraction is missing.");
+			warnings.add("MISSING_INVOICE_EXTRACTION: Thiếu dữ liệu hóa đơn có cấu trúc");
 		}
 		if (result.accountingCategoryCode() != null && allowedAccountingCategories != null
 				&& !allowedAccountingCategories.contains(result.accountingCategoryCode())) {
@@ -95,6 +96,12 @@ public class AiDocumentResultValidator {
 		return value;
 	}
 
+	public static class UnresolvedDocumentTypeException extends AiProviderException {
+		public UnresolvedDocumentTypeException() {
+			super("DOCUMENT_TYPE_UNRESOLVED: AI chưa xác định được loại chứng từ hợp lệ; cần kiểm tra thủ công");
+		}
+	}
+
 	private void validateInvoice(AiDocumentResult.AiInvoiceExtraction invoice, List<String> warnings) {
 		if (invoice == null) return;
 		if (invoice.invoiceNumber() == null || invoice.invoiceNumber().isBlank())
@@ -119,7 +126,11 @@ public class AiDocumentResultValidator {
 		warnLength(invoice.paymentMethod(), MAX_PAYMENT_METHOD_LENGTH, "PAYMENT_METHOD_INVALID_LENGTH", warnings);
 		warnLength(invoice.amountInWords(), MAX_AMOUNT_IN_WORDS_LENGTH, "AMOUNT_IN_WORDS_ABNORMAL_LENGTH", warnings);
 		warnLength(invoice.taxAuthorityCode(), MAX_TAX_AUTHORITY_CODE_LENGTH, "TAX_AUTHORITY_CODE_INVALID_LENGTH", warnings);
-		if (invoice.items() != null) {
+		if (invoice.items() == null || invoice.items().isEmpty())
+            warnings.add("INVOICE_ITEMS_MISSING: Hóa đơn phải có ít nhất một dòng hàng hóa");
+        if (invoice.subtotal() == null) warnings.add("MISSING_SUBTOTAL: Thiếu tổng trước thuế");
+        if (invoice.vatAmount() == null) warnings.add("MISSING_VAT_AMOUNT: Thiếu tiền thuế");
+        if (invoice.items() != null) {
 			for (int index = 0; index < invoice.items().size(); index++)
 				validateInvoiceItem(invoice.items().get(index), index + 1, warnings);
 		}
@@ -162,7 +173,9 @@ public class AiDocumentResultValidator {
 				"INVOICE_ITEM_NAME_ABNORMAL_LENGTH", warnings);
 		if (item.productName() == null || item.productName().isBlank())
 			warnings.add("MISSING_INVOICE_ITEM_NAME: row=" + row);
-		warnNegative(item.quantity(), "NEGATIVE_ITEM_QUANTITY: row=" + row, warnings);
+		if (item.quantity() == null || item.unitPrice() == null || item.amount() == null)
+            warnings.add("MISSING_INVOICE_ITEM_AMOUNTS: row=" + row + ", thiếu số lượng, đơn giá hoặc thành tiền");
+        warnNegative(item.quantity(), "NEGATIVE_ITEM_QUANTITY: row=" + row, warnings);
 		warnNegative(item.unitPrice(), "NEGATIVE_ITEM_UNIT_PRICE: row=" + row, warnings);
 		warnNegative(item.taxAmount(), "NEGATIVE_ITEM_TAX_AMOUNT: row=" + row, warnings);
 		warnNegative(item.amount(), "NEGATIVE_ITEM_AMOUNT: row=" + row, warnings);
@@ -225,15 +238,7 @@ public class AiDocumentResultValidator {
 		}
 
 		private boolean isCritical(String warning) {
-			if (warning == null || warning.isBlank()) return false;
-			String value = warning.toLowerCase(java.util.Locale.ROOT);
-			if (AiDocumentResultValidator.hasDocumentTypeEvidence(warning)) return false;
-			return !(value.startsWith("non_critical:")
-					|| value.contains("thiếu dấu") || value.contains("mất dấu")
-					|| value.contains("diacritic") || value.contains("hoa/thường")
-					|| value.contains("khoảng trắng") || value.contains("whitespace")
-					|| value.contains("định dạng địa chỉ") || value.contains("address format")
-					|| value.contains("preprocessing warning"));
+			return AssessmentWarnings.critical(warning);
 		}
 
 	}

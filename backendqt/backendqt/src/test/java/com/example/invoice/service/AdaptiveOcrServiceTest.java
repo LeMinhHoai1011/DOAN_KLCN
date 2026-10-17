@@ -10,6 +10,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class AdaptiveOcrServiceTest {
+	@org.junit.jupiter.api.Test
+	void unknownConfidenceCannotMakeQualityScoreNonFinite() {
+		var service = new AdaptiveOcrService(new com.example.invoice.config.AiProperties(), null, null, null);
+		var page = new OcrPageResult(1, 100, 100, "Có văn bản nhưng chưa có độ tin cậy", Float.NaN, java.util.List.of(), 1, null, "vie");
+		org.junit.jupiter.api.Assertions.assertTrue(Double.isFinite(service.evaluateDetailed(page).score()));
+	}
 	private final AiProperties properties=new AiProperties();
 	private final ImageQualityAnalyzer analyzer=mock(ImageQualityAnalyzer.class);
 	private final OpenCvImageProcessor processor=mock(OpenCvImageProcessor.class);

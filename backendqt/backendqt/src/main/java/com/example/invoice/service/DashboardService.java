@@ -27,24 +27,38 @@ public class DashboardService {
 	private final FinancialTransactionRepository financialTransactionRepository;
 
 	@Transactional(readOnly = true)
-	public FinancialDashboardResponse financial(LocalDate dateFrom, LocalDate dateTo) {
+	public FinancialDashboardResponse financial(LocalDate dateFrom, LocalDate dateTo) { return financialScoped(dateFrom,dateTo,null); }
+ @Transactional(readOnly=true)
+ public FinancialDashboardResponse financialScoped(LocalDate dateFrom,LocalDate dateTo,Long requestedCompany) {
+        com.example.invoice.util.DateRanges.validate(dateFrom, dateTo);
 		User user = userService.loadCurrent(SecurityContextHolder.getContext().getAuthentication());
-		Long companyId = hasRole(user, "ADMIN") ? null : user.getCompany() == null ? -1L : user.getCompany().getId();
+		Long companyId = resolveFinancialCompany(user, requestedCompany);
 		Object[] totals = financialTransactionRepository.summarize(companyId, dateFrom, dateTo).getFirst();
 		BigDecimal revenue = (BigDecimal) totals[0]; BigDecimal expense = (BigDecimal) totals[1];
-		return new FinancialDashboardResponse(revenue, expense, revenue.subtract(expense), financialTransactionRepository.expensesByCategory(companyId, dateFrom, dateTo).stream().map(row -> new FinancialDashboardResponse.CategoryExpense((String) row[0], (BigDecimal) row[1])).toList());
+		return new FinancialDashboardResponse(revenue, expense, revenue.subtract(expense), financialTransactionRepository.expensesByCategory(companyId, dateFrom, dateTo).stream().map(row -> new FinancialDashboardResponse.CategoryExpense((String) row[0], (BigDecimal) row[1])).toList(), financialTransactionRepository.countUnverified(companyId));
 	}
 
-	@Transactional(readOnly = true)
-	public List<FinancialTimeSeriesResponse> timeSeries(LocalDate dateFrom, LocalDate dateTo, String interval) {
-		String period = "MONTHLY".equalsIgnoreCase(interval) ? "month" : "day";
-		User user = userService.loadCurrent(SecurityContextHolder.getContext().getAuthentication());
-		Long companyId = hasRole(user, "ADMIN") ? null : user.getCompany() == null ? -1L : user.getCompany().getId();
-		return financialTransactionRepository.timeSeries(companyId, dateFrom, dateTo, period).stream().map(row -> {
-			BigDecimal income = (BigDecimal) row[1]; BigDecimal expense = (BigDecimal) row[2];
-			return new FinancialTimeSeriesResponse((String) row[0], income, expense, income.subtract(expense));
-		}).toList();
-	}
+    @Transactional(readOnly = true)
+    public List<FinancialTimeSeriesResponse> timeSeries(LocalDate from, LocalDate to, String interval) {
+        return timeSeriesScoped(from, to, interval, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FinancialTimeSeriesResponse> timeSeriesScoped(LocalDate from, LocalDate to, String interval, Long requestedCompany) {
+        com.example.invoice.util.DateRanges.validate(from, to);
+        if (!"DAILY".equalsIgnoreCase(interval) && !"MONTHLY".equalsIgnoreCase(interval))
+            throw new com.example.invoice.exception.BadRequestException("Kỳ tổng hợp phải là DAILY hoặc MONTHLY.");
+        User user = userService.loadCurrent(SecurityContextHolder.getContext().getAuthentication());
+        Long company = resolveFinancialCompany(user, requestedCompany);
+        var rows = financialTransactionRepository.dailyTotals(company, from, to);
+        return com.example.invoice.util.FinancialSeries.build(rows, from, to, "MONTHLY".equalsIgnoreCase(interval));
+    }
+
+    private Long resolveFinancialCompany(User user, Long requestedCompany) {
+        if (requestedCompany != null && !hasRole(user,"ADMIN") && (user.getCompany()==null || !requestedCompany.equals(user.getCompany().getId())))
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không thể truy cập công ty khác");
+        return requestedCompany != null ? requestedCompany : hasRole(user,"ADMIN") ? null : user.getCompany()==null ? -1L : user.getCompany().getId();
+    }
 
 	@Transactional(readOnly = true)
 	public DashboardStatisticsResponse statistics() {
@@ -105,7 +119,7 @@ public class DashboardService {
 
 	private boolean hasRole(User user, String roleCode) {
 		return user.getUserRoles().stream()
-				.anyMatch(assignment -> roleCode.equals(assignment.getRole().getCode()));
+				.anyMatch(assignment -> assignment.getRole().isActive() && roleCode.equals(assignment.getRole().getCode()));
 	}
 
 	private boolean isEmployee(User user) {

@@ -34,14 +34,14 @@ class AiDocumentResultValidatorTest {
 	}
 
 	@Test
-	void documentTypeEvidenceIsSavedWithoutForcingReviewOnItsOwn() {
+	void receiptEvidenceIsSavedButPendingTypeRulesStillRequireReview() {
 		AiDocumentResult result = new AiDocumentResult("ollama", "qwen3-vl", "RECEIPT", new BigDecimal("0.95"),
 				null, null, List.of(), List.of("DOCUMENT_TYPE_REASON: Có nội dung xác nhận đã thu tiền"),
 				"raw", 1L);
 
 		var validated = validator.validate(result, Set.of("RECEIPT"));
 
-		assertFalse(validated.requiresReview(new BigDecimal("0.75")));
+		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
 		assertTrue(validated.warnings().contains("DOCUMENT_TYPE_REASON: Có nội dung xác nhận đã thu tiền"));
 	}
 
@@ -179,7 +179,7 @@ class AiDocumentResultValidatorTest {
 		var validated = validator.validate(result, Set.of("INVOICE"));
 		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
 		assertTrue(validated.warnings().contains(
-				"AI classified the document as INVOICE but structured invoice extraction is missing."));
+				"MISSING_INVOICE_EXTRACTION: Thiếu dữ liệu hóa đơn có cấu trúc"));
 	}
 
 	@Test
@@ -237,6 +237,32 @@ class AiDocumentResultValidatorTest {
 		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
 	}
 
+
+    @Test void ninetyNinePercentWithoutItemsRequiresReview() {
+        var base = validInvoice();
+        var invoice = new AiDocumentResult.AiInvoiceExtraction(base.invoiceNumber(), base.invoiceSeries(), base.invoiceDate(),
+                base.sellerName(), base.sellerTaxCode(), base.sellerAddress(), base.buyerName(), base.buyerTaxCode(), base.buyerAddress(),
+                base.subtotal(), base.vatAmount(), base.totalAmount(), List.of());
+        var validated = validator.validate(result("0.99", invoice, List.of()), Set.of("VAT_INVOICE"));
+        assertTrue(validated.requiresReview(new BigDecimal("0.75")));
+        assertTrue(validated.reviewReasons(new BigDecimal("0.75")).stream().anyMatch(reason -> reason.startsWith("INVOICE_ITEMS_MISSING")));
+    }
+    @Test void ninetyFivePercentValidInvoiceIsProcessed() {
+        var validated = validator.validate(result("0.95", validInvoice(), List.of()), Set.of("VAT_INVOICE"));
+        assertFalse(validated.requiresReview(new BigDecimal("0.75")));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"RECEIPT", "PAYMENT_VOUCHER", "RECEIPT_VOUCHER", "CONTRACT"})
+    void missingNonInvoiceDataNeedsTypeSpecificReview(String type) {
+        var result = new AiDocumentResult("ollama", "qwen", type, BigDecimal.ONE, null, null, List.of(),
+                List.of("DOCUMENT_TYPE_REASON: Bằng chứng loại chứng từ"), "raw", 1L);
+        var validated = validator.validate(result, Set.of(type));
+        assertTrue(validated.requiresReview(new BigDecimal("0.75")));
+        assertTrue(validated.reviewReasons(new BigDecimal("0.75")).stream().anyMatch(r -> r.startsWith("MISSING_REQUIRED_FIELD")));
+        assertTrue(validated.warnings().stream().noneMatch(r -> r.startsWith("MISSING_INVOICE_")));
+    }
+
 	private AiDocumentResult result(String confidence, AiDocumentResult.AiInvoiceExtraction invoice,
 			List<String> warnings) {
 		return new AiDocumentResult("ollama", "qwen3-vl", "VAT_INVOICE", new BigDecimal(confidence),
@@ -252,6 +278,6 @@ class AiDocumentResultValidatorTest {
 	private AiDocumentResult.AiInvoiceExtraction validInvoice() {
 		return new AiDocumentResult.AiInvoiceExtraction("0001", null, "2026-09-27",
 				"Công ty Ánh Dương", "0123456789", "Đường Nguyễn Văn Linh, Phường Tân Phong",
-				null, null, null, new BigDecimal("100"), new BigDecimal("10"), new BigDecimal("110"), List.of());
-	}
+				null, null, null, new BigDecimal("100"), new BigDecimal("10"), new BigDecimal("110"), List.of(new AiDocumentResult.AiInvoiceItemExtraction("Hàng hóa", BigDecimal.ONE, "cái", new BigDecimal("100"), new BigDecimal("0.10"), new BigDecimal("10"), new BigDecimal("100"))));
+    }
 }

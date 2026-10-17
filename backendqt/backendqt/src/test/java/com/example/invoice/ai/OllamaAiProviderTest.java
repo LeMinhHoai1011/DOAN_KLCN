@@ -25,6 +25,16 @@ import okio.Buffer;
 import org.junit.jupiter.api.Test;
 
 class OllamaAiProviderTest {
+	@Test
+	void nonJsonServiceUnavailableIsTemporaryButTlsFailureIsNot() {
+		var unavailable = provider(new AiProperties(), request -> response(request, 503, "<html>private provider page</html>"));
+		var error = assertThrows(AiProviderException.class, () -> unavailable.analyzeText(new AiTextRequest("test", "text", "prompt")));
+		assertTrue(com.example.invoice.service.PipelineFailures.classify(error, "AI_EXTRACTION", 1).retryable());
+		assertFalse(error.getMessage().contains("private provider page"));
+		var tls = provider(new AiProperties(), request -> { throw new javax.net.ssl.SSLHandshakeException("private certificate detail"); });
+		var tlsError = assertThrows(AiProviderException.class, () -> tls.analyzeText(new AiTextRequest("test", "text", "prompt")));
+		assertFalse(com.example.invoice.service.PipelineFailures.classify(tlsError, "AI_EXTRACTION", 1).retryable());
+	}
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	@Test

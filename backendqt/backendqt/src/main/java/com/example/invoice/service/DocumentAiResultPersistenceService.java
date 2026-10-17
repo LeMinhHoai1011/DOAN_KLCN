@@ -42,6 +42,10 @@ import org.slf4j.LoggerFactory;
 /** Persists a validated result after the remote AI request has completed. */
 @Service
 public class DocumentAiResultPersistenceService {
+    @org.springframework.beans.factory.annotation.Autowired private DocumentAuditService documentAudit;
+    private String before(Document d){return documentAudit==null?null:documentAudit.capture(d);}
+    private void remember(Document d,String action,String previous){if(documentAudit!=null)documentAudit.append(d,action,previous);}
+
 	private static final Logger log = LoggerFactory.getLogger(DocumentAiResultPersistenceService.class);
 	private static final Set<String> RESERVED_CORE_FIELD_NAMES = Set.of(
 			"invoiceNumber", "invoiceSeries", "invoiceDate", "sellerName", "sellerTaxCode", "sellerAddress",
@@ -97,7 +101,24 @@ public class DocumentAiResultPersistenceService {
 			log.info("AI_PERSISTENCE_SKIPPED documentId={} reason=approved_document", documentId);
 			return false;
 		}
-		AiDocumentResult result = validated.result();
+		String previous=before(document);
+        AiDocumentResult result = validated.result();
+        List<String> combinedWarnings = new java.util.ArrayList<>(validated.warnings());
+        if (tessOcr != null) {
+            combinedWarnings.addAll(tessOcr.warnings());
+            boolean measured = !tessOcr.pages().isEmpty() && tessOcr.pages().stream()
+                    .noneMatch(page -> "pdf-text-layer".equals(page.language()));
+            if (measured && Float.isFinite(tessOcr.confidence())
+                    && BigDecimal.valueOf(tessOcr.confidence()).movePointLeft(2)
+                        .compareTo(aiProperties.getOcr().getGoodConfidence()) < 0)
+                combinedWarnings.add("LOW_OCR_CONFIDENCE: OCR dưới ngưỡng chất lượng cấu hình");
+        }
+        if (result.invoice() != null && validItems(result.invoice().items()).isEmpty()) {
+            var prior = invoiceRepository.findByDocumentId(documentId).orElse(null);
+            if (prior != null && prior.isAiGenerated() && !prior.getItems().isEmpty())
+                combinedWarnings.add("STALE_AI_ITEMS_PRESERVED: Dòng hàng cũ được giữ để tránh mất dữ liệu; không phải kết quả trích xuất mới");
+        }
+        validated = new ValidatedAiDocumentResult(result, validated.confidence(), List.copyOf(combinedWarnings));
 		List<AiDocumentResult.AiInvoiceItemExtraction> parsedItems = result.invoice() == null ? null : result.invoice().items();
 		long validItemCount = validItems(parsedItems).size();
 		long invalidItemCount = parsedItems == null ? 0 : parsedItems.size() - validItemCount;
@@ -125,7 +146,7 @@ public class DocumentAiResultPersistenceService {
 		persistOcrWhenPresent(document, tessOcr);
 		BigDecimal reviewThreshold = aiProperties.getDocument().getReviewThreshold();
 		boolean requiresReview = validated.requiresReview(reviewThreshold);
-		List<String> classificationReasons = requiresReview ? validated.reviewReasons(reviewThreshold) : validated.warnings();
+		List<String> classificationReasons = java.util.stream.Stream.concat(validated.warnings().stream(), validated.reviewReasons(reviewThreshold).stream()).distinct().toList();
 		persistClassification(document, result, validated.confidence(), classificationReasons, requiresReview);
 		processingLogService.append(documentId, "CLASSIFICATION", "CLASSIFY", "SUCCESS", validated.confidence(),
 				result.durationMs(), "documentType=" + result.documentType(), result.provider(), result.model());
@@ -139,11 +160,39 @@ public class DocumentAiResultPersistenceService {
 		}
 		replaceAiExtractedFields(document, invoice, result.invoice(), result.fields(), result.extraFields());
 
-		document.setStatus(requiresReview ? DocumentStatus.NEED_REVIEW : DocumentStatus.PROCESSED);
-		document.setReviewStatus(ReviewStatus.PENDING);
+		var score = new com.example.invoice.dto.document.DocumentAssessment.Confidence(validated.confidence(),
+                result.provider() + "/" + result.model(), "MODEL_REPORTED_CLASSIFICATION; MULTIPAGE_MEAN_IF_ALL_REPORTED");
+        boolean measuredOcr = tessOcr != null && !tessOcr.pages().isEmpty()
+                && tessOcr.pages().stream().noneMatch(page -> "pdf-text-layer".equals(page.language()));
+        BigDecimal ocrScore = measuredOcr && Float.isFinite(tessOcr.confidence())
+                ? BigDecimal.valueOf(tessOcr.confidence()).movePointLeft(2) : null;
+        processingLogService.recordAssessment(documentId, new com.example.invoice.dto.document.DocumentAssessment(
+                new com.example.invoice.dto.document.DocumentAssessment.Confidence(ocrScore,
+                        measuredOcr ? "TESSERACT" : "TEXT_LAYER_OR_UNAVAILABLE", "MEAN_WORD_CONFIDENCE_THEN_PAGE_MEAN"),
+                new com.example.invoice.dto.document.DocumentAssessment.Confidence(null, result.provider() + "/" + result.model(), "NOT_PROVIDED_BY_MODEL"),
+                score, requiresReview ? "NEED_REVIEW" : "VALID",
+                classificationReasons.stream().map(com.example.invoice.ai.AssessmentWarnings::normalize).toList(), validated.reviewReasons(reviewThreshold)));
+        document.setStatus(requiresReview ? DocumentStatus.NEED_REVIEW : DocumentStatus.PROCESSED);
+		// Review decisions belong exclusively to the review workflow.
 		processingLogService.append(documentId, "PERSISTENCE", "PERSIST", "SUCCESS", validated.confidence(),
 				result.durationMs(), String.join("; ", validated.warnings()), result.provider(), result.model());
-		return requiresReview;
+        if(documentAudit!=null)documentAudit.appendAi(document,"AI_EXTRACT",previous,result);
+        return requiresReview;
+	}
+
+	/** Unresolved document type is a business review case, not a technical failure. */
+	@Transactional
+	public void persistUnresolvedType(Long documentId) {
+		Document document = documentService.load(documentId);
+		if (document.getReviewStatus() == ReviewStatus.APPROVED) return;
+		String previous=before(document);
+        String reason = "DOCUMENT_TYPE_UNRESOLVED: Chưa xác định được loại chứng từ; cần kiểm tra thủ công";
+		var unknown = new com.example.invoice.dto.document.DocumentAssessment.Confidence(null, null, "UNAVAILABLE");
+		processingLogService.recordAssessment(documentId, new com.example.invoice.dto.document.DocumentAssessment(
+				unknown, unknown, unknown, "NEED_REVIEW", List.of(new com.example.invoice.dto.document.DocumentAssessment.Warning(
+						"DOCUMENT_TYPE_UNRESOLVED", "CRITICAL", reason, "documentType")), List.of(reason)));
+		document.setStatus(DocumentStatus.NEED_REVIEW);
+        remember(document,"AI_REVIEW_REQUIRED",previous);
 	}
 
 	/** Commits OCR independently so later AI or validation failures cannot roll it back. */
@@ -155,7 +204,9 @@ public class DocumentAiResultPersistenceService {
 			log.info("OCR_PERSISTENCE_SKIPPED documentId={} reason=approved_document", documentId);
 			return;
 		}
-		persistOcrWhenPresent(document, tessOcr);
+		String previous=before(document);
+        persistOcrWhenPresent(document, tessOcr);
+        remember(document,"OCR_EXTRACT",previous);
 	}
 
 	private void persistOcrWhenPresent(Document document, OcrDocumentResult tessOcr) {
@@ -171,7 +222,8 @@ public class DocumentAiResultPersistenceService {
 				.findFirst().orElse(aiProperties.getOcr().getLanguage()));
 		ocr.setSourceType(digitalPdf ? "DIGITAL_PDF_TEXT" : "TESS4J_WORD_LAYOUT");
 		ocr.setRawText(rawText);
-		ocr.setConfidence(BigDecimal.valueOf(tessOcr.confidence()).movePointLeft(2));
+		ocr.setConfidence(!digitalPdf && Float.isFinite(tessOcr.confidence())
+                ? BigDecimal.valueOf(tessOcr.confidence()).movePointLeft(2) : null);
 		ocr.setProcessingTime(tessOcr.durationMs());
 		ocr.setLayoutJson(serializeLayout(tessOcr));
 		ocr.setStatus("SUCCESS");
@@ -303,7 +355,7 @@ public class DocumentAiResultPersistenceService {
 		Invoice invoice = invoiceRepository.findByDocumentId(document.getId()).orElse(null);
 		if (invoice == null || !invoice.isAiGenerated()) return;
 		for (ExtractedField field : extractedFieldRepository.findByDocumentId(document.getId())) {
-			if (!"AI".equalsIgnoreCase(field.getSource()) && field.getInvoice() != null) {
+			if (field.getInvoice() != null) {
 				field.setInvoice(null);
 				extractedFieldRepository.saveAndFlush(field);
 			}
@@ -327,6 +379,9 @@ public class DocumentAiResultPersistenceService {
 			List<AiDocumentResult.AiExtraField> extraFields) {
 		extractedFieldRepository.deleteByDocumentIdAndSource(document.getId(), "AI");
 		Set<String> persistedNames = new LinkedHashSet<>();
+		// Remaining fields include manual values and AI fields with correction history.
+		extractedFieldRepository.findByDocumentId(document.getId()).stream()
+				.map(ExtractedField::getFieldName).forEach(persistedNames::add);
 		persistRejectedIdentifier(document, invoice, "invoiceNumber", extraction == null ? null : extraction.invoiceNumber(),
 				AiDocumentResultValidator.MAX_INVOICE_NUMBER_LENGTH, persistedNames);
 		persistRejectedIdentifier(document, invoice, "invoiceSeries", extraction == null ? null : extraction.invoiceSeries(),
@@ -412,6 +467,7 @@ public class DocumentAiResultPersistenceService {
 
 	private void persistRejectedIdentifier(Document document, Invoice invoice, String name, String value, int maximum,
 			Set<String> persistedNames) {
+		if (persistedNames.contains(name)) return;
 		if (value == null || value.length() <= maximum) return;
 		persistExtractedField(document, invoice, name, value, null);
 		persistedNames.add(name);

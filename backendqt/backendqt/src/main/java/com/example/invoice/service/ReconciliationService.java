@@ -15,6 +15,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class ReconciliationService {
+    @org.springframework.beans.factory.annotation.Autowired private DocumentAuditService documentAudit;
+    private String before(Document d){return documentAudit==null?null:documentAudit.capture(d);}
+    private void remember(Document d,String action,String previous){if(documentAudit!=null)documentAudit.append(d,action,previous);}
+
+ @org.springframework.beans.factory.annotation.Autowired private PaymentReconciliationService paymentReconciliation;
+ public com.example.invoice.dto.accounting.PaymentSummary runPayments(Long document,Long invoice,Long company,Authentication auth){return paymentReconciliation.run(document,invoice,company,auth);}
+
 	private static final BigDecimal TOLERANCE = new BigDecimal("0.01");
 	private static final String MATCHED = "MATCHED";
 	private static final String MISMATCH = "MISMATCH";
@@ -27,21 +34,21 @@ public class ReconciliationService {
 
 	@Transactional
 	public List<ReconciliationResponse> run(Long documentId, Authentication authentication) {
-		Document document = documentService.load(documentId);
+		Document document = documentService.lockForEdit(documentId);
+        String previous=before(document);
 		Invoice invoice = invoiceRepository.findByDocumentId(documentId)
 				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ"));
-		List<Reconciliation> existing = reconciliationRepository.findByDocumentIdOrderByCreatedAtDesc(documentId);
-		Map<String, Reconciliation> byType = new LinkedHashMap<>();
-		existing.forEach(result -> byType.putIfAbsent(type(result), result));
-		ReconciliationBatch batch = existing.isEmpty()
-				? batch(document, invoice, authentication) : existing.getFirst().getReconciliationBatch();
-		return checks(invoice).stream().map(check -> save(byType.get(check.type()), batch, document, invoice, check))
+		// Every explicit run appends results, preserving previous checks and manual decisions.
+		ReconciliationBatch batch = batch(document, invoice, authentication);
+		var response=checks(invoice).stream().map(check -> save(null, batch, document, invoice, check))
 				.map(this::response).toList();
+        remember(document,"RECONCILIATION",previous);return response;
 	}
 
 	@Transactional
 	public ReconciliationResponse decide(Long documentId, Long id, String status, String comment,
 			Authentication authentication) {
+		Document document=documentService.lockForEdit(documentId);String previous=before(document);
 		Reconciliation result = reconciliationRepository.findById(id)
 				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy kết quả đối soát"));
 		if (!result.getDocument().getId().equals(documentId))
@@ -54,9 +61,10 @@ public class ReconciliationService {
 		result.setComment(checkType + ": " + (comment == null ? "Manual decision" : comment));
 		result.setReviewedBy(userService.loadCurrent(authentication));
 		result.setReviewedAt(java.time.LocalDateTime.now());
-		return response(result);
+		remember(document,"RECONCILIATION_DECISION",previous);return response(result);
 	}
 
+	@Transactional(readOnly = true)
 	public List<ReconciliationResponse> find(Long documentId) {
 		documentService.load(documentId);
 		return reconciliationRepository.findByDocumentIdOrderByCreatedAtDesc(documentId).stream()

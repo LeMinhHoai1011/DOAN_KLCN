@@ -112,7 +112,7 @@ public class DocumentTextExtractionService {
 			String version, String sourceType, long duration, List<String> warnings) {
 		String text = pages.stream().map(page -> "[PAGE " + page.pageNumber() + "]\n" + page.text())
 				.reduce((left, right) -> left + "\n\n" + right).orElse("");
-		BigDecimal confidence = pages.stream().map(DocumentTextExtractionResult.PageText::confidence)
+		BigDecimal confidence = pages.stream().anyMatch(page -> page.confidence() == null) ? null : pages.stream().map(DocumentTextExtractionResult.PageText::confidence)
 				.filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add)
 				.divide(BigDecimal.valueOf(Math.max(1, pages.size())), 4, RoundingMode.HALF_UP);
 		boolean fallback = pages.stream().anyMatch(DocumentTextExtractionResult.PageText::requiresVisionFallback);

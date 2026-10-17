@@ -1,36 +1,29 @@
 package com.example.invoice.controller;
-
-import com.example.invoice.dto.accounting.AccountingCategoryResponse;
-import com.example.invoice.entity.AccountingCategory;
-import com.example.invoice.entity.User;
-import com.example.invoice.exception.BadRequestException;
-import com.example.invoice.repository.AccountingCategoryRepository;
-import com.example.invoice.service.UserService;
+import com.example.invoice.dto.accounting.*;
+import com.example.invoice.entity.AccountingCategoryType;
+import com.example.invoice.service.AccountingCategoryService;
+import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
-
-@RestController
-@RequestMapping("/api/v1/accounting-categories")
-@RequiredArgsConstructor
+import org.springframework.web.bind.annotation.*;
+@RestController @RequestMapping("/api/v1/accounting-categories") @RequiredArgsConstructor
 public class AccountingCategoryController {
-	private final AccountingCategoryRepository categoryRepository;
-	private final UserService userService;
-
-	@GetMapping
-	@PreAuthorize("hasAuthority('PERMISSION_ACCOUNTING_VIEW') or hasRole('ADMIN')")
-	public List<AccountingCategoryResponse> findAll(@RequestParam(required = false) Long companyId, Authentication authentication) {
-		User user = userService.loadCurrent(authentication);
-		Long targetCompany = companyId == null ? (user.getCompany() == null ? null : user.getCompany().getId()) : companyId;
-		boolean admin = user.getUserRoles().stream().anyMatch(role -> "ADMIN".equals(role.getRole().getCode()));
-		if (targetCompany == null) throw new BadRequestException("Vui lòng chọn công ty");
-		if (!admin && (user.getCompany() == null || !targetCompany.equals(user.getCompany().getId()))) throw new BadRequestException("Bạn không thể truy cập công ty khác");
-		return categoryRepository.findByCompanyId(targetCompany).stream().filter(AccountingCategory::isActive)
-				.map(category -> new AccountingCategoryResponse(category.getId(), category.getCategoryCode(), category.getCategoryName(), category.getDescription())).toList();
-	}
+ private final AccountingCategoryService service;
+ @GetMapping @PreAuthorize("hasAuthority('PERMISSION_ACCOUNTING_VIEW') or hasRole('ADMIN')")
+ public List<AccountingCategoryResponse> findAll(@RequestParam(required=false) Long companyId,
+   @RequestParam(defaultValue="false") boolean includeInactive, @RequestParam(required=false) AccountingCategoryType type, Authentication auth) {
+   return service.findAll(companyId,includeInactive,type,auth);
+ }
+ @ExceptionHandler({org.springframework.http.converter.HttpMessageNotReadableException.class, org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
+ public org.springframework.http.ResponseEntity<com.example.invoice.exception.ErrorResponse> invalidRequest(jakarta.servlet.http.HttpServletRequest request) {
+   return org.springframework.http.ResponseEntity.badRequest().body(new com.example.invoice.exception.ErrorResponse(
+     java.time.LocalDateTime.now(),400,"INVALID_ACCOUNTING_CATEGORY","Thu/Chi hoặc cấu trúc yêu cầu không hợp lệ",request.getRequestURI()));
+ }
+ @PostMapping @ResponseStatus(HttpStatus.CREATED) @PreAuthorize("hasRole('ADMIN')")
+ public AccountingCategoryResponse create(@Valid @RequestBody AccountingCategoryRequest request, Authentication auth) {return service.create(request,auth);}
+ @PutMapping("/{id}") @PreAuthorize("hasRole('ADMIN')")
+ public AccountingCategoryResponse update(@PathVariable Long id,@Valid @RequestBody AccountingCategoryRequest request,Authentication auth) {return service.update(id,request,auth);}
 }

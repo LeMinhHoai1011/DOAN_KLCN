@@ -58,6 +58,13 @@ public class DocumentAiProcessingService {
 	private final OcrLayoutReconstructor ocrLayoutReconstructor;
 	private final OCRResultService ocrResultService;
 	private final ObjectMapper objectMapper = new ObjectMapper();
+    private PipelineExecutionService executions;
+    private final ThreadLocal<String> stage = new ThreadLocal<>();
+
+    @Autowired
+    public void setPipelineExecutionService(PipelineExecutionService executions) { this.executions = executions; }
+
+    public AiDocumentProcessingResponse retry(Long id) { return processAttempt(id, true, true); }
 
 	@Autowired
 	public DocumentAiProcessingService(DocumentService documentService, DocumentTypeRepository documentTypeRepository,
@@ -93,10 +100,16 @@ public class DocumentAiProcessingService {
 	}
 
 	public AiDocumentProcessingResponse process(Long documentId, boolean reprocess) {
+        return processAttempt(documentId, reprocess, false);
+    }
+
+    private AiDocumentProcessingResponse processAttempt(Long documentId, boolean reprocess, boolean retryOnly) {
 		Document document = documentService.load(documentId);
 		if (!isSupportedImage(document.getFileType()) && !isPdf(document.getFileType()))
-			throw new BadRequestException("Chỉ hỗ trợ tệp PDF, JPEG và PNG");
-		document = documentService.claimForAiProcessing(documentId, reprocess);
+            throw new com.example.invoice.exception.PipelineException(PipelineFailures.create("INVALID_FILE", "FILE_VALIDATION", false, 0), 400);
+		PipelineExecutionService.Run run = executions == null ? null : executions.start(documentId, reprocess, retryOnly);
+        document = run == null ? documentService.claimForAiProcessing(documentId, reprocess) : run.document();
+        stage.set("VALIDATION");
 
 		try {
 		List<DocumentType> types = documentTypeRepository.findByActiveTrue();
@@ -116,6 +129,7 @@ public class DocumentAiProcessingService {
 				.map(category -> new AccountingCategoryOption(category.getCategoryCode(), category.getCategoryName(), category.getDescription()))
 				.toList();
 
+		stage.set("STORAGE");
 		byte[] bytes = documentService.loadFileBytes(documentId);
 		if (bytes.length == 0) throw new BadRequestException("Nội dung chứng từ tải từ MinIO bị trống");
 		if (document.getFileSize() != null && document.getFileSize() != bytes.length)
@@ -124,10 +138,31 @@ public class DocumentAiProcessingService {
 		processingLogService.append(documentId, "AI_DOCUMENT", "START", "PROCESSING", null, null,
 				reprocess ? "AI reprocess requested" : "AI process requested");
 
-			return isPdf(document.getFileType())
+			stage.set("OCR");
+            AiDocumentProcessingResponse completed = isPdf(document.getFileType())
 					? processPdf(documentId, document, bytes, typeCodes, categoryCodes, categoryOptions, allowedTypes, company)
 					: processImage(documentId, document, bytes, typeCodes, categoryCodes, categoryOptions, allowedTypes, company, reprocess);
+            if (run != null) executions.complete(run);
+            return completed;
 		} catch (RuntimeException exception) {
+			if (exception instanceof AiDocumentResultValidator.UnresolvedDocumentTypeException) {
+				try {
+					persistenceService.persistUnresolvedType(documentId);
+					if (run != null) executions.complete(run);
+					return response(documentId, true, List.of(exception.getMessage()), null);
+				} catch (RuntimeException persistenceFailure) {
+					exception = persistenceFailure; stage.set("PERSISTENCE");
+				}
+			}
+            if (run != null) {
+                var failure = PipelineFailures.classify(exception, stage.get(), run.attemptNumber());
+                log.error("Pipeline failure documentId={} jobId={} stage={} technicalDetails={}",
+                        documentId, run.jobId(), failure.failedStage(), PipelineFailures.technicalDetails(exception));
+                try { executions.fail(run, failure); }
+                catch (RuntimeException historyFailure) { log.error("Pipeline history unavailable documentId={} exceptionClass={}", documentId, historyFailure.getClass().getName()); }
+                throw new com.example.invoice.exception.PipelineException(failure,
+                        java.util.Set.of("VALIDATION_FAILED", "OCR_LOW_QUALITY").contains(failure.errorCode()) ? 422 : 502, exception);
+            }
 			try {
 				documentService.updateProcessingStatus(documentId, DocumentStatus.FAILED);
 			} catch (RuntimeException statusException) {
@@ -135,18 +170,19 @@ public class DocumentAiProcessingService {
 			}
 			try {
 				processingLogService.append(documentId, "DOCUMENT_PIPELINE", errorCode(exception), "FAILED",
-						BigDecimal.ZERO, null, sanitize(exception.getMessage()));
+						null, null, sanitize(exception.getMessage()));
 			} catch (RuntimeException logException) {
 				log.error("Could not persist failure log documentId={} originalError={}", documentId,
 						exception.getMessage(), logException);
 			}
 			throw exception;
-		}
+		} finally { stage.remove(); }
 	}
 
 	private AiDocumentProcessingResponse processPdf(Long documentId, Document document, byte[] bytes,
 			List<String> typeCodes, List<String> categoryCodes, List<AccountingCategoryOption> categoryOptions,
 			Set<String> allowedTypes, Company company) {
+		stage.set("TEXT_EXTRACTION");
 		List<PageAnalysis> analyzedPages = analyzePdfPages(documentId, document.getOriginalFileName(), bytes,
 				typeCodes, categoryCodes, categoryOptions, company);
 		OcrDocumentResult ocr = aggregateOcr(analyzedPages.stream().map(PageAnalysis::ocr).toList());
@@ -156,9 +192,11 @@ public class DocumentAiProcessingService {
 		logItemTelemetry(documentId, result);
 		result = addMissingInvoiceItemsWarning(result, ocr);
 
+		stage.set("VALIDATION");
 		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes, Set.copyOf(categoryCodes));
 		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
 				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
+		stage.set("PERSISTENCE");
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);
 		log.info("AI_CLASSIFICATION_COMPLETED documentId={} companyId={} model={} categoryCode={} needsReview={} durationMs={}",
 				documentId, company.getId(), result.model(), result.accountingCategoryCode(), requiresReview, result.durationMs());
@@ -174,30 +212,14 @@ public class DocumentAiProcessingService {
 		OcrPageResult pageOcr = null;
 		byte[] bytes = originalBytes;
 		String contentType = document.getFileType();
-		boolean skipOcr = false;
-		if (reprocess && ocrResultService != null) {
-			try {
-				OCRResultResponse existingOcr = ocrResultService.findByDocumentId(documentId);
-				Optional<OcrPageResult> restored = restoreStoredOcr(existingOcr);
-				if (restored.isPresent()) {
-					pageOcr = restored.get();
-					skipOcr = true;
-				} else if (existingOcr != null && existingOcr.rawText() != null && !existingOcr.rawText().isBlank()) {
-					warnings.add("Stored OCR layout is unavailable or invalid; OCR was run again before AI analysis");
-					log.info("Stored OCR is not safe for text-only reuse documentId={}; falling back to adaptive OCR", documentId);
-				}
-			} catch (com.example.invoice.exception.ResourceNotFoundException exception) {
-				log.debug("No prior OCR result is available for reprocess documentId={}", documentId);
-			} catch (RuntimeException exception) {
-				log.warn("Could not load prior OCR result for reprocess documentId={}: {}", documentId,
-						sanitize(exception.getMessage()));
-			}
-		}
+		// Re-read the current file on every attempt; stored OCR has no file-version identity.
+
 
 		OcrDocumentResult ocr = null;
 		ImagePreprocessingMetadata metadata = null;
 
-		if (!skipOcr) {
+		{
+			stage.set("OCR");
 			AdaptiveOcrService.AdaptiveOcrResult adaptive = adaptiveOcrService.recognize(originalBytes, document.getFileType(), 1);
 			bytes = adaptive.selectedImageBytes();
 			contentType = adaptive.selectedContentType();
@@ -221,7 +243,8 @@ public class DocumentAiProcessingService {
 			pageOcr = reconstructLayout(adaptive.page());
 			logOcr(documentId, pageOcr);
 			ocr = aggregateOcr(List.of(pageOcr));
-			persistenceService.persistOcr(documentId, ocr);
+			stage.set("PERSISTENCE");
+            persistenceService.persistOcr(documentId, ocr);
 			metadata = adaptive.imageQuality() == null ? null : new ImagePreprocessingMetadata(
 					adaptive.selectedProfile() != OcrProcessingProfile.NORMAL, adaptive.imageQuality().skewAngleDegrees(),
 					adaptive.imageQuality().width(), adaptive.imageQuality().height(), pageOcr.imageWidth(), pageOcr.imageHeight(),
@@ -232,9 +255,11 @@ public class DocumentAiProcessingService {
 				bytes, typeCodes, categoryCodes, categoryOptions, company, pageOcr), company);
 		logItemTelemetry(documentId, result);
 		result = addMissingInvoiceItemsWarning(result, ocr);
+		stage.set("VALIDATION");
 		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes, Set.copyOf(categoryCodes));
 		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
 				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
+		stage.set("PERSISTENCE");
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);
 		log.info("AI_CLASSIFICATION_COMPLETED documentId={} companyId={} model={} categoryCode={} needsReview={} durationMs={}",
 				documentId, company.getId(), result.model(), result.accountingCategoryCode(), requiresReview, result.durationMs());
@@ -264,6 +289,7 @@ public class DocumentAiProcessingService {
 				: ocrLayoutReconstructor == null ? ocr.text() : ocrLayoutReconstructor.structuredContext(ocr));
 		String prompt = AiDocumentPromptFactory.createWithCategories(documentTypes, categoryOptions,
 				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
+		stage.set("AI_EXTRACTION");
 		AdaptiveOcrService.OcrQualityEvaluation quality = adaptiveOcrService == null
 				? null : adaptiveOcrService.evaluateDetailed(ocr);
 		boolean reliableOcr = ocr != null && ocr.successful()
@@ -286,18 +312,8 @@ public class DocumentAiProcessingService {
 				return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText, textPrompt));
 			} catch (AiProviderException firstFailure) {
 				if (!isStructuredOutputFailure(firstFailure)) throw firstFailure;
-				try {
-					log.warn("AI structured extraction retry file={} requestMode=TEXT retryAttempt=1 code={}",
-							fileName, errorCode(firstFailure));
-					return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText,
-							AiDocumentPromptFactory.strictRetry(textPrompt)));
-				} catch (AiProviderException retryFailure) {
-					if (!isStructuredOutputFailure(retryFailure)) throw retryFailure;
-					log.warn("AI text extraction exhausted; falling back to vision file={} requestMode=VISION retryAttempt=0 code={}",
-							fileName, errorCode(retryFailure));
-					return aiProcessingService.analyzeDocument(new AiDocumentRequest(
-							fileName, contentType, bytes, documentTypes, prompt));
-				}
+                log.warn("AI text format invalid; one vision fallback file={}", fileName);
+                return aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt));
 			}
 		}
 		log.info("AI vision fallback file={} reason={} imageBytes={}", fileName,
@@ -439,36 +455,41 @@ public class DocumentAiProcessingService {
 		List<PdfImageConversionService.PdfTextPage> textPages = pdfImageConversionService.extractTextPages(pdfBytes);
 		if (!textPages.isEmpty() && textPages.stream().allMatch(PdfImageConversionService.PdfTextPage::usable)) {
 			for (PdfImageConversionService.PdfTextPage page : textPages) {
-				OcrPageResult textLayer = new OcrPageResult(page.pageNumber(), 0, 0, page.text(), 100,
+				OcrPageResult textLayer = new OcrPageResult(page.pageNumber(), 0, 0, page.text(), Float.NaN,
 						List.of(), 0, null, "pdf-text-layer");
 				recognizedPages.add(textLayer);
 				results.add(new PageAnalysis(analyzeDigitalPdfText(fileName + "#page-" + page.pageNumber(), page.text(),
 						documentTypes, categoryOptions, company), textLayer));
 			}
-			persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
+			stage.set("PERSISTENCE");
+            persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
 			log.info("PDF text layer selected documentId={} pages={} renderedPages=0", documentId, textPages.size());
 			return List.copyOf(results);
 		}
+		stage.set("TEXT_EXTRACTION");
 		for (PdfPageImage page : pdfImageConversionService.convert(pdfBytes)) {
 			PdfImageConversionService.PdfTextPage nativeText = textPages.stream()
 					.filter(value -> value.pageNumber() == page.pageNumber()).findFirst().orElse(null);
 			if (nativeText != null && nativeText.usable()) {
-				OcrPageResult textLayer = new OcrPageResult(page.pageNumber(), 0, 0, nativeText.text(), 100,
+				OcrPageResult textLayer = new OcrPageResult(page.pageNumber(), 0, 0, nativeText.text(), Float.NaN,
 						List.of(), 0, null, "pdf-text-layer");
 				recognizedPages.add(textLayer);
 				results.add(new PageAnalysis(analyzeDigitalPdfText(fileName + "#page-" + page.pageNumber(), nativeText.text(),
 						documentTypes, categoryOptions, company), textLayer));
 				continue;
 			}
+			stage.set("OCR");
 			AdaptiveOcrService.AdaptiveOcrResult adaptive = adaptiveOcrService.recognize(page.bytes(), page.contentType(), page.pageNumber());
 			OcrPageResult ocr = reconstructLayout(adaptive.page());
 			logOcr(documentId, ocr);
 			recognizedPages.add(ocr);
-			persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
+			stage.set("PERSISTENCE");
+            persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
 			results.add(new PageAnalysis(analyzeSingleImage(fileName + "#page-" + page.pageNumber(), adaptive.selectedContentType(),
 					adaptive.selectedImageBytes(), documentTypes, categoryCodes, categoryOptions, company, ocr), ocr));
 		}
-		persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
+		stage.set("PERSISTENCE");
+            persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
 		return List.copyOf(results);
 	}
 
@@ -476,6 +497,7 @@ public class DocumentAiProcessingService {
 			List<AccountingCategoryOption> categoryOptions, Company company) {
 		String prompt = AiDocumentPromptFactory.createWithCategories(documentTypes, categoryOptions,
 				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
+		stage.set("AI_EXTRACTION");
 		return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizeOcrText(text),
 				AiDocumentPromptFactory.forTextExtraction(prompt)));
 	}
@@ -511,9 +533,11 @@ public class DocumentAiProcessingService {
 	private OcrDocumentResult aggregateOcr(List<OcrPageResult> pages) {
 		List<OcrPageResult> successful = pages.stream().filter(OcrPageResult::successful).toList();
 		String text = successful.stream().map(OcrPageResult::text).collect(Collectors.joining("\n\n"));
-		float confidence = successful.isEmpty() ? 0
+		float confidence = successful.isEmpty() ? Float.NaN
 				: (float) successful.stream().mapToDouble(OcrPageResult::confidence).average().orElse(0);
-		List<String> warnings = pages.stream().map(OcrPageResult::warning).filter(Objects::nonNull).toList();
+		List<String> warnings = pages.stream().filter(page -> page.warning() != null)
+                .map(page -> "OCR_LOW_QUALITY: Nhận dạng trang " + page.pageNumber() + " chưa đạt; cần kiểm tra kết quả từ nhánh AI ảnh")
+                .distinct().toList();
 		return new OcrDocumentResult(text, confidence, List.copyOf(pages),
 				pages.stream().mapToLong(OcrPageResult::durationMs).sum(), warnings);
 	}
@@ -522,8 +546,8 @@ public class DocumentAiProcessingService {
 		if (pages == null || pages.isEmpty()) throw new BadRequestException("Tệp PDF không có trang nào có thể phân tích");
 		AiDocumentResult first = pages.getFirst();
 		List<BigDecimal> confidences = pages.stream().map(AiDocumentResult::classificationConfidence).filter(Objects::nonNull).toList();
-		BigDecimal confidence = confidences.isEmpty() ? BigDecimal.ZERO : confidences.stream().reduce(BigDecimal.ZERO, BigDecimal::add)
-				.divide(BigDecimal.valueOf(confidences.size()), RoundingMode.HALF_UP);
+		BigDecimal confidence = confidences.size() != pages.size() ? null : confidences.stream().reduce(BigDecimal.ZERO, BigDecimal::add)
+				.divide(BigDecimal.valueOf(confidences.size()), 4, RoundingMode.HALF_UP);
 		String rawText = pages.stream().map(AiDocumentResult::rawText).filter(value -> value != null && !value.isBlank())
 				.collect(Collectors.joining("\n\n"));
 		List<AiDocumentResult.AiInvoiceItemExtraction> items = pages.stream()
@@ -625,12 +649,12 @@ public class DocumentAiProcessingService {
 
 	private void logOcr(Long documentId, OcrPageResult ocr) {
 		processingLogService.append(documentId, "TESSERACT_OCR", "RECOGNIZE", ocr.successful() ? "SUCCESS" : "WARNING",
-				BigDecimal.valueOf(ocr.confidence()).movePointLeft(2), ocr.durationMs(),
+				Float.isFinite(ocr.confidence()) ? BigDecimal.valueOf(ocr.confidence()).movePointLeft(2) : null, ocr.durationMs(),
 				ocr.successful() ? "page=%d; words=%d".formatted(ocr.pageNumber(), ocr.words().size()) : ocr.warning());
 	}
 
 	private boolean isSupportedImage(String contentType) {
-		return "image/jpeg".equalsIgnoreCase(contentType) || "image/png".equalsIgnoreCase(contentType);
+		return "image/jpeg".equalsIgnoreCase(contentType) || "image/jpg".equalsIgnoreCase(contentType) || "image/png".equalsIgnoreCase(contentType);
 	}
 
 	private boolean isPdf(String contentType) { return "application/pdf".equalsIgnoreCase(contentType); }

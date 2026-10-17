@@ -36,6 +36,57 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 class DocumentAiProcessingServiceTest {
+	@org.junit.jupiter.params.ParameterizedTest
+	@org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+	void reprocessUsesFreshOcrAndSeparatesUnresolvedTypeFromTechnicalFailure(boolean technicalFailure) {
+		var documents = mock(DocumentService.class);
+		var types = mock(DocumentTypeRepository.class);
+		var categories = mock(AccountingCategoryRepository.class);
+		var ai = mock(AiProcessingService.class);
+		var persistence = mock(DocumentAiResultPersistenceService.class);
+		var logs = mock(ProcessingLogService.class);
+		var ocr = mock(AdaptiveOcrService.class);
+		var previousOcr = mock(OCRResultService.class);
+		var document = new Document(); document.setId(81L); document.setFileType("image/png");
+		document.setOriginalFileName("test.png"); document.setFileSize(1L);
+		var company = new Company(); company.setId(9L); document.setCompany(company);
+		when(documents.load(81L)).thenReturn(document);
+		when(documents.claimForAiProcessing(81L, true)).thenReturn(document);
+		when(documents.loadFileBytes(81L)).thenReturn(new byte[] {1});
+		when(types.findByActiveTrue()).thenReturn(List.of(documentType("OTHER")));
+		when(categories.findByCompanyIdAndActiveTrueOrderByCategoryCodeAsc(9L)).thenReturn(List.of());
+		when(ocr.recognize(any(), any(), org.mockito.ArgumentMatchers.eq(1))).thenReturn(
+				new AdaptiveOcrService.AdaptiveOcrResult(new OcrPageResult(1, 10, 10, "source", 10f, List.of(), 1L, null, "vie"),
+						new byte[] {1}, "image/png", OcrProcessingProfile.NORMAL, .5, 1, null, null));
+		if (technicalFailure) when(ai.analyzeDocument(any())).thenThrow(new com.example.invoice.exception.AiProviderException("AI_INVALID_RESPONSE: malformed JSON"));
+		else when(ai.analyzeDocument(any())).thenReturn(new AiDocumentResult("ollama", "qwen", "UNRECOGNIZED", null, null, null, List.of(), List.of(), "raw", 1L));
+		var service = new DocumentAiProcessingService(documents, types, categories, ai, new AiDocumentResultValidator(),
+				persistence, logs, mock(PdfImageConversionService.class), ocr, new AiProperties(), null, null, previousOcr);
+		if (technicalFailure) {
+			assertThrows(com.example.invoice.exception.AiProviderException.class, () -> service.process(81L, true));
+			verify(documents).updateProcessingStatus(81L, DocumentStatus.FAILED);
+		} else {
+			assertEquals(DocumentStatus.NEED_REVIEW, service.process(81L, true).status());
+			verify(persistence).persistUnresolvedType(81L);
+			verify(documents, never()).updateProcessingStatus(81L, DocumentStatus.FAILED);
+		}
+		verify(ocr).recognize(any(), any(), org.mockito.ArgumentMatchers.eq(1));
+		verify(previousOcr, never()).findByDocumentId(81L);
+	}
+
+	@Test void pdfAggregationDoesNotInventOrRoundMissingConfidenceToOne() {
+		var service = serviceWithLayoutReconstructor();
+		var page = new AiDocumentResult("ollama", "qwen", "OTHER", new BigDecimal("0.95"), null, null, List.of(), List.of(), "raw", 1L);
+		var unknown = new AiDocumentResult("ollama", "qwen", "OTHER", null, null, null, List.of(), List.of(), "raw", 1L);
+		AiDocumentResult complete = org.springframework.test.util.ReflectionTestUtils.invokeMethod(service, "aggregatePageResults", List.of(page, page));
+		assertEquals(0, new BigDecimal("0.95").compareTo(complete.classificationConfidence()));
+		AiDocumentResult partial = org.springframework.test.util.ReflectionTestUtils.invokeMethod(service, "aggregatePageResults", List.of(page, unknown));
+		org.junit.jupiter.api.Assertions.assertNull(partial.classificationConfidence());
+        var zero = new AiDocumentResult("ollama", "qwen", "OTHER", BigDecimal.ZERO, null, null, List.of(), List.of(), "raw", 1L);
+        var one = new AiDocumentResult("ollama", "qwen", "OTHER", BigDecimal.ONE, null, null, List.of(), List.of(), "raw", 1L);
+        AiDocumentResult mean = org.springframework.test.util.ReflectionTestUtils.invokeMethod(service, "aggregatePageResults", List.of(zero, one));
+        assertEquals(0, new BigDecimal("0.5").compareTo(mean.classificationConfidence()));
+	}
 	@Test
 	void restoresStoredOcrLayoutWithRealDimensionsAndReadingOrder() {
 		DocumentAiProcessingService service = serviceWithLayoutReconstructor();

@@ -26,6 +26,7 @@ public class ExcelExportService {
 
 	@Transactional(readOnly = true)
 	public byte[] invoices(LocalDate fromDate, LocalDate toDate, String search) {
+        com.example.invoice.util.DateRanges.validate(fromDate, toDate);
 		List<InvoiceResponse> rows = invoiceService.findAll().stream()
 				.filter(i -> fromDate == null || (i.invoiceDate() != null && !i.invoiceDate().isBefore(fromDate)))
 				.filter(i -> toDate == null || (i.invoiceDate() != null && !i.invoiceDate().isAfter(toDate)))
@@ -39,18 +40,25 @@ public class ExcelExportService {
 	}
 
 	@Transactional(readOnly = true)
-	public byte[] financialReport(LocalDate fromDate, LocalDate toDate, Authentication authentication) {
-		List<FinancialTransactionResponse> rows = transactionService.findAll(fromDate, toDate, null, null, null, null, null, Pageable.unpaged(), authentication).getContent();
+	public byte[] financialReport(LocalDate fromDate, LocalDate toDate, Authentication authentication) { return financialReportScoped(fromDate,toDate,null,authentication); }
+    @Transactional(readOnly=true)
+    public byte[] financialReportScoped(LocalDate fromDate,LocalDate toDate,Long companyId,Authentication authentication) {
+        com.example.invoice.util.DateRanges.validate(fromDate, toDate);
+		List<FinancialTransactionResponse> all = transactionService.findAll(fromDate, toDate, null, null, null, null, companyId, Pageable.unpaged(), authentication).getContent();
+        List<FinancialTransactionResponse> rows = all.stream().filter(t -> "CONFIRMED".equals(t.paymentConfirmation())).toList();
 		BigDecimal income = rows.stream().filter(r -> "INCOME".equals(r.transactionType())).map(FinancialTransactionResponse::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
 		BigDecimal expense = rows.stream().filter(r -> "EXPENSE".equals(r.transactionType())).map(FinancialTransactionResponse::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
 		try (Workbook book = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 			Sheet summary=book.createSheet("Tong quan"); header(summary,new String[]{"Tu ngay","Den ngay","Tong thu","Tong chi","Dong tien","So giao dich"}); Row s=summary.createRow(1); date(s,0,fromDate);date(s,1,toDate);money(s,2,income);money(s,3,expense);money(s,4,income.subtract(expense));number(s,5,rows.size()); widths(summary,6);
-			Sheet details=book.createSheet("Thu chi"); header(details,new String[]{"STT","Ngay","Loai","So tien","Nhom chi phi","Mo ta","Trang thai"}); int n=1; for(FinancialTransactionResponse r:rows){Row row=details.createRow(n);number(row,0,n++);date(row,1,r.transactionDate());text(row,2,r.transactionType());money(row,3,r.amount());text(row,4,r.categoryName());text(row,5,r.description());text(row,6,r.status());} widths(details,7); book.write(out); return out.toByteArray();
+			Sheet details=book.createSheet("Thu chi"); header(details,new String[]{"STT","Ngay","Loai","So tien","Nhom chi phi","Mo ta","Trang thai"}); int n=1; for(FinancialTransactionResponse r:rows){Row row=details.createRow(n);number(row,0,n++);date(row,1,r.transactionDate());text(row,2,r.transactionType());money(row,3,r.amount());text(row,4,r.categoryName());text(row,5,r.description());text(row,6,r.status());} widths(details,7);
+            Sheet excluded=book.createSheet("Khong tinh thanh toan");header(excluded,new String[]{"ID","Xac minh","Gia tri ban ghi - khong phai tien da tra","Chung tu ID","Hoa don ID","Trang thai nghiep vu"});int z=1;
+            for(var r:all){if("CONFIRMED".equals(r.paymentConfirmation()))continue;Row row=excluded.createRow(z++);text(row,0,r.id().toString());text(row,1,r.paymentConfirmation());money(row,2,r.amount());text(row,3,r.documentId()==null?"":r.documentId().toString());text(row,4,r.invoiceId()==null?"":r.invoiceId().toString());text(row,5,r.status());}widths(excluded,6);
+            book.write(out); return out.toByteArray();
 		} catch (Exception e) { throw new IllegalStateException("Không thể tạo tệp Excel báo cáo tài chính", e); }
 	}
 	private boolean matches(InvoiceResponse i,String q){if(q==null||q.isBlank())return true;String x=q.toLowerCase();return join(i.invoiceNumber(),i.sellerName(),i.sellerTaxCode(),i.buyerName(),i.buyerTaxCode()).toLowerCase().contains(x);}
 	private String join(String... v){return String.join(" ",java.util.Arrays.stream(v).map(x->x==null?"":x).toList());}
 	private void header(Sheet s,String[] h){Row r=s.createRow(0);for(int i=0;i<h.length;i++){Cell c=r.createCell(i);c.setCellValue(h[i]);}}
-	private void text(Row r,int i,String v){r.createCell(i).setCellValue(v==null?"":v);} private void number(Row r,int i,int v){r.createCell(i).setCellValue(v);} private void date(Row r,int i,LocalDate v){if(v!=null)r.createCell(i).setCellValue(v);} private void money(Row r,int i,BigDecimal v){r.createCell(i).setCellValue(v==null?0:v.doubleValue());}
+	private void text(Row r,int i,String v){r.createCell(i).setCellValue(v==null?"":v);} private void number(Row r,int i,int v){r.createCell(i).setCellValue(v);} private void date(Row r,int i,LocalDate v){if(v!=null){Cell cell=r.createCell(i);cell.setCellValue(v);CellStyle style=r.getSheet().getWorkbook().createCellStyle();style.setDataFormat(r.getSheet().getWorkbook().createDataFormat().getFormat("dd/mm/yyyy"));cell.setCellStyle(style);}} private void money(Row r,int i,BigDecimal v){r.createCell(i).setCellValue(v==null?0:v.doubleValue());}
 	private void widths(Sheet s,int n){for(int i=0;i<n;i++)s.autoSizeColumn(i);}
 }

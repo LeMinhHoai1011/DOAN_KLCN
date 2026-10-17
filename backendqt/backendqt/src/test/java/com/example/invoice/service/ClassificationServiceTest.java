@@ -32,6 +32,7 @@ class ClassificationServiceTest {
 
 	@BeforeEach
 	void setUp() {
+		org.mockito.Mockito.lenient().when(documentService.load(org.mockito.ArgumentMatchers.anyLong())).thenAnswer(i -> documentService.lockForEdit(i.getArgument(0)));
 		service = new ClassificationService(classificationRepository, accountingCategoryRepository,
 				documentService, documentTypeRepository);
 	}
@@ -45,7 +46,7 @@ class ClassificationServiceTest {
 		DocumentType receipt = new DocumentType();
 		receipt.setCode("RECEIPT");
 		receipt.setActive(true);
-		when(documentService.load(42L)).thenReturn(document);
+		org.mockito.Mockito.lenient().when(documentService.lockForEdit(42L)).thenReturn(document);
 		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(42L))
 				.thenReturn(Optional.of(classification));
 		when(documentTypeRepository.findByCodeAndActiveTrue("RECEIPT")).thenReturn(Optional.of(receipt));
@@ -97,4 +98,12 @@ class ClassificationServiceTest {
 		classification.setAiGenerated(true);
 		return classification;
 	}
+
+ @Test void acceptingClassificationDoesNotApproveDocumentOrChangeProcessingState() {
+  Document document=new Document();document.setId(45L);document.setStatus(com.example.invoice.entity.DocumentStatus.PROCESSED);
+  Classification c=classification(document);when(documentService.lockForEdit(45L)).thenReturn(document);
+  when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(45L)).thenReturn(Optional.of(c));
+  service.approve(45L);assertEquals(ClassificationStatus.ACCEPTED,c.getStatus());assertEquals(ReviewStatus.PENDING,document.getReviewStatus());assertEquals(com.example.invoice.entity.DocumentStatus.PROCESSED,document.getStatus());
+  assertThrows(com.example.invoice.exception.BadRequestException.class,()->service.approve(45L));
+ }
 }

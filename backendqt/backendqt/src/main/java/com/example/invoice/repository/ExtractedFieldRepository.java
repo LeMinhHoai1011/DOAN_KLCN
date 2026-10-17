@@ -11,6 +11,6 @@ public interface ExtractedFieldRepository extends JpaRepository<ExtractedField, 
 	List<ExtractedField> findByInvoiceId(Long invoiceId);
 	List<ExtractedField> findByDocumentId(Long documentId);
 	@Modifying(flushAutomatically = true)
-	@Query("delete from ExtractedField field where field.document.id = :documentId and field.source = :source")
+	@Query("delete from ExtractedField field where field.document.id = :documentId and field.source = :source and not exists (select correction.id from FieldCorrection correction where correction.field = field)")
 	int deleteByDocumentIdAndSource(@Param("documentId") Long documentId, @Param("source") String source);
 }

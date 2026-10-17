@@ -106,12 +106,16 @@ public class OllamaAiProvider implements AiProvider {
 		try (Response response = client.newCall(httpRequest).execute()) {
 			String rawResponse = response.body() == null ? "" : response.body().string();
 			long durationMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
-			JsonNode body = parseResponse(rawResponse);
+			JsonNode body;
+            try { body = parseResponse(rawResponse); }
+            catch (AiProviderException invalidBody) {
+                if (response.isSuccessful()) throw invalidBody;
+                throw new AiProviderException("AI_HTTP_ERROR: HTTP " + response.code());
+            }
 			log.info("AI_RESPONSE_RECEIVED provider={} model={} httpStatus={} durationMs={} done={} doneReason={} responseLength={} thinkingLength={}",
 					providerName(), model, response.code(), durationMs, body.path("done").asBoolean(false), body.path("done_reason").asText(""),
 					body.path("response").asText("").length(), body.path("thinking").asText("").length());
-			log.debug("Ollama response preview={} thinkingPreview={}", preview(body.path("response").asText("")),
-					preview(body.path("thinking").asText("")));
+			// Do not log generated content or thinking: both may contain invoice data.
 			if (!response.isSuccessful()) {
 				String providerError = providerError(body);
 				if (providerError.length() > 500) providerError = providerError.substring(0, 500);
@@ -246,6 +250,7 @@ public class OllamaAiProvider implements AiProvider {
 	private OkHttpClient configuredClient() {
 		Duration timeout = properties.getRequestTimeout();
 		return aiHttpClient.newBuilder()
+				.retryOnConnectionFailure(false)
 				.connectTimeout(timeout)
 				.readTimeout(timeout)
 				.writeTimeout(timeout)
@@ -254,6 +259,7 @@ public class OllamaAiProvider implements AiProvider {
 	}
 
 	private String classifyIoFailure(IOException exception) {
+		if (exception instanceof javax.net.ssl.SSLException) return "AI_TLS_ERROR";
 		if (exception instanceof ConnectException) return "AI_CONNECTION_ERROR";
 		if (exception instanceof InterruptedIOException) return "OLLAMA_TIMEOUT";
 		return "AI_CONNECTION_ERROR";
@@ -271,8 +277,8 @@ public class OllamaAiProvider implements AiProvider {
 
 	private AiProviderException failed(String code, Exception exception, long startedAt) {
 		long durationMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
-		log.warn("Ollama request failed code={} exceptionClass={} message={} durationMs={}", code,
-				exception.getClass().getSimpleName(), exception.getMessage(), durationMs);
+		log.warn("Ollama request failed code={} exceptionClass={} durationMs={}", code,
+				exception.getClass().getSimpleName(), durationMs);
 		return new AiProviderException(code + ": " + exception.getMessage(), exception);
 	}
 

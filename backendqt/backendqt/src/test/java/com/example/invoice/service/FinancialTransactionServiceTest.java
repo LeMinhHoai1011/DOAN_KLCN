@@ -37,28 +37,11 @@ class FinancialTransactionServiceTest {
 	@Mock UserService users;
 
 	@Test
-	void approvedExpenseCreatesOneInvoiceLinkedTransactionAndRetryIsIdempotent() {
-		Company company = new Company(); company.setId(3L);
-		Document document = new Document(); document.setId(8L); document.setCompany(company);
-		document.setTransactionAssessmentType("EXPENSE");
-		Invoice invoice = new Invoice(); invoice.setId(12L); invoice.setDocument(document);
-		invoice.setTotalAmount(new BigDecimal("108000")); invoice.setInvoiceDate(LocalDate.of(2026, 10, 6));
-		User actor = new User(); actor.setId(4L);
-		when(invoices.findByDocumentId(8L)).thenReturn(Optional.of(invoice));
-		when(transactions.existsByDocumentId(8L)).thenReturn(false, true);
-		when(transactions.existsByInvoiceId(12L)).thenReturn(false);
-		when(classifications.findFirstByDocumentIdOrderByCreatedAtDesc(8L)).thenReturn(Optional.empty());
-		when(transactions.save(any())).thenAnswer(call -> call.getArgument(0));
-		FinancialTransactionService service = service();
-
-		service.createFromApprovedDocument(document, actor);
-		service.createFromApprovedDocument(document, actor);
-
-		ArgumentCaptor<FinancialTransaction> saved = ArgumentCaptor.forClass(FinancialTransaction.class);
-		verify(transactions).save(saved.capture());
-		assertEquals("EXPENSE", saved.getValue().getTransactionType());
-		assertEquals(invoice, saved.getValue().getInvoice());
-		assertEquals(new BigDecimal("108000"), saved.getValue().getAmount());
+	void approvalNeverCreatesCashOrAssumesInvoiceTotalWasPaid() {
+		Document document=new Document();document.setId(8L);document.setCompany(new Company());document.setTransactionAssessmentType("EXPENSE");
+		assertEquals(Optional.empty(),service().createFromApprovedDocument(document,new User()));
+		assertEquals(Optional.empty(),service().createFromApprovedDocument(document,new User()));
+		verify(transactions,never()).save(any());
 	}
 
 	@Test

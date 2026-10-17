@@ -60,6 +60,36 @@ public class DocumentService {
 	private final StorageService storageService;
 	private final MinioClient minioClient;
 	private final FileValidationService fileValidationService;
+	@jakarta.persistence.PersistenceContext
+	private jakarta.persistence.EntityManager mutationEntityManager;
+	@Autowired
+	private com.example.invoice.repository.ProcessingJobRepository activeProcessingJobs;
+    @Autowired private DocumentAuditService documentAudit;
+    private String before(Document d){return documentAudit==null?null:documentAudit.capture(d);}
+    private void remember(Document d,String action,String previous){if(documentAudit!=null)documentAudit.append(d,action,previous);}
+
+	@Transactional
+	public Document lockForWorkflow(Long id) {
+		load(id); // Preserve existing scope before acquiring a row lock.
+		Document document = documentRepository.findByIdForUpdate(id)
+				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chứng từ"));
+		if (mutationEntityManager != null) mutationEntityManager.refresh(document, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+		load(id); // Recheck the refreshed scope after waiting for the lock.
+		if (document.getStatus() == DocumentStatus.PROCESSING || (activeProcessingJobs != null
+				&& activeProcessingJobs.existsByDocumentIdAndJobTypeAndStatus(id, "OCR_AI_PIPELINE", "RUNNING")))
+			throw new com.example.invoice.exception.PipelineException(new com.example.invoice.dto.document.PipelineFailure(
+					"PROCESSING_IN_PROGRESS", "CLAIM", false, 0, java.time.LocalDateTime.now(),
+					"Chứng từ đang được xử lý. Chưa thể đổi thông tin hoặc tải phiên bản mới."), 409);
+		return document;
+	}
+
+	@Transactional
+	public Document lockForEdit(Long id) {
+		Document document = lockForWorkflow(id);
+		if (document.getReviewStatus() == com.example.invoice.entity.ReviewStatus.APPROVED || document.getStatus() == DocumentStatus.COMPLETED)
+			throw new com.example.invoice.exception.BadRequestException("Chứng từ đã duyệt hoặc đã khóa, không thể chỉnh sửa");
+		return document;
+	}
 
 	/** Compatibility constructor for isolated scope tests that do not update document types. */
 	DocumentService(DocumentRepository documentRepository, DocumentTypeRepository documentTypeRepository,
@@ -82,32 +112,8 @@ public class DocumentService {
 
 	@Transactional
 	public DocumentResponse create(DocumentCreateRequest request, Authentication authentication) {
-		User user = userService.loadCurrent(authentication);
-		String objectKey = validateExistingObject(request, user);
-		Document document = new Document();
-		document.setOriginalFileName(request.originalFileName());
-		document.setFileName(storageService.sanitizeFileName(request.originalFileName()));
-		document.setFileType(request.fileType());
-		document.setFileSize(request.fileSize());
-		document.setFilePath(objectKey);
-		document.setUploadedBy(user);
-		document.setCompany(user.getCompany());
-
-		document = documentRepository.save(document);
-		
-		// Create first version
-		DocumentVersion version = new DocumentVersion();
-		version.setDocument(document);
-		version.setCreatedBy(user);
-		version.setVersionNumber(1);
-		version.setOriginalFileName(document.getOriginalFileName());
-		version.setContentType(document.getFileType());
-		version.setFileSize(document.getFileSize());
-		version.setFileName(document.getFileName());
-		version.setObjectKey(document.getFilePath());
-		documentVersionRepository.save(version);
-		
-		return toResponse(document);
+        userService.loadCurrent(authentication);
+        throw new com.example.invoice.exception.BadRequestException("FILE_UPLOAD_REQUIRED: Vui lòng tải file qua API upload; không nhận tham chiếu lưu trữ từ client");
 	}
 
 	@Transactional
@@ -145,6 +151,7 @@ public class DocumentService {
 		version.setFileName(originalFileName);
 		version.setObjectKey(objectKey);
 		documentVersionRepository.saveAndFlush(version);
+        remember(document,"UPLOAD",null);
 		
 		return toResponse(document);
 	}
@@ -153,15 +160,18 @@ public class DocumentService {
 	public DocumentResponse uploadNewVersion(Long id, MultipartFile file, Authentication authentication) {
 		fileValidationService.validateUpload(file);
 		
-		Document document = load(id);
+		Document document = lockForEdit(id);
+        String previous=before(document);
 		User user = userService.loadCurrent(authentication);
 		
 		String originalFileName = storageService.sanitizeFileName(file.getOriginalFilename());
-		String companyPrefix = user.getCompany() != null ? "company-" + user.getCompany().getId() + "/" : "system/";
+		String companyPrefix = document.getCompany() != null ? "company-" + document.getCompany().getId() + "/" : "system/";
 		String objectKey = companyPrefix + storageService.generateObjectKey(originalFileName);
 
 		// Determine next version number
 		List<DocumentVersion> versions = documentVersionRepository.findByDocumentId(id);
+        if(versions.isEmpty()&&document.getFilePath()!=null&&!document.getFilePath().isBlank())
+            throw new com.example.invoice.exception.BadRequestException("LEGACY_FILE_VERSION_REVIEW_REQUIRED: File cũ chưa có lịch sử phiên bản; cần xác minh baseline trước khi thay file");
 		int nextVersion = versions.stream().mapToInt(DocumentVersion::getVersionNumber).max().orElse(0) + 1;
 		
 		// Create new version
@@ -182,10 +192,13 @@ public class DocumentService {
 		document.setFileType(file.getContentType());
 		document.setFileSize(file.getSize());
 		document.setFilePath(objectKey);
+        if(document.getReviewStatus()==com.example.invoice.entity.ReviewStatus.PENDING)document.setStatus(DocumentStatus.UPLOADED);
 		uploadToMinio(file, objectKey);
 		registerRollbackCleanup(objectKey);
 		documentVersionRepository.flush();
-		return toResponse(documentRepository.saveAndFlush(document));
+		documentRepository.saveAndFlush(document);
+        remember(document,"FILE_VERSION_UPLOAD",previous);
+        return toResponse(document);
 	}
 
 	@Transactional
@@ -194,7 +207,11 @@ public class DocumentService {
 		load(id);
 		Document document = documentRepository.findByIdForUpdate(id)
 				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chứng từ"));
-		if (reprocess && document.getReviewStatus() == com.example.invoice.entity.ReviewStatus.APPROVED)
+		if (mutationEntityManager != null) mutationEntityManager.refresh(document, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+		load(id);
+		if (document.getReviewStatus() == com.example.invoice.entity.ReviewStatus.REJECTED || document.getReviewStatus() == com.example.invoice.entity.ReviewStatus.CORRECTED)
+			throw new com.example.invoice.exception.BadRequestException("Chứng từ đã trả lại cần được gửi lại qua workflow");
+		if (document.getReviewStatus() == com.example.invoice.entity.ReviewStatus.APPROVED || document.getStatus() == DocumentStatus.COMPLETED)
 			throw new com.example.invoice.exception.BadRequestException("Không thể chạy lại AI cho chứng từ đã được kế toán duyệt");
 		if (document.getStatus() == DocumentStatus.PROCESSING)
 			throw new com.example.invoice.exception.BadRequestException("Chứng từ đang được xử lý");
@@ -227,7 +244,7 @@ public class DocumentService {
 				.build())) {
 			return stream.readAllBytes();
 		} catch (Exception exception) {
-			throw new IllegalStateException("Không thể tải nội dung chứng từ từ MinIO", exception);
+			throw new com.example.invoice.exception.PipelineException(PipelineFailures.classify(exception, "STORAGE", 0), 503, exception);
 		}
 	}
 
@@ -272,6 +289,7 @@ public class DocumentService {
 	public Page<DocumentResponse> findPage(LocalDate dateFrom, LocalDate dateTo, Long companyId,
 			DocumentStatus processingStatus, com.example.invoice.entity.ReviewStatus reviewStatus, Long typeId,
 			Long uploaderId, String search, Pageable pageable, Authentication authentication) {
+        com.example.invoice.util.DateRanges.validate(dateFrom, dateTo);
 		User user = userService.loadCurrent(authentication);
 		Specification<Document> specification = scopeFor(user, companyId);
 		if (dateFrom != null) specification = specification.and((root, query, builder) -> builder.greaterThanOrEqualTo(root.get("createdAt"), dateFrom.atStartOfDay()));
@@ -296,12 +314,14 @@ public class DocumentService {
 
 	@Transactional
 	public DocumentResponse update(Long id, DocumentUpdateRequest request, Authentication authentication) {
-		Document document = load(id);
+		Document document = lockForEdit(id);
+        if(request.filePath()!=null || request.fileType()!=null&&!request.fileType().equalsIgnoreCase(document.getFileType()) || request.fileSize()!=null&&!request.fileSize().equals(document.getFileSize()))
+            throw new com.example.invoice.exception.BadRequestException("FILE_VERSION_REQUIRED: Nội dung và metadata lưu trữ chỉ thay đổi qua upload phiên bản");
+        String previous=before(document);
+		if (request.status() != null && request.status() != document.getStatus())
+			throw new com.example.invoice.exception.BadRequestException("Trạng thái chỉ được thay đổi qua workflow hoặc pipeline xử lý");
 		if (request.originalFileName() != null) document.setOriginalFileName(request.originalFileName());
-		if (request.fileType() != null) document.setFileType(request.fileType());
-		if (request.fileSize() != null) document.setFileSize(request.fileSize());
-		if (request.filePath() != null) document.setFilePath(request.filePath());
-		if (request.status() != null) document.setStatus(request.status());
+
 		if (request.typeId() != null && (document.getType() == null || !request.typeId().equals(document.getType().getId()))) {
 			if (document.getReviewStatus() == com.example.invoice.entity.ReviewStatus.APPROVED)
 				throw new IllegalArgumentException("Không thể đổi loại chứng từ đã được duyệt");
@@ -322,25 +342,14 @@ public class DocumentService {
 					+ "; correctedBy=" + userService.loadCurrent(authentication).getId());
 			processingLogRepository.save(history);
 		}
-		return toResponse(document);
+		remember(document,"DOCUMENT_UPDATE",previous);
+        return toResponse(document);
 	}
 
 	@Transactional
 	public void delete(Long id) {
-		Document document = load(id);
-		// Optionally delete versions and from MinIO
-		List<DocumentVersion> versions = documentVersionRepository.findByDocumentId(id);
-		for (DocumentVersion version : versions) {
-			try {
-				minioClient.removeObject(RemoveObjectArgs.builder()
-						.bucket(bucket)
-						.object(version.getObjectKey())
-						.build());
-			} catch (Exception ignored) {
-			}
-		}
-		documentVersionRepository.deleteAll(versions);
-		documentRepository.delete(document);
+        load(id);
+        throw new com.example.invoice.exception.BadRequestException("DOCUMENT_RETENTION_REQUIRED: Chưa cho phép xóa vật lý chứng từ, file hoặc lịch sử");
 	}
 
 	@Transactional(readOnly = true)
@@ -372,6 +381,8 @@ public class DocumentService {
 	}
 
 	private DocumentResponse toResponse(Document document, java.math.BigDecimal confidence) {
+        if (document.getStatus() == DocumentStatus.PROCESSING || document.getStatus() == DocumentStatus.FAILED)
+            confidence = null; // A previous attempt is not the current classification score.
 		Long uploadedById = document.getUploadedBy() == null ? null : document.getUploadedBy().getId();
 		String typeCode = document.getType() == null ? document.getDocumentType() : document.getType().getCode();
 		String typeName = document.getType() == null ? null : document.getType().getName();
@@ -415,6 +426,12 @@ public class DocumentService {
 	
 	private void uploadToMinio(MultipartFile file, String objectKey) {
 		try (InputStream inputStream = file.getInputStream()) {
+            String checksum;
+            try(InputStream source=file.getInputStream()){
+                var digest=java.security.MessageDigest.getInstance("SHA-256");byte[] buffer=new byte[65536];int count;
+                while((count=source.read(buffer))!=-1)digest.update(buffer,0,count);
+                checksum=java.util.HexFormat.of().formatHex(digest.digest());
+            }
 			if (!minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
 				minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
 			}
@@ -423,9 +440,10 @@ public class DocumentService {
 					.object(objectKey)
 					.stream(inputStream, file.getSize(), -1)
 					.contentType(file.getContentType())
+                    .userMetadata(java.util.Map.of("sha256",checksum))
 					.build());
 		} catch (Exception exception) {
-			throw new IllegalStateException("Không thể tải tệp lên MinIO", exception);
+			throw new com.example.invoice.exception.PipelineException(PipelineFailures.classify(exception, "STORAGE", 0), 503, exception);
 		}
 	}
 
@@ -466,6 +484,6 @@ public class DocumentService {
 
 	private boolean hasRole(User user, String roleCode) {
 		return user.getUserRoles().stream()
-				.anyMatch(assignment -> roleCode.equals(assignment.getRole().getCode()));
+				.anyMatch(assignment -> assignment.getRole().isActive() && roleCode.equals(assignment.getRole().getCode()));
 	}
 }

@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import { statePresentation } from './businessStatePresentation.ts';
+test('approval and payment are independent',()=>{assert.equal(statePresentation('review','APPROVED').label,'Đã duyệt');assert.equal(statePresentation('payment',null).label,'Chưa có dữ liệu thanh toán');assert.equal(statePresentation('payment','UNPAID').label,'Chưa thanh toán');});
+test('review and reconciliation warnings use consistent colors',()=>{assert.equal(statePresentation('reconciliation','WARNING').tone,'text-review');assert.equal(statePresentation('review','REJECTED').tone,'text-failed');assert.equal(statePresentation('review','IN_REVIEW').label,'Đang duyệt');});

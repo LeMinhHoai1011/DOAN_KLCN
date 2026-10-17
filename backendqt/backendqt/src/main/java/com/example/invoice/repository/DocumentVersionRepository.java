@@ -6,4 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface DocumentVersionRepository extends JpaRepository<DocumentVersion, Long> {
 	List<DocumentVersion> findByDocumentId(Long documentId);
+    java.util.Optional<DocumentVersion> findByIdAndDocumentId(Long id,Long documentId);
 }

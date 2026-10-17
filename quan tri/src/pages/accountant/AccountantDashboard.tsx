@@ -1,3 +1,7 @@
+import {apiLoadError} from '../../utils/apiLoadError'
+import FinancialTimeFilter from '../../components/FinancialTimeFilter'
+import {useFinancialTimeFilter} from '../../hooks/useFinancialTimeFilter'
+import { formatPeriod, formatDate } from '../../utils/dateTime'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Line } from 'react-chartjs-2'
@@ -30,18 +34,21 @@ const AccountantDashboard = () => {
   const [documents, setDocuments] = useState<DocumentListItem[]>([])
   const [series, setSeries] = useState<FinancialSeriesPoint[]>([])
   const [pendingTotal, setPendingTotal] = useState(0)
-  const [interval, setInterval] = useState<'DAILY' | 'MONTHLY'>('MONTHLY')
+  const time=useFinancialTimeFilter()
+  const {dateFrom,dateTo,interval,companyId,filterError}=time
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
-  const periodLabel = `Tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`
+  const periodLabel = `${formatDate(dateFrom)} – ${formatDate(dateTo)}`
 
   useEffect(() => {
-    let active = true; setLoading(true); setError('')
+    let active = true; setFinancial(null);setSeries([]);
+    if(filterError){setLoading(false);setError(filterError);return;}
+    setLoading(true); setError('')
     Promise.all([
       dashboardService.getDashboardStatistics(),
-      dashboardService.getFinancialDashboard(),
-      dashboardService.getFinancialTimeSeries({ interval }),
+      dashboardService.getFinancialDashboard({dateFrom,dateTo,companyId}),
+      dashboardService.getFinancialTimeSeries({dateFrom,dateTo,companyId,interval}),
       documentService.getDocumentPage({ page: 1, size: 5, processingStatus: 'NEED_REVIEW', sort: 'createdAt,asc' }),
       documentService.getDocumentPage({ page: 1, size: 5, processingStatus: 'FAILED', sort: 'createdAt,asc' }),
       documentService.getDocumentPage({ page: 1, size: 5, processingStatus: 'PROCESSING', sort: 'createdAt,asc' }),
@@ -54,19 +61,20 @@ const AccountantDashboard = () => {
         setPendingTotal(needReview.totalElements + failed.totalElements + processing.totalElements)
         setDocuments([...needReview.content, ...failed.content, ...processing.content].slice(0, 5))
       })
-      .catch(() => active && setError('Không thể tải dữ liệu tổng quan. Vui lòng thử lại.'))
+      .catch(e => active && setError(apiLoadError(e,'Không thể tải dữ liệu tổng quan. Vui lòng thử lại.')))
       .finally(() => active && setLoading(false))
     return () => { active = false }
-  }, [interval])
+  }, [dateFrom,dateTo,companyId,interval,filterError])
 
   const exportReport = async () => {
+    if(filterError){setError(filterError);return;}
     setExporting(true)
-    try { await exportService.exportFinancialReport({}) ; setError('') }
+    try { await exportService.exportFinancialReport({fromDate:dateFrom,toDate:dateTo,companyId}) ; setError('') }
     catch { setError('Không thể xuất báo cáo. Vui lòng thử lại.') }
     finally { setExporting(false) }
   }
 
-  if (loading) return <LoadingState label="Đang tải dữ liệu tổng quan..." />
+
 
   const chartColors = { income: '#059669', expense: '#e11d48', cashFlow: '#2563eb' }
 
@@ -84,11 +92,12 @@ const AccountantDashboard = () => {
         }
       />
 
+      <FinancialTimeFilter value={time.filter} onChange={time.update} error={filterError}/>
       {error && <ErrorState message={error} />}
 
       {statistics && financial && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard title="Tổng tiếp nhận" value={statistics.totalDocuments} icon={FileText} type="primary" unit="chứng từ" hint="Tổng số chứng từ đã nhận trong kỳ" />
+          <StatCard title="Tổng tiếp nhận" value={statistics.totalDocuments} icon={FileText} type="primary" unit="chứng từ" hint="Tổng số chứng từ hiện có, không lọc theo kỳ thu/chi" />
           <StatCard title="Đã tự động khớp" value={statistics.totalClassified} icon={CheckCircle2} type="success" unit="chứng từ" hint="Xử lý qua mô hình OCR / AI" />
           <StatCard title="Cần kiểm tra lại" value={statistics.totalReviewRequired} icon={AlertTriangle} type="warning" unit="chứng từ" hint="Lệch thuế, làm tròn hoặc mờ chữ ký" />
           <StatCard title="Dòng tiền ròng" value={Math.round(financial.cashFlow)} icon={WalletCards} type="primary" unit="₫" hint="Thu trừ chi trong kỳ" />
@@ -101,26 +110,17 @@ const AccountantDashboard = () => {
             <h2 className="si-section-title">Biến động Thu - Chi &amp; Dòng tiền</h2>
             <p className="si-section-subtitle mt-0.5">Dữ liệu phân bổ theo các mốc thời gian đã chọn.</p>
           </div>
-          <div className="inline-flex shrink-0 self-start rounded-control border border-hairline bg-canvas p-0.5">
-            {([['MONTHLY', 'Theo tháng'], ['DAILY', 'Theo ngày']] as const).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setInterval(value)}
-                className={`rounded-[4px] px-2.5 py-1 text-2xs font-semibold transition-colors ${interval === value ? 'bg-surface text-brand-600 shadow-elev1' : 'text-ink-soft hover:text-ink'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+
         </div>
-        {series.length === 0 ? (
+        {financial&&<div className="mb-4 grid gap-3 sm:grid-cols-3"><StatCard title="Tổng thu" icon={WalletCards} value={financial.totalRevenue} unit="₫"/><StatCard title="Tổng chi" icon={WalletCards} value={financial.totalExpense} unit="₫"/><StatCard title="Dòng tiền thuần" icon={WalletCards} value={financial.cashFlow} unit="₫"/></div>}
+        {!loading&&!error&&financial&&Number(financial.totalRevenue)===0&&Number(financial.totalExpense)===0&&<p role="status" className="mb-2 text-sm text-ink-muted">Không phát sinh số tiền Thu/Chi đủ điều kiện trong kỳ; các ngày hiển thị 0.</p>}
+        {loading ? <LoadingState label="Đang tải Thu – Chi theo thời gian..."/> : error ? <p className="text-failed">Không có kết quả thống kê hợp lệ cho kỳ này. Vui lòng kiểm tra bộ lọc hoặc thử lại.</p> : series.length === 0 ? (
           <p className="py-12 text-center text-[18px] text-ink-muted">Chưa có giao dịch trong khoảng thời gian này.</p>
         ) : (
           <div className="h-72">
             <Line
               data={{
-                labels: series.map(x => x.period),
+                labels: series.map(x => formatPeriod(x.period)),
                 datasets: [
                   { label: 'Thu thực tế', data: series.map(x => Number(x.income)), borderColor: chartColors.income, backgroundColor: chartColors.income, borderWidth: 3, tension: 0.3, pointRadius: 4.5 },
                   { label: 'Chi thực tế', data: series.map(x => Number(x.expense)), borderColor: chartColors.expense, backgroundColor: chartColors.expense, borderWidth: 3, tension: 0.3, pointRadius: 4.5 },

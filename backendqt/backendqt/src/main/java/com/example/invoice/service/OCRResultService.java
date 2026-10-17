@@ -14,6 +14,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class OCRResultService {
+    @org.springframework.beans.factory.annotation.Autowired private DocumentAuditService documentAudit;
+    private String before(Document d){return documentAudit==null?null:documentAudit.capture(d);}
+    private void remember(Document d,String action,String previous){if(documentAudit!=null)documentAudit.append(d,action,previous);}
+
 	private final OCRResultRepository ocrResultRepository;
 	private final DocumentService documentService;
 
@@ -25,18 +29,21 @@ public class OCRResultService {
 
 	@Transactional
 	public OCRResultResponse upsert(Long documentId, OCRResultRequest request) {
-		Document document = documentService.load(documentId);
+		Document document = documentService.lockForEdit(documentId);
+        String previous=before(document);
 		OCRResult result = ocrResultRepository.findFirstByDocumentIdOrderByProcessedAtDesc(documentId).orElseGet(OCRResult::new);
 		result.setDocument(document);
 		result.setRawText(request.rawText());
 		result.setConfidence(request.confidence());
 		result.setProcessedAt(LocalDateTime.now());
-		return toResponse(ocrResultRepository.save(result));
+		ocrResultRepository.saveAndFlush(result);remember(document,"OCR_EDIT",previous);
+        return toResponse(result);
 	}
 
 	@Transactional
 	public OCRResult persistExtraction(Long documentId, DocumentTextExtractionResult extraction) {
 		Document document = documentService.load(documentId);
+        String previous=before(document);
 		OCRResult result = new OCRResult();
 		result.setDocument(document);
 		result.setOcrEngine(extraction.engine());
@@ -47,7 +54,7 @@ public class OCRResultService {
 		result.setConfidence(extraction.confidence());
 		result.setProcessingTime(extraction.durationMs());
 		result.setStatus(extraction.visionFallbackRecommended() ? "LOW_CONFIDENCE" : "SUCCESS");
-		return ocrResultRepository.save(result);
+		ocrResultRepository.saveAndFlush(result);remember(document,"OCR_EXTRACT",previous);return result;
 	}
 
 	private OCRResultResponse toResponse(OCRResult result) {

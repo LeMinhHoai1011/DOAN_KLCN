@@ -1,3 +1,6 @@
+import { assertDateRange } from '../utils/dateTime'
+import { timestampDate } from '../utils/dateTime'
+import { documentPipelinePaths } from '../utils/pipelinePresentation'
 import api from './api'
 import axios from 'axios'
 import { PreviewLoadError, previewHttpError, validatePreviewBlob } from './previewBlob'
@@ -10,6 +13,24 @@ export type DocumentStatus =
   | 'COMPLETED'
   | 'FAILED'
 
+export interface PipelineFailure { errorCode: string; failedStage: string; retryable: boolean; attemptCount: number; timestamp: string; userMessage: string }
+export interface PipelineHistory {
+  retryAllowed: boolean; maxAttempts: number; attemptCount: number; succeeded: number; failed: number; needsReview: number; running: number;
+  failuresByCode: Record<string, number>;
+  attempts: { jobId: number; attemptNumber: number; status: string; startedAt: string; completedAt: string | null; failure: PipelineFailure | null }[];
+}
+export interface DocumentBusinessState {
+ processing: string; classification: string; reconciliation: string; review: string; payment: string | null; paymentReason: string;
+ history: { id: number; status: string; action: string; actorId: number | null; at: string | null }[];
+}
+export interface DocumentAssessment {
+  ocrConfidence: { value: number | null; source: string | null; method: string };
+  extractionConfidence: { value: number | null; source: string | null; method: string };
+  classificationConfidence: { value: number | null; source: string | null; method: string };
+  validationStatus: string;
+  warnings: { code: string; severity: string; message: string; affectedField: string | null }[];
+  reviewReasons: string[];
+}
 export interface DocumentResponse {
   id: number
   originalFileName: string
@@ -153,10 +174,7 @@ const statusLabels: Record<DocumentStatus, string> = {
   FAILED: 'Lỗi xử lý',
 }
 
-const formatDate = (value: string) => {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('vi-VN')
-}
+
 
 export const mapDocument = (document: DocumentResponse): DocumentListItem => ({
   id: document.id,
@@ -166,7 +184,7 @@ export const mapDocument = (document: DocumentResponse): DocumentListItem => ({
   status: document.status,
   reviewStatus: document.reviewStatus,
   displayStatus: statusLabels[document.status] || document.status,
-  date: formatDate(document.createdAt),
+  date: timestampDate(document.createdAt),
   amount: document.amount == null ? undefined : Number(document.amount),
   aiConfidence: document.aiConfidence == null ? undefined : Math.round(Number(document.aiConfidence) * 100),
   documentTypeCode: document.documentTypeCode || document.documentType,
@@ -175,6 +193,7 @@ export const mapDocument = (document: DocumentResponse): DocumentListItem => ({
 })
 
 const getDocumentPage = async ({ page = 1, size = 50, sort = 'createdAt,desc', ...filters }: DocumentPageQuery = {}): Promise<DocumentPage> => {
+  assertDateRange(filters.dateFrom,filters.dateTo)
   const { data } = await api.get<DocumentPageResponse>('/api/v1/documents', {
     params: { page: Math.max(0, page - 1), size, sort, ...filters },
   })
@@ -269,7 +288,19 @@ const loadDocumentPreview = async (id: number) => {
   }
 }
 
+const getDocumentAssessment = async (id: number): Promise<DocumentAssessment> =>
+  (await api.get<DocumentAssessment>(documentPipelinePaths(id).assessment)).data;
+
+const getProcessingHistory = async (id: number): Promise<PipelineHistory> =>
+  (await api.get<PipelineHistory>(documentPipelinePaths(id).history)).data;
+const retryProcessing = async (id: number) =>
+  (await api.post<AiDocumentProcessingResponse>(documentPipelinePaths(id).retry)).data;
+
 const documentService = {
+  getBusinessState: async (id: number): Promise<DocumentBusinessState> => (await api.get(`/api/v1/documents/${id}/business-state`)).data,
+  getProcessingHistory,
+  retryProcessing,
+  getDocumentAssessment,
   getDocuments,
   getDocumentPage,
   getDocumentById,

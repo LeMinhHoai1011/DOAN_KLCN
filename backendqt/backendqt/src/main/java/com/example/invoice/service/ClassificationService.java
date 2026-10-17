@@ -20,6 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class ClassificationService {
+    @org.springframework.beans.factory.annotation.Autowired private DocumentAuditService documentAudit;
+    private String before(Document d){return documentAudit==null?null:documentAudit.capture(d);}
+    private void remember(Document d,String action,String previous){if(documentAudit!=null)documentAudit.append(d,action,previous);}
+
 	private final ClassificationRepository classificationRepository;
 	private final AccountingCategoryRepository accountingCategoryRepository;
 	private final DocumentService documentService;
@@ -32,33 +36,37 @@ public class ClassificationService {
 
 	@Transactional
 	public ClassificationResponse upsert(Long documentId, ClassificationUpdateRequest request) {
-		Document document = documentService.load(documentId);
+		Document document = documentService.lockForEdit(documentId);
+        String previous=before(document);
 		assertEditable(document);
 		Classification classification = classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(documentId).orElseGet(Classification::new);
 		classification.setDocument(document);
 		apply(classification, request);
-		return toResponse(classificationRepository.save(classification));
+		classificationRepository.saveAndFlush(classification);remember(document,"CLASSIFICATION_UPDATE",previous);return toResponse(classification);
 	}
 
 	@Transactional
 	public ClassificationResponse approve(Long documentId) {
+		Document document=documentService.lockForEdit(documentId);String previous=before(document);
 		Classification classification = loadByDocumentId(documentId);
+		if (classification.getStatus() == ClassificationStatus.ACCEPTED)
+			throw new com.example.invoice.exception.BadRequestException("Phân loại đã được xác nhận");
 		classification.setStatus(ClassificationStatus.ACCEPTED);
-		classification.getDocument().setStatus(DocumentStatus.COMPLETED);
-		classification.getDocument().setReviewStatus(ReviewStatus.APPROVED);
-		return toResponse(classification);
+		remember(document,"CLASSIFICATION_APPROVE",previous);return toResponse(classification);
 	}
 
 	@Transactional
 	public ClassificationResponse review(Long documentId) {
+		Document document=documentService.lockForEdit(documentId);String previous=before(document);
 		Classification classification = loadByDocumentId(documentId);
 		assertEditable(classification.getDocument());
 		classification.setStatus(ClassificationStatus.NEED_REVIEW);
-		return toResponse(classification);
+		remember(document,"CLASSIFICATION_REVIEW",previous);return toResponse(classification);
 	}
 
 	@Transactional
 	public ClassificationResponse correction(Long documentId, ClassificationUpdateRequest request) {
+		Document document=documentService.lockForEdit(documentId);String previous=before(document);
 		Classification classification = loadByDocumentId(documentId);
 		assertEditable(classification.getDocument());
 		// Keep predictedLabel, confidence and reason as the original AI evidence.
@@ -67,7 +75,7 @@ public class ClassificationService {
 		if (request.documentType() != null) applyDocumentType(classification.getDocument(), request.documentType());
 		classification.setStatus(ClassificationStatus.CORRECTED);
 		classification.setAiGenerated(false);
-		return toResponse(classification);
+		remember(document,"CLASSIFICATION_CORRECTION",previous);return toResponse(classification);
 	}
 
 	private Classification loadByDocumentId(Long documentId) {

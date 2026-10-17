@@ -21,28 +21,28 @@ import org.mockito.ArgumentCaptor;
 
 class DocumentVisionFallbackPageSelectionTest {
 	@Test
-	void invalidTextOutputRetriesOnceThenSucceedsWithoutVision() {
+	void invalidTextOutputUsesOneVisionFallbackWithoutRepeatingDeterministicTextFailure() {
 		Fixture fixture = fixture(1);
 		AiDocumentResult result = result();
 		when(fixture.ai.analyzeTextDocument(any()))
-				.thenThrow(new AiProviderException("OLLAMA_INVALID_JSON: invalid"))
-				.thenReturn(result);
+				.thenThrow(new AiProviderException("OLLAMA_INVALID_JSON: invalid"));
+        when(fixture.ai.analyzeDocument(any())).thenReturn(result);
 		AiDocumentResult actual = fixture.service.analyzeSingleImage("invoice.png", "image/png", new byte[] {1},
 				List.of("INVOICE"), List.of(), null, reliableOcr());
 		assertEquals(result, actual);
-		verify(fixture.ai, times(2)).analyzeTextDocument(any());
-		verify(fixture.ai, never()).analyzeDocument(any());
+		verify(fixture.ai, times(1)).analyzeTextDocument(any());
+		verify(fixture.ai, times(1)).analyzeDocument(any());
 	}
 
 	@Test
-	void twoInvalidTextOutputsFallBackToVisionWithoutAThirdTextRequest() {
+	void invalidTextOutputHasAtMostOneTextAndOneVisionRequest() {
 		Fixture fixture = fixture(1);
 		AiDocumentResult vision = result();
 		when(fixture.ai.analyzeTextDocument(any())).thenThrow(new AiProviderException("OLLAMA_INVALID_JSON: invalid"));
 		when(fixture.ai.analyzeDocument(any())).thenReturn(vision);
 		assertEquals(vision, fixture.service.analyzeSingleImage("invoice.png", "image/png", new byte[] {1},
 				List.of("INVOICE"), List.of(), null, reliableOcr()));
-		verify(fixture.ai, times(2)).analyzeTextDocument(any());
+		verify(fixture.ai, times(1)).analyzeTextDocument(any());
 		verify(fixture.ai, times(1)).analyzeDocument(any());
 	}
 

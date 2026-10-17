@@ -20,6 +20,14 @@ import org.slf4j.LoggerFactory;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    ResponseEntity<ErrorResponse> handleUnsupportedMethod(HttpServletRequest request) {
+        return error(HttpStatus.METHOD_NOT_ALLOWED,"METHOD_NOT_ALLOWED","Không hỗ trợ thao tác này trên tài nguyên chỉ đọc.",request.getRequestURI());
+    }
+    @ExceptionHandler(PipelineException.class)
+    ResponseEntity<com.example.invoice.dto.document.PipelineFailure> handlePipeline(PipelineException ex) {
+        return ResponseEntity.status(ex.httpStatus()).body(ex.failure());
+    }
 	@ExceptionHandler({org.springframework.dao.OptimisticLockingFailureException.class, jakarta.persistence.OptimisticLockException.class})
 	ResponseEntity<ErrorResponse> handleOptimisticConflict(Exception ex, HttpServletRequest request) {
 		return error(HttpStatus.CONFLICT, "USER_UPDATE_CONFLICT", "Dữ liệu đã thay đổi. Vui lòng tải lại và thử lại.", request.getRequestURI());
@@ -64,7 +72,12 @@ public class GlobalExceptionHandler {
 	}
 
 	@ExceptionHandler(DataAccessException.class)
-	ResponseEntity<ErrorResponse> handleDatabase(DataAccessException ex, HttpServletRequest request) {
+	ResponseEntity<?> handleDatabase(DataAccessException ex, HttpServletRequest request) {
+		if (request.getRequestURI().startsWith("/api/v1/documents")) {
+			log.error("Document database failure technicalDetails exceptionClass={}", ex.getClass().getName());
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+					com.example.invoice.service.PipelineFailures.classify(ex, "DATABASE", 0));
+		}
 		log.error("Database operation failed method={} path={} rootCause={}", request.getMethod(),
 				request.getRequestURI(), mostSpecificMessage(ex), ex);
 		return error(HttpStatus.INTERNAL_SERVER_ERROR, "DATABASE_ERROR", "Thao tác với cơ sở dữ liệu thất bại", request.getRequestURI());
@@ -76,18 +89,22 @@ public class GlobalExceptionHandler {
 	}
 
 	@ExceptionHandler(MissingServletRequestPartException.class)
-	ResponseEntity<ErrorResponse> handleMissingMultipartPart(MissingServletRequestPartException ex, HttpServletRequest request) {
+	ResponseEntity<?> handleMissingMultipartPart(MissingServletRequestPartException ex, HttpServletRequest request) {
+		if (request.getRequestURI().startsWith("/api/v1/documents")) return ResponseEntity.badRequest().body(
+				com.example.invoice.service.PipelineFailures.create("INVALID_FILE", "FILE_VALIDATION", false, 0));
 		return error(HttpStatus.BAD_REQUEST, "MISSING_MULTIPART_FILE", "Vui lòng chọn một tệp ảnh", request.getRequestURI());
 	}
 
 	@ExceptionHandler(MaxUploadSizeExceededException.class)
-	ResponseEntity<ErrorResponse> handleMaxUploadSize(MaxUploadSizeExceededException ex, HttpServletRequest request) {
+	ResponseEntity<?> handleMaxUploadSize(MaxUploadSizeExceededException ex, HttpServletRequest request) {
+		if (request.getRequestURI().startsWith("/api/v1/documents")) return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(
+				com.example.invoice.service.PipelineFailures.create("INVALID_FILE", "FILE_VALIDATION", false, 0));
 		return error(HttpStatus.PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "Tệp tải lên vượt quá giới hạn 10 MB của máy chủ", request.getRequestURI());
 	}
 
 	@ExceptionHandler(AiProviderException.class)
-	ResponseEntity<ErrorResponse> handleAiProvider(AiProviderException ex, HttpServletRequest request) {
-		return error(HttpStatus.BAD_GATEWAY, explicitCode(ex.getMessage(), "AI_PROVIDER_ERROR"), ex.getMessage(), request.getRequestURI());
+	ResponseEntity<com.example.invoice.dto.document.PipelineFailure> handleAiProvider(AiProviderException ex, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(com.example.invoice.service.PipelineFailures.classify(ex, "AI_EXTRACTION", 0));
 	}
 
 	private String explicitCode(String message, String fallback) {
