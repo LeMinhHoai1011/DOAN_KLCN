@@ -42,8 +42,11 @@ public class EvaluationService {
             byte[] bytes=Files.readAllBytes(bundle);
             EvaluationData data=json.readValue(bytes,EvaluationData.class);
             validate(root,data);
-            String truthHash=hash(json.writeValueAsBytes(data.samples().stream()
-                    .sorted(Comparator.comparing(EvaluationData.Sample::id)).toList()));
+            var truth = json.valueToTree(data.samples().stream().sorted(Comparator.comparing(EvaluationData.Sample::id)).toList());
+            if (data.schemaVersion()==1) truth.forEach(sample -> {
+                ((com.fasterxml.jackson.databind.node.ObjectNode)sample).remove(List.of("categoryTaxonomy","accountingCategory"));
+            });
+            String truthHash=hash(json.writeValueAsBytes(truth));
             String bundleHash=hash(bytes);
             var reports=new ArrayList<RunReport>();
             for(var run:data.runs()) {
@@ -96,7 +99,7 @@ public class EvaluationService {
                 "Chi tiết hàng hóa so sánh ô theo thứ tự dòng đã chốt; dòng thừa được báo riêng."));
     }
     private void validate(Path root,EvaluationData data)throws IOException {
-        if(data==null||data.schemaVersion()!=1||!label(data.datasetId())||!label(data.datasetVersion())
+        if(data==null||!Set.of(1,2).contains(data.schemaVersion())||!label(data.datasetId())||!label(data.datasetVersion())
                 ||data.samples()==null||data.runs()==null||data.samples().size()>500||data.runs().size()>20)throw invalid();
         Map<String,EvaluationData.Sample> samples=new HashMap<>();
         Set<String> assets=new HashSet<>();
@@ -106,6 +109,10 @@ public class EvaluationService {
                     ||sample.tags()==null||sample.tags().size()>20||sample.tags().stream().anyMatch(t->!label(t))
                     ||samples.putIfAbsent(sample.id(),sample)!=null||!assets.add(sample.assetSha256()))throw invalid();
             verifyArtifact(root,"assets",sample.assetSha256(),".bin");
+            if (data.schemaVersion()==1 && (sample.categoryTaxonomy()!=null || sample.accountingCategory()!=null)) throw invalid();
+            if ((sample.categoryTaxonomy()==null)!=(sample.accountingCategory()==null)) throw invalid();
+            if (sample.categoryTaxonomy()!=null && (!label(sample.categoryTaxonomy()) || !label(sample.accountingCategory())
+                    || "__NO_PREDICTION__".equals(sample.accountingCategory()))) throw invalid();
             text(sample.ocrText());fields(sample.fields(),false);fields(sample.ocrFields(),false);items(sample.items(),false);
         }
         Set<String> runIds=new HashSet<>();
@@ -135,6 +142,13 @@ public class EvaluationService {
                 var evidence=json.readTree(Files.readAllBytes(root.resolve("evidence").resolve(result.evidenceSha256()+".json")));
                 var expected=json.readTree(json.writeValueAsBytes(result));
                 ((com.fasterxml.jackson.databind.node.ObjectNode)expected).remove("evidenceSha256");
+                // v1 evidence predates category labels. Preserve its exact existing contract.
+                if (data.schemaVersion()==1) {
+                    if (result.predictedCategory()!=null || evidence.has("predictedCategory")) throw invalid();
+                    ((com.fasterxml.jackson.databind.node.ObjectNode)expected).remove("predictedCategory");
+                }
+                if (result.predictedCategory()!=null && (!label(result.predictedCategory())
+                        || "__NO_PREDICTION__".equals(result.predictedCategory()) || sample.categoryTaxonomy()==null)) throw invalid();
                 if(!expected.equals(evidence))throw invalid();
                 text(result.ocrText());fields(result.fields(),true);fields(result.ocrFields(),true);items(result.items(),true);
                 editBudget+=(long)(sample.ocrText()==null?0:sample.ocrText().length())*(result.ocrText()==null?0:result.ocrText().length());

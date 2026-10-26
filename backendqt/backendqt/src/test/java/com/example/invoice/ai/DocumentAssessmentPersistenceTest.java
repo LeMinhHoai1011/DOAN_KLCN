@@ -19,7 +19,7 @@ import static org.mockito.Mockito.*;
 
 @DataJpaTest
 @ActiveProfiles("test")
-@Import({DocumentAiResultPersistenceService.class, ProcessingLogService.class, DocumentAssessmentPersistenceTest.Config.class})
+@Import({DocumentAiResultPersistenceService.class, RetailInvoiceDetailsService.class, ProcessingLogService.class, DocumentAssessmentPersistenceTest.Config.class})
 class DocumentAssessmentPersistenceTest {
     @TestConfiguration static class Config {
         @Bean AiProperties aiProperties() { return new AiProperties(); }

@@ -1,4 +1,4 @@
-package com.example.invoice.service;
+  package com.example.invoice.service;
 
 import com.example.invoice.config.InternalCompanyProperties;
 import com.example.invoice.entity.Company;

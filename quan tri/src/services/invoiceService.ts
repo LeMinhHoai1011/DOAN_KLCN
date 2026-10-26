@@ -66,9 +66,36 @@ const updateInvoice = async (id: number, request: InvoiceUpdateRequest) => {
   return data
 }
 
+export interface RetailInvoiceDetails {
+  transactionTime: string | null
+  lineAmountBasis: 'BEFORE_DISCOUNT' | 'AFTER_DISCOUNT' | 'UNKNOWN'
+  lineDiscounts: { rowNumber: number; amount: number }[] | null
+  billDiscount: RetailAdjustment
+  tax: RetailAdjustment
+  fees: RetailAdjustment
+  tenderedAmount: number | null
+  changeAmount: number | null
+}
+
+export interface RetailAdjustment {
+  amount: number | null
+  treatment: 'INCLUDED' | 'SEPARATE' | 'NOT_PRESENT' | 'UNKNOWN'
+}
+
+export interface RetailInvoiceDetailsView {
+  details: RetailInvoiceDetails | null
+  stale: boolean
+}
+
 const invoiceService = {
   getInvoiceByDocumentId,
   updateInvoice,
+  getRetailDetails: async (id: number) =>
+    (await api.get<RetailInvoiceDetailsView>(`/api/v1/invoices/${id}/retail-details`)).data,
+  updateRetailDetails: async (id: number, details: RetailInvoiceDetails) =>
+    (await api.put<RetailInvoiceDetailsView>(`/api/v1/invoices/${id}/retail-details`, details)).data,
+  updateItems: async (id: number, items: Omit<InvoiceItem, 'id'>[]) =>
+    (await api.put<InvoiceResponse>(`/api/v1/invoices/${id}/items`, { items })).data,
 }
 
 export default invoiceService

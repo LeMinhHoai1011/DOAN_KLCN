@@ -55,4 +55,23 @@ public class InvoiceController {
 	public void delete(@PathVariable Long id) {
 		invoiceService.delete(id);
 	}
+
+    @PutMapping("/{id}/items")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTANT')")
+    public InvoiceResponse updateItems(@PathVariable Long id,
+            @Valid @RequestBody com.example.invoice.dto.invoice.InvoiceItemsUpdateRequest request) {
+        return invoiceService.updateItems(id, request);
+    }
+
+    @GetMapping("/{id}/retail-details")
+    @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT','EMPLOYEE','USER')")
+    public com.example.invoice.service.RetailInvoiceDetailsService.View retailDetails(@PathVariable Long id) {
+        return invoiceService.getRetailDetails(id);
+    }
+    @PutMapping("/{id}/retail-details")
+    @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT')")
+    public com.example.invoice.service.RetailInvoiceDetailsService.View updateRetailDetails(@PathVariable Long id,
+            @RequestBody com.example.invoice.dto.invoice.RetailInvoiceDetails request) {
+        return invoiceService.updateRetailDetails(id,request);
+    }
 }

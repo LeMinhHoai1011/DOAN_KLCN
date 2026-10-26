@@ -561,6 +561,10 @@ public class DocumentAiProcessingService {
 		}
 		AiDocumentResult.AiInvoiceExtraction invoice = pages.stream().map(AiDocumentResult::invoice)
 				.filter(Objects::nonNull).reduce((left, right) -> mergeInvoice(left, right, items)).orElse(null);
+        if (pages.size()>1 && pages.stream().anyMatch(page -> "RETAIL_INVOICE".equals(normalizeType(page.documentType())))) {
+            warnings.add("RETAIL_MULTIPAGE_REVIEW: Bill nhiều trang cần xác minh thứ tự dòng và khoản điều chỉnh; chưa tự gộp căn cứ tính tiền");
+            if (invoice!=null) invoice=invoice.withRetailDetails(null);
+        }
 		return new AiDocumentResult(first.provider(), first.model(), first.documentType(), confidence,
 				first.accountingCategoryCode(), first.accountingAccount(), rawText, invoice,
 				pages.stream().flatMap(page -> page.fields() == null ? java.util.stream.Stream.empty() : page.fields().stream()).toList(),
@@ -572,7 +576,7 @@ public class DocumentAiProcessingService {
 	}
 
 	AiDocumentResult addMissingInvoiceItemsWarning(AiDocumentResult result, OcrDocumentResult ocr) {
-		if (result == null || !"VAT_INVOICE".equals(normalizeType(result.documentType())) || !hasItemTable(ocr)) return result;
+		if (result == null || !Set.of("VAT_INVOICE","RETAIL_INVOICE").contains(normalizeType(result.documentType())) || !hasItemTable(ocr)) return result;
 		List<AiDocumentResult.AiInvoiceItemExtraction> items = result.invoice() == null ? null : result.invoice().items();
 		boolean hasValidItem = items != null && items.stream().anyMatch(item -> item != null
 				&& item.productName() != null && !item.productName().isBlank());

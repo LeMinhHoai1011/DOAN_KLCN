@@ -88,7 +88,7 @@ const AccountantDocuments = () => {
   const exportExcel = async () => {
     const rangeError=dateRangeError(dateFrom,dateTo);if(rangeError){setError(rangeError);return;}
     setExporting(true);
-    try { await exportService.exportInvoices({ search: search.trim() || undefined, fromDate: dateFrom || undefined, toDate: dateTo || undefined }); }
+    try { await exportService.exportDocuments({ search: search.trim() || undefined, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, processingStatus: processingStatus === 'ALL' ? undefined : processingStatus, reviewStatus: reviewStatus === 'ALL' ? undefined : reviewStatus, typeId: typeId === 'ALL' ? undefined : Number(typeId), sort }); }
     catch { setError('Không thể xuất danh sách chứng từ. Vui lòng thử lại.'); }
     finally { setExporting(false); }
   };

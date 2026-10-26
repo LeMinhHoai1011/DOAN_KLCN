@@ -130,7 +130,20 @@ public record AiDocumentResult(
 			String amountInWords,
 			String taxAuthorityCode,
 			String signDate,
-			@JsonAlias("invoiceItems") List<AiInvoiceItemExtraction> items) {
+			@JsonAlias("invoiceItems") List<AiInvoiceItemExtraction> items,
+            com.example.invoice.dto.invoice.RetailInvoiceDetails retailDetails) {
+        public AiInvoiceExtraction withRetailDetails(com.example.invoice.dto.invoice.RetailInvoiceDetails details) {
+            return new AiInvoiceExtraction(invoiceNumber,invoiceSeries,invoiceDate,sellerName,sellerTaxCode,sellerAddress,
+                    sellerPhone,buyerName,buyerTaxCode,buyerAddress,subtotal,vatAmount,totalAmount,paymentMethod,
+                    amountInWords,taxAuthorityCode,signDate,items,details);
+        }
+        public AiInvoiceExtraction(String invoiceNumber,String invoiceSeries,String invoiceDate,
+                String sellerName,String sellerTaxCode,String sellerAddress,String sellerPhone,String buyerName,
+                String buyerTaxCode,String buyerAddress,BigDecimal subtotal,BigDecimal vatAmount,BigDecimal totalAmount,
+                String paymentMethod,String amountInWords,String taxAuthorityCode,String signDate,List<AiInvoiceItemExtraction> items) {
+            this(invoiceNumber,invoiceSeries,invoiceDate,sellerName,sellerTaxCode,sellerAddress,sellerPhone,buyerName,
+                    buyerTaxCode,buyerAddress,subtotal,vatAmount,totalAmount,paymentMethod,amountInWords,taxAuthorityCode,signDate,items,null);
+        }
 		public AiInvoiceExtraction(String invoiceNumber, String invoiceSeries, String invoiceDate,
 				String sellerName, String sellerTaxCode, String sellerAddress, String buyerName,
 				String buyerTaxCode, String buyerAddress, BigDecimal subtotal, BigDecimal vatAmount,

@@ -75,6 +75,7 @@ public class Invoice {
 	private boolean aiGenerated;
 
 	@OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
+    @jakarta.persistence.OrderBy("id ASC")
 	private List<InvoiceItem> items = new ArrayList<>();
 
 	@OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)

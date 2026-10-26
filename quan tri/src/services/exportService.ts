@@ -1,5 +1,6 @@
 import { assertDateRange } from '../utils/dateTime'
 import api from './api'
+import type { DocumentPageQuery } from './documentService'
 
 type InvoiceFilters = { fromDate?: string; toDate?: string; search?: string }
 
@@ -19,10 +20,16 @@ const exportInvoices = async (filters: InvoiceFilters) => {
   download(response.data, 'invoices.xlsx', response.headers['content-disposition'])
 }
 
+const exportDocuments = async (filters: Omit<DocumentPageQuery, 'page' | 'size'>) => {
+  assertDateRange(filters.dateFrom, filters.dateTo)
+  const response = await api.get('/api/v1/exports/documents', { params: filters, responseType: 'blob' })
+  download(response.data, 'documents.xlsx', response.headers['content-disposition'])
+}
+
 const exportFinancialReport = async (filters: Pick<InvoiceFilters, 'fromDate' | 'toDate'> & {companyId?:number}) => {
   assertDateRange(filters.fromDate,filters.toDate)
   const response = await api.get('/api/v1/exports/financial-report', { params: filters, responseType: 'blob' })
   download(response.data, 'financial_report.xlsx', response.headers['content-disposition'])
 }
 
-export default { exportInvoices, exportFinancialReport }
+export default { exportInvoices, exportDocuments, exportFinancialReport }

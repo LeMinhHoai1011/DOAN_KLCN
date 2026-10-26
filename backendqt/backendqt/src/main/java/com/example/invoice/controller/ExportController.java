@@ -19,6 +19,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class ExportController {
 	private static final MediaType XLSX=MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 	private final ExcelExportService exportService;
+    @GetMapping("/documents")
+    @PreAuthorize("hasAuthority('PERMISSION_REPORT_EXPORT') or hasRole('ADMIN')")
+    public ResponseEntity<byte[]> documents(
+            @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+            @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate dateTo,
+            @RequestParam(required=false) com.example.invoice.entity.DocumentStatus processingStatus,
+            @RequestParam(required=false) com.example.invoice.entity.ReviewStatus reviewStatus,
+            @RequestParam(required=false) Long typeId, @RequestParam(required=false) String search,
+            @org.springframework.data.web.SortDefault(sort="createdAt", direction=org.springframework.data.domain.Sort.Direction.DESC)
+            org.springframework.data.domain.Sort sort, Authentication authentication) {
+        return file(exportService.documents(dateFrom,dateTo,processingStatus,reviewStatus,typeId,search,sort,authentication),"documents");
+    }
 	@GetMapping("/invoices") @PreAuthorize("hasAuthority('PERMISSION_REPORT_EXPORT') or hasRole('ADMIN')")
 	public ResponseEntity<byte[]> invoices(@RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate fromDate,@RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate toDate,@RequestParam(required=false) String search){return file(exportService.invoices(fromDate,toDate,search),"invoices");}
 	@GetMapping("/financial-report") @PreAuthorize("hasAuthority('PERMISSION_REPORT_EXPORT') or hasRole('ADMIN')")

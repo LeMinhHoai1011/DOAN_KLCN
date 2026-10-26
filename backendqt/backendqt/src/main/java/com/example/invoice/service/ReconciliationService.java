@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class ReconciliationService {
+    @org.springframework.beans.factory.annotation.Autowired private RetailInvoiceDetailsService retailDetails;
     @org.springframework.beans.factory.annotation.Autowired private DocumentAuditService documentAudit;
     private String before(Document d){return documentAudit==null?null:documentAudit.capture(d);}
     private void remember(Document d,String action,String previous){if(documentAudit!=null)documentAudit.append(d,action,previous);}
@@ -72,6 +73,13 @@ public class ReconciliationService {
 	}
 
 	private List<Check> checks(Invoice invoice) {
+        if (RetailInvoiceDetailsService.isRetail(invoice.getDocument())) {
+            var view=retailDetails.read(invoice);
+            var rows=invoice.getItems().stream().map(item -> new com.example.invoice.ai.RetailInvoiceRules.Row(
+                    item.getQuantity(),item.getUnitPrice(),item.getAmount())).toList();
+            return com.example.invoice.ai.RetailInvoiceRules.evaluate(view.details(),rows,invoice.getTotalAmount(),invoice.getVatAmount(),view.stale())
+                    .stream().map(check -> new Check(check.type(),check.declared(),check.calculated(),check.missing(),check.message())).toList();
+        }
 		List<Check> result = new ArrayList<>();
 		List<InvoiceItem> items = invoice.getItems() == null ? List.of() : invoice.getItems();
 		if (items.isEmpty())

@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
 /** Persists a validated result after the remote AI request has completed. */
 @Service
 public class DocumentAiResultPersistenceService {
+    @Autowired private RetailInvoiceDetailsService retailDetails;
     @org.springframework.beans.factory.annotation.Autowired private DocumentAuditService documentAudit;
     private String before(Document d){return documentAudit==null?null:documentAudit.capture(d);}
     private void remember(Document d,String action,String previous){if(documentAudit!=null)documentAudit.append(d,action,previous);}
@@ -159,6 +160,11 @@ public class DocumentAiResultPersistenceService {
 			removeStaleInvoice(document);
 		}
 		replaceAiExtractedFields(document, invoice, result.invoice(), result.fields(), result.extraFields());
+        if (invoice!=null && RetailInvoiceDetailsService.isRetail(document) && retailDetails!=null) {
+            // Row-indexed discounts cannot be trusted when persistence dropped invalid rows.
+            boolean completeRows = parsedItems != null && !parsedItems.isEmpty() && invalidItemCount == 0;
+            retailDetails.storeAi(invoice,completeRows && result.invoice()!=null ? result.invoice().retailDetails() : null);
+        }
 
 		var score = new com.example.invoice.dto.document.DocumentAssessment.Confidence(validated.confidence(),
                 result.provider() + "/" + result.model(), "MODEL_REPORTED_CLASSIFICATION; MULTIPAGE_MEAN_IF_ALL_REPORTED");
@@ -453,6 +459,7 @@ public class DocumentAiResultPersistenceService {
 	}
 
 	private void persistExtractedField(Document document, Invoice invoice, String name, String value, BigDecimal confidence) {
+        if (RetailInvoiceDetailsService.FIELD.equals(name)) return; // Reserved typed metadata, never arbitrary extraFields.
 		Objects.requireNonNull(document, "document is required for an extracted field");
 		if (name == null || name.isBlank()) throw new IllegalArgumentException("fieldName is required for an extracted field");
 		ExtractedField entity = new ExtractedField();

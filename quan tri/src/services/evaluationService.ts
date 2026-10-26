@@ -2,6 +2,12 @@ import api from './api'
 
 export interface FieldScore { expected: number; correct: number; missing: number; incorrect: number; accuracy: number | null; missingRate: number | null; incorrectRate: number | null }
 export interface Score {
+  costCategoryMetrics?: Record<string, {
+    samples: number; correct: number; missing: number; accuracy: number | null
+    classes: Record<string, { support: number; predicted: number; truePositive: number; precision: number; recall: number; f1: number }>
+    macroPrecision: number | null; macroRecall: number | null; macroF1: number | null
+    confusionMatrix: Record<string, Record<string, number>>
+  }>
   samples: number; succeeded: number; failed: number; successRate: number | null; failureRate: number | null
   averageProcessingMs: number | null; timedSamples: number; visionFallbackRate: number | null; fallbackObserved: number
   retryRate: number | null; attemptsObserved: number; cer: number | null; wer: number | null; ocrSamples: number

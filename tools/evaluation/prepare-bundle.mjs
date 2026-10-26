@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex')
+const categoryLabel = value => typeof value === 'string' && value.trim().length > 0 && /^[\p{L}\p{N}_.:@\/ +()-]{1,160}$/u.test(value)
 export async function prepareBundle(sourceDirectory, outputDirectory) {
   const source = await realpath(sourceDirectory)
   const output = path.resolve(outputDirectory)
@@ -19,13 +20,17 @@ export async function prepareBundle(sourceDirectory, outputDirectory) {
     return { bytes: await readFile(resolved), resolved }
   }
   const manifest = JSON.parse((await read('manifest.json')).bytes.toString('utf8'))
-  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.samples) || !Array.isArray(manifest.runs)) throw new Error('Invalid manifest')
+  if (![1, 2].includes(manifest.schemaVersion) || !Array.isArray(manifest.samples) || !Array.isArray(manifest.runs)) throw new Error('Invalid manifest')
   // Validate everything before creating any output.
   const pending = new Map()
   const artifact = (folder, bytes, suffix) => { const digest = sha(bytes); pending.set(`${folder}/${digest}${suffix}`, bytes); return digest }
   const samples = []
   for (const { assetFile, ...sample } of manifest.samples) {
     if (!sample.verifiedBy || !sample.verifiedAt) throw new Error('Manual verification is required')
+    const hasTaxonomy = sample.categoryTaxonomy != null
+    const hasCategory = sample.accountingCategory != null
+    if (hasTaxonomy !== hasCategory || (manifest.schemaVersion === 1 && (hasTaxonomy || hasCategory))) throw new Error('Invalid category reference')
+    if (hasTaxonomy && (![sample.categoryTaxonomy, sample.accountingCategory].every(categoryLabel) || sample.accountingCategory === '__NO_PREDICTION__')) throw new Error('Invalid category reference')
     const { bytes } = await read(assetFile)
     samples.push({ ...sample, assetSha256: artifact('assets', bytes, '.bin') })
   }
@@ -42,14 +47,16 @@ export async function prepareBundle(sourceDirectory, outputDirectory) {
       if (!byId.has(result.sampleId) || result.assetSha256 !== byId.get(result.sampleId).assetSha256 || 'evidenceSha256' in result) throw new Error('Evidence must identify the exact original sample')
       // Evidence must include explicit nulls for unavailable fields, matching the backend record contract.
       const required = ['sampleId', 'assetSha256', 'outcome', 'failureCode', 'durationMs', 'visionFallback', 'attemptCount', 'ocrText', 'ocrFields', 'fields', 'items', 'predictedType']
+      if (manifest.schemaVersion === 2) required.push('predictedCategory')
       if (required.some(key => !(key in result)) || Object.keys(result).some(key => !required.includes(key))) throw new Error('Invalid evidence keys')
+      if (result.predictedCategory != null && (!byId.get(result.sampleId).categoryTaxonomy || !categoryLabel(result.predictedCategory) || result.predictedCategory === '__NO_PREDICTION__')) throw new Error('Invalid category prediction')
       results.push({ ...result, evidenceSha256: artifact('evidence', bytes, '.json') })
     }
     runs.push({ id: run.id, startedAt: run.startedAt, strategy: config.strategy, model: config.model,
       modelDigest: config.modelDigest, environment: config.environment, codeRevision: config.codeRevision,
       configSha256: artifact('configs', configBytes, '.json'), results })
   }
-  const bundle = { schemaVersion: 1, datasetId: manifest.datasetId, datasetVersion: manifest.datasetVersion, samples, runs }
+  const bundle = { schemaVersion: manifest.schemaVersion, datasetId: manifest.datasetId, datasetVersion: manifest.datasetVersion, samples, runs }
   await mkdir(output, { recursive: false })
   for (const [relative, bytes] of pending) {
     const target = path.join(output, relative)

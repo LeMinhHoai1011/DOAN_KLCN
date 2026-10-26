@@ -9,11 +9,26 @@ public record EvaluationData(int schemaVersion, String datasetId, String dataset
         List<Sample> samples, List<Run> runs) {
     public record Sample(String id, String assetSha256, String documentType, List<String> tags,
             String verifiedBy, Instant verifiedAt, String ocrText, Map<String, String> fields,
-            Map<String, String> ocrFields, List<Map<String, String>> items) {}
+            Map<String, String> ocrFields, List<Map<String, String>> items,
+            String categoryTaxonomy, String accountingCategory) {
+        public Sample(String id, String assetSha256, String documentType, List<String> tags,
+                String verifiedBy, Instant verifiedAt, String ocrText, Map<String,String> fields,
+                Map<String,String> ocrFields, List<Map<String,String>> items) {
+            this(id,assetSha256,documentType,tags,verifiedBy,verifiedAt,ocrText,fields,ocrFields,items,null,null);
+        }
+    }
     public record Run(String id, String strategy, String model, String modelDigest, String configSha256,
             String environment, String codeRevision, Instant startedAt, List<Result> results) {}
     public record Result(String sampleId, String assetSha256, String evidenceSha256,
             String outcome, String failureCode, Long durationMs, Boolean visionFallback, Integer attemptCount,
             String ocrText, Map<String, String> ocrFields, Map<String, String> fields,
-            List<Map<String, String>> items, String predictedType) {}
+            List<Map<String, String>> items, String predictedType, String predictedCategory) {
+        public Result(String sampleId, String assetSha256, String evidenceSha256,
+                String outcome, String failureCode, Long durationMs, Boolean visionFallback, Integer attemptCount,
+                String ocrText, Map<String,String> ocrFields, Map<String,String> fields,
+                List<Map<String,String>> items, String predictedType) {
+            this(sampleId,assetSha256,evidenceSha256,outcome,failureCode,durationMs,visionFallback,attemptCount,
+                    ocrText,ocrFields,fields,items,predictedType,null);
+        }
+    }
 }

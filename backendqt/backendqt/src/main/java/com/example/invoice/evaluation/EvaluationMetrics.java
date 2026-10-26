@@ -11,6 +11,9 @@ public final class EvaluationMetrics {
             Double missingRate, Double incorrectRate) {}
     public record ClassScore(long support, long predicted, long truePositive, Double precision,
             Double recall, Double f1) {}
+    public record CategoryScore(int samples, int correct, int missing, Double accuracy,
+            Map<String,ClassScore> classes, Double macroPrecision, Double macroRecall, Double macroF1,
+            Map<String,Map<String,Long>> confusionMatrix) {}
     public record Score(int samples, int succeeded, int failed, Double successRate, Double failureRate,
             Double averageProcessingMs, int timedSamples, Double visionFallbackRate, int fallbackObserved,
             Double retryRate, int attemptsObserved, Double cer, long characterEdits, long referenceCharacters,
@@ -19,7 +22,7 @@ public final class EvaluationMetrics {
             FieldScore itemCells, long extraItemRows, long extraFields, Double classificationAccuracy,
             int classificationSamples, Map<String, ClassScore> classes, Double macroPrecision,
             Double macroRecall, Double macroF1, Map<String, Map<String, Long>> confusionMatrix,
-            Map<String, Long> failuresByCode) {}
+            Map<String, Long> failuresByCode, Map<String,CategoryScore> costCategoryMetrics) {}
 
     public static Score calculate(List<EvaluationData.Sample> samples, List<EvaluationData.Result> results) {
         Map<String, EvaluationData.Result> byId = new HashMap<>();
@@ -72,6 +75,43 @@ public final class EvaluationMetrics {
                 confusion.computeIfAbsent(sample.documentType(),k->new TreeMap<>()).merge(predicted,1L,Long::sum);
             }
         }
+        var classes=classScores(confusion);
+        return new Score(results.size(),succeeded,failed,ratio(succeeded,results.size()),ratio(failed,results.size()),
+                ratio(totalMs,timed),timed,ratio(fallback,fallbackObserved),fallbackObserved,ratio(retried,attemptsObserved),
+                attemptsObserved,ratio(charEdits,chars),charEdits,chars,ocrSamples,ratio(wordEdits,words),wordEdits,words,
+                scores(fieldCounts),scores(ocrFieldCounts),field(itemExpected,itemCorrect,itemMissing,itemIncorrect),
+                extraRows,extraFields,ratio(classCorrect,classSamples),classSamples,classes,
+                average(classes,ClassScore::precision),average(classes,ClassScore::recall),average(classes,ClassScore::f1),
+                confusion,failures,categoryMetrics(samples,byId));
+    }
+
+    private static Map<String,CategoryScore> categoryMetrics(List<EvaluationData.Sample> samples,
+            Map<String,EvaluationData.Result> results) {
+        var matrices = new TreeMap<String,Map<String,Map<String,Long>>>();
+        var counts = new TreeMap<String,int[]>();
+        for (var sample : samples) {
+            var result = results.get(sample.id());
+            if (result == null || sample.categoryTaxonomy() == null || sample.accountingCategory() == null) continue;
+            String predicted = result.predictedCategory() == null || result.predictedCategory().isBlank()
+                    ? "__NO_PREDICTION__" : result.predictedCategory();
+            var count = counts.computeIfAbsent(sample.categoryTaxonomy(), key -> new int[3]);
+            count[0]++;
+            if (sample.accountingCategory().equals(predicted)) count[1]++;
+            if ("__NO_PREDICTION__".equals(predicted)) count[2]++;
+            matrices.computeIfAbsent(sample.categoryTaxonomy(), key -> new TreeMap<>())
+                    .computeIfAbsent(sample.accountingCategory(), key -> new TreeMap<>()).merge(predicted,1L,Long::sum);
+        }
+        var report = new TreeMap<String,CategoryScore>();
+        matrices.forEach((taxonomy,matrix) -> {
+            var c = counts.get(taxonomy); var classes = classScores(matrix);
+            report.put(taxonomy,new CategoryScore(c[0],c[1],c[2],ratio(c[1],c[0]),classes,
+                    average(classes,ClassScore::precision),average(classes,ClassScore::recall),
+                    average(classes,ClassScore::f1),matrix));
+        });
+        return report;
+    }
+
+    private static Map<String,ClassScore> classScores(Map<String,Map<String,Long>> confusion) {
         Set<String> labels=new TreeSet<>(confusion.keySet());
         confusion.values().forEach(row->labels.addAll(row.keySet())); labels.remove("__NO_PREDICTION__");
         var classes=new TreeMap<String,ClassScore>();
@@ -83,13 +123,7 @@ public final class EvaluationMetrics {
             double p=predicted==0?0:(double)tp/predicted, r=support==0?0:(double)tp/support;
             classes.put(label,new ClassScore(support,predicted,tp,p,r,p+r==0?0:2*p*r/(p+r)));
         }
-        return new Score(results.size(),succeeded,failed,ratio(succeeded,results.size()),ratio(failed,results.size()),
-                ratio(totalMs,timed),timed,ratio(fallback,fallbackObserved),fallbackObserved,ratio(retried,attemptsObserved),
-                attemptsObserved,ratio(charEdits,chars),charEdits,chars,ocrSamples,ratio(wordEdits,words),wordEdits,words,
-                scores(fieldCounts),scores(ocrFieldCounts),field(itemExpected,itemCorrect,itemMissing,itemIncorrect),
-                extraRows,extraFields,ratio(classCorrect,classSamples),classSamples,classes,
-                average(classes,ClassScore::precision),average(classes,ClassScore::recall),average(classes,ClassScore::f1),
-                confusion,failures);
+        return classes;
     }
     static String normalize(String value) {
         return value==null?"":Normalizer.normalize(value,Normalizer.Form.NFC).strip().replaceAll("\\s+"," ");

@@ -21,8 +21,66 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class ExcelExportService {
+    @org.springframework.beans.factory.annotation.Autowired private RetailInvoiceDetailsService retailDetails;
 	private final InvoiceService invoiceService;
 	private final FinancialTransactionService transactionService;
+    private final DocumentService documentService;
+
+    /** Same query/scope/date/search as the document list, across all matching pages. */
+    @Transactional(readOnly = true)
+    public byte[] documents(LocalDate dateFrom, LocalDate dateTo,
+            com.example.invoice.entity.DocumentStatus processingStatus,
+            com.example.invoice.entity.ReviewStatus reviewStatus, Long typeId, String search,
+            org.springframework.data.domain.Sort sort, Authentication authentication) {
+        var documents = documentService.findPage(dateFrom, dateTo, null, processingStatus, reviewStatus,
+                typeId, null, search, Pageable.unpaged(sort), authentication).getContent();
+        try (Workbook book = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet sheet = book.createSheet("Chung tu");
+            String[] headers = {"ID chung tu", "Ten tep", "Ngay tai len", "Loai chung tu", "Trang thai xu ly",
+                    "Trang thai duyet", "So hoa don", "Ngay hoa don", "Ben ban", "MST ben ban", "Ben mua",
+                    "MST ben mua", "Tien truoc thue", "Tien thue", "Tong thanh toan", "Gio ban le",
+                    "Giam gia bill", "Cach tinh giam gia", "Thue ban le", "Cach tinh thue", "Phi ban le",
+                    "Cach tinh phi", "Tien khach dua", "Tien thua", "Can xac nhan lai can cu ban le"};
+            header(sheet, headers);
+            int n = 1;
+            for (var document : documents) {
+                Row row = sheet.createRow(n++);
+                text(row, 0, document.id().toString()); text(row, 1, document.originalFileName());
+                text(row, 2, document.createdAt() == null ? null : document.createdAt().toString());
+                text(row, 3, document.documentType());
+                text(row, 4, document.processingStatus() == null ? null : document.processingStatus().name());
+                text(row, 5, document.reviewStatus() == null ? null : document.reviewStatus().name());
+                InvoiceResponse invoice;
+                try { invoice = invoiceService.findByDocumentId(document.id()); }
+                catch (com.example.invoice.exception.ResourceNotFoundException missingInvoice) { continue; }
+                text(row, 6, invoice.invoiceNumber()); date(row, 7, invoice.invoiceDate());
+                text(row, 8, invoice.sellerName()); text(row, 9, invoice.sellerTaxCode());
+                text(row, 10, invoice.buyerName()); text(row, 11, invoice.buyerTaxCode());
+                if (invoice.subtotal() != null) money(row, 12, invoice.subtotal());
+                if (invoice.vatAmount() != null) money(row, 13, invoice.vatAmount());
+                if (invoice.totalAmount() != null) money(row, 14, invoice.totalAmount());
+                if ("RETAIL_INVOICE".equals(document.documentType()) && retailDetails!=null) {
+                    var view=retailDetails.readForDocument(document.id());
+                    text(row,24,Boolean.toString(view.stale() || view.details()==null));
+                    if (view.details()!=null) {
+                        var details=view.details(); text(row,15,details.transactionTime());
+                        adjustment(row,16,details.billDiscount()); adjustment(row,18,details.tax()); adjustment(row,20,details.fees());
+                        if (details.tenderedAmount()!=null) money(row,22,details.tenderedAmount());
+                        if (details.changeAmount()!=null) money(row,23,details.changeAmount());
+                    }
+                }
+            }
+            widths(sheet, headers.length); book.write(out); return out.toByteArray();
+        } catch (Exception exception) {
+            throw new IllegalStateException("Không thể tạo tệp Excel danh sách chứng từ", exception);
+        }
+    }
+
+    private void adjustment(Row row,int column,com.example.invoice.dto.invoice.RetailInvoiceDetails.Adjustment adjustment) {
+        if (adjustment==null) return;
+        if (adjustment.amount()!=null) money(row,column,adjustment.amount());
+        text(row,column+1,adjustment.treatment()==null ? null : adjustment.treatment().name());
+    }
 
 	@Transactional(readOnly = true)
 	public byte[] invoices(LocalDate fromDate, LocalDate toDate, String search) {

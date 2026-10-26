@@ -50,7 +50,32 @@ Ghi nhớ các thông tin sau để dùng ở bước cấu hình:
 - Tên database, mặc định của project là `invoice_db`.
 - Username và password PostgreSQL.
 
-Backend đang dùng `spring.jpa.hibernate.ddl-auto=update`, vì vậy các bảng sẽ được tạo/cập nhật khi backend khởi động. Các file SQL bổ sung nằm trong `backendqt/backendqt/src/main/resources/db/migration`; project hiện không cấu hình Flyway để tự chạy các file này.
+Backend đang dùng `spring.jpa.hibernate.ddl-auto=validate`: chỉ kiểm tra schema, không tự tạo/cập nhật bảng. Các file SQL bổ sung nằm trong `backendqt/backendqt/src/main/resources/db/migration`; project hiện không cấu hình Flyway để tự chạy các file này. Database mới cần được khởi tạo schema tương thích trước khi chạy backend.
+
+### Nâng cấp DB hiện có để một hóa đơn thanh toán nhiều lần
+
+Sau khi nhận source mới, dùng JDK 21, cấu hình `config/config.local.json` và `DB_PASSWORD` trong `.env` như khi chạy backend. Dừng backend trong thời gian nâng cấp. Tại thư mục gốc:
+
+```powershell
+# Xem DB đích và index hiện tại, không ghi dữ liệu
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-payment-schema.ps1 -Mode Check
+# Chạy thử toàn bộ nâng cấp rồi ROLLBACK
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-payment-schema.ps1 -Mode DryRun
+# Áp dụng và COMMIT
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-payment-schema.ps1 -Mode Apply
+```
+
+Script tìm PostgreSQL JDBC driver trong Maven cache; nếu chưa có, build backend hoặc truyền `-JdbcJar 'C:\path\postgresql-42.7.7.jar'`. Mặc định script chỉ chạy `Check`. Người khác chạy cùng lệnh trên cấu hình DB của họ; không cần dùng DB của người phát triển.
+
+Migration `20261024_01_allow_multiple_invoice_payments.sql` chỉ thêm cột nullable nếu thiếu, thay hai unique index cũ bằng index tra cứu và tạo khóa chống gửi trùng `(company_id, request_key)`. Không UPDATE/DELETE bản ghi, không xác nhận tự động dữ liệu cũ. Script khóa bảng trong transaction, đối chiếu toàn bộ bản ghi trước/sau và rollback khi thất bại. Có thể chạy lại; nếu gặp index khác định nghĩa dự kiến hoặc request key trùng, script dừng để kiểm tra, không tự sửa dữ liệu. Chạy thành công sẽ in `Apply completed; row preservation verified.` và danh sách index.
+
+Cũng có thể dùng `psql` với cùng thông tin kết nối (mật khẩu qua biến môi trường `PGPASSWORD` hoặc password prompt):
+
+```powershell
+psql -X -h localhost -p 5432 -U postgres -d invoice_db -v ON_ERROR_STOP=1 -f backendqt/backendqt/src/main/resources/db/migration/20261024_01_allow_multiple_invoice_payments.sql
+```
+
+Chỉ chạy file nâng cấp này cho thay đổi thanh toán; không chạy lại toàn bộ thư mục migration, đặc biệt file `20261006_03` sẽ tạo lại khóa 1–1. Script này không phải bộ khởi tạo toàn bộ schema hay migration cho các tính năng khác. Khi đã có nhiều thanh toán, không khôi phục unique index cũ vì không còn phù hợp với dữ liệu.
 
 ## 4. Chuẩn bị MinIO
 

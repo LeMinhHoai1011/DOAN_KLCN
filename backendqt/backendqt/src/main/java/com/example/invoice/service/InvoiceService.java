@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class InvoiceService {
+    @org.springframework.beans.factory.annotation.Autowired private RetailInvoiceDetailsService retailDetails;
     @org.springframework.beans.factory.annotation.Autowired private DocumentAuditService documentAudit;
     private String before(Document d){return documentAudit==null?null:documentAudit.capture(d);}
     private void remember(Document d,String action,String previous){if(documentAudit!=null)documentAudit.append(d,action,previous);}
@@ -97,6 +98,7 @@ public class InvoiceService {
 	public List<ExtractedFieldResponse> findExtractedFieldsByDocumentId(Long documentId) {
 		Document document = documentService.load(documentId);
 		return extractedFieldRepository.findByDocumentId(document.getId()).stream()
+                .filter(field -> !RetailInvoiceDetailsService.FIELD.equals(field.getFieldName()))
 				.map(this::toExtractedFieldResponse).toList();
 	}
 
@@ -117,6 +119,35 @@ public class InvoiceService {
         Invoice invoice=load(id);documentService.load(invoice.getDocument().getId());
         throw new com.example.invoice.exception.BadRequestException("DOCUMENT_RETENTION_REQUIRED: Chưa cho phép xóa cứng dữ liệu hóa đơn hoặc lịch sử");
 	}
+
+    @Transactional
+    public InvoiceResponse updateItems(Long id, com.example.invoice.dto.invoice.InvoiceItemsUpdateRequest request) {
+        Invoice invoice = load(id);
+        documentService.lockForEdit(invoice.getDocument().getId());
+        if (mutationEntityManager != null) mutationEntityManager.refresh(invoice);
+        String previous = before(invoice.getDocument());
+        replaceItems(invoice, request.items());
+        invoice.setAiGenerated(false);
+        invoiceRepository.saveAndFlush(invoice);
+        remember(invoice.getDocument(), "INVOICE_ITEMS_UPDATE", previous);
+        return toResponse(invoice);
+    }
+
+    @Transactional(readOnly=true)
+    public RetailInvoiceDetailsService.View getRetailDetails(Long id) {
+        Invoice invoice=load(id);
+        if (!RetailInvoiceDetailsService.isRetail(invoice.getDocument())) throw new com.example.invoice.exception.BadRequestException("RETAIL_INVOICE_REQUIRED");
+        return retailDetails.read(invoice);
+    }
+    @Transactional
+    public RetailInvoiceDetailsService.View updateRetailDetails(Long id,com.example.invoice.dto.invoice.RetailInvoiceDetails request) {
+        Invoice invoice=load(id); documentService.lockForEdit(invoice.getDocument().getId());
+        if (mutationEntityManager!=null) mutationEntityManager.refresh(invoice);
+        String previous=before(invoice.getDocument());
+        var view=retailDetails.storeManual(invoice,request);
+        remember(invoice.getDocument(),"RETAIL_DETAILS_UPDATE",previous);
+        return view;
+    }
 
 	private void apply(Invoice invoice, InvoiceRequest request) {
 		Document document = documentService.lockForEdit(request.documentId());
@@ -139,9 +170,15 @@ public class InvoiceService {
 		invoice.setTaxAuthorityCode(request.taxAuthorityCode());
 		invoice.setSignDate(request.signDate());
 		invoice.setAiGenerated(false);
+		replaceItems(invoice, request.items());
+	}
+
+    private void replaceItems(Invoice invoice, List<InvoiceItemRequest> items) {
+        // Child-only edits must invalidate the previous reconciliation even when all header values stay unchanged.
+        invoice.setUpdatedAt(java.time.LocalDateTime.now());
 		invoice.getItems().clear();
-		if (request.items() != null) {
-			for (InvoiceItemRequest itemRequest : request.items()) {
+		if (items != null) {
+			for (InvoiceItemRequest itemRequest : items) {
 				InvoiceItem item = new InvoiceItem();
 				item.setInvoice(invoice);
 				item.setProductName(itemRequest.productName());

@@ -100,6 +100,143 @@ class InvoiceApplicationTests {
 	@Autowired
 	private ObjectMapper objectMapper;
 
+    @Test
+    @Transactional
+    void itemOnlyCorrectionPreservesHeaderPersistsRowsAndReconcilesAgain() throws Exception {
+        Company company = provisionTestCompany();
+        Document document = completionDocument(company,"items-"+UUID.randomUUID()+".pdf",DocumentStatus.PROCESSED);
+        Invoice invoice = new Invoice(); invoice.setDocument(document); invoice.setInvoiceNumber("KEEP-NUMBER");
+        invoice.setSellerName("Keep seller"); invoice.setSubtotal(new BigDecimal("200"));
+        invoice.setVatAmount(new BigDecimal("20")); invoice.setTotalAmount(new BigDecimal("220"));
+        var item = new com.example.invoice.entity.InvoiceItem(); item.setInvoice(invoice); item.setProductName("Paper");
+        item.setQuantity(new BigDecimal("2")); item.setUnitPrice(new BigDecimal("100"));
+        item.setTaxRate(new BigDecimal("10")); item.setAmount(new BigDecimal("150")); item.setTaxAmount(new BigDecimal("15"));
+        invoice.getItems().add(item); invoiceRepository.saveAndFlush(invoice);
+        Long invoiceId=invoice.getId(), documentId=document.getId();
+        String auth="Bearer "+loginToken("admin","Admin@123456");
+        String reconciliation="/api/v1/documents/"+documentId+"/reconciliations";
+        var before=mockMvc.perform(post(reconciliation).header("Authorization",auth)).andExpect(status().isOk()).andReturn();
+        assertTrue(objectMapper.readTree(before.getResponse().getContentAsString()).findValuesAsText("status").contains("MISMATCH"));
+        String rows="{\"items\":[{\"productName\":\"Corrected paper\",\"quantity\":2,\"unitPrice\":100,\"taxRate\":10,\"taxAmount\":20,\"amount\":200}]}";
+        mockMvc.perform(put("/api/v1/invoices/"+invoiceId+"/items").header("Authorization",auth)
+                .contentType(MediaType.APPLICATION_JSON).content(rows))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.invoiceNumber").value("KEEP-NUMBER"))
+                .andExpect(jsonPath("$.sellerName").value("Keep seller")).andExpect(jsonPath("$.totalAmount").value(220));
+        entityManager.flush(); entityManager.clear();
+        var persisted=invoiceRepository.findById(invoiceId).orElseThrow();
+        assertEquals(1,persisted.getItems().size()); assertEquals("Corrected paper",persisted.getItems().getFirst().getProductName());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/documents/"+documentId+"/business-state")
+                .header("Authorization",auth)).andExpect(status().isOk()).andExpect(jsonPath("$.reconciliation").value("WARNING"));
+        var after=mockMvc.perform(post(reconciliation).header("Authorization",auth)).andExpect(status().isOk()).andReturn();
+        assertTrue(objectMapper.readTree(after.getResponse().getContentAsString()).findValuesAsText("status").stream().allMatch("MATCHED"::equals));
+        assertEquals(2L,entityManager.createQuery("select count(b) from ReconciliationBatch b where b.company.id=:company",Long.class)
+                .setParameter("company",company.getId()).getSingleResult());
+        mockMvc.perform(put("/api/v1/invoices/"+invoiceId+"/items").header("Authorization",auth)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"items\":[]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items").isEmpty());
+        entityManager.flush(); entityManager.clear();
+        assertTrue(invoiceRepository.findById(invoiceId).orElseThrow().getItems().isEmpty());
+    }
+
+    @Test
+    @Transactional
+    void itemOnlyCorrectionRejectsInvalidRowsAndKeepsApprovalAndScopeGuards() throws Exception {
+        Company company=provisionTestCompany();
+        Document document=completionDocument(company,"item-guard.pdf",DocumentStatus.PROCESSED);
+        Invoice invoice=new Invoice(); invoice.setDocument(document); invoiceRepository.saveAndFlush(invoice);
+        String endpoint="/api/v1/invoices/"+invoice.getId()+"/items", auth="Bearer "+loginToken("admin","Admin@123456");
+        for(String body:java.util.List.of("{}","{\"items\":null}","{\"items\":[null]}",
+                "{\"items\":[{\"productName\":\"Paper\",\"quantity\":-1}]}","{\"items\":[{\"productName\":\"\"}]}")) {
+            mockMvc.perform(put(endpoint).header("Authorization",auth).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest());
+        }
+        mockMvc.perform(put(endpoint).header("Authorization","Bearer "+loginToken("employee","Employee@123"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"items\":[]}")).andExpect(status().isForbidden());
+        mockMvc.perform(put(endpoint).header("Authorization","Bearer "+loginToken("accountant","Accountant@123"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"items\":[]}")).andExpect(status().isNotFound());
+        document.setReviewStatus(com.example.invoice.entity.ReviewStatus.APPROVED); document.setStatus(DocumentStatus.COMPLETED);
+        documentRepository.flush();
+        mockMvc.perform(put(endpoint).header("Authorization",auth).contentType(MediaType.APPLICATION_JSON).content("{\"items\":[]}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @Transactional
+    void documentExcelUsesListFiltersAcrossPagesIncludingDocumentsWithoutInvoice() throws Exception {
+        Company company=provisionTestCompany(); String prefix="export-match-"+UUID.randomUUID();
+        var type=new com.example.invoice.entity.DocumentType(); type.setCode("EXPORT_"+UUID.randomUUID());
+        type.setName("Export fixture"); type.setActive(true); entityManager.persist(type);
+        var expected=new java.util.ArrayList<Long>();
+        for(int index=0;index<12;index++) {
+            Document d=completionDocument(company,prefix+"-"+String.format("%02d",index)+".pdf",DocumentStatus.PROCESSED);
+            d.setType(type); documentRepository.flush(); expected.add(d.getId());
+            if(index==0) {
+                Invoice i=new Invoice(); i.setDocument(d); i.setInvoiceDate(java.time.LocalDate.of(2000,1,1));
+                i.setInvoiceNumber("NOT-THE-FILENAME"); invoiceRepository.saveAndFlush(i);
+            }
+            entityManager.createQuery("update Document d set d.createdAt=:at where d.id=:id")
+                    .setParameter("at",java.time.LocalDateTime.of(2026,2,1,12,0)).setParameter("id",d.getId()).executeUpdate();
+        }
+        // Each excluded document violates exactly one filter, not several at once.
+        for (String reason : java.util.List.of("status","review","type","date","search")) {
+            Document excluded=completionDocument(company,"search".equals(reason)?"different-name.pdf":prefix+"-wrong-"+reason+".pdf",
+                    "status".equals(reason)?DocumentStatus.FAILED:DocumentStatus.PROCESSED);
+            if (!"type".equals(reason)) excluded.setType(type);
+            if ("review".equals(reason)) excluded.setReviewStatus(com.example.invoice.entity.ReviewStatus.REJECTED);
+            documentRepository.flush();
+            entityManager.createQuery("update Document d set d.createdAt=:at where d.id=:id")
+                    .setParameter("at",java.time.LocalDateTime.of(2026,2,"date".equals(reason)?2:1,12,0))
+                    .setParameter("id",excluded.getId()).executeUpdate();
+        }
+        entityManager.flush(); entityManager.clear();
+        String auth="Bearer "+loginToken("admin","Admin@123456");
+        var list=mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/documents")
+                .header("Authorization",auth).param("search",prefix).param("dateFrom","2026-02-01").param("dateTo","2026-02-01")
+                .param("processingStatus","PROCESSED").param("reviewStatus","PENDING").param("typeId",type.getId().toString())
+                .param("sort","originalFileName,desc").param("size","1")).andExpect(status().isOk()).andReturn();
+        assertEquals(12,objectMapper.readTree(list.getResponse().getContentAsString()).path("totalElements").asInt());
+        var exported=mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/exports/documents")
+                .header("Authorization",auth).param("search",prefix).param("dateFrom","2026-02-01").param("dateTo","2026-02-01")
+                .param("processingStatus","PROCESSED").param("reviewStatus","PENDING").param("typeId",type.getId().toString())
+                .param("sort","originalFileName,desc")).andExpect(status().isOk()).andReturn();
+        try(var workbook=new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(exported.getResponse().getContentAsByteArray()))) {
+            var sheet=workbook.getSheetAt(0); assertEquals(12,sheet.getLastRowNum());
+            var ids=new java.util.HashSet<Long>();
+            for(int index=1;index<=12;index++) ids.add(Long.valueOf(sheet.getRow(index).getCell(0).getStringCellValue()));
+            assertEquals(new java.util.HashSet<>(expected),ids);
+            assertEquals(objectMapper.readTree(list.getResponse().getContentAsString()).path("content").get(0).path("id").asText(),sheet.getRow(1).getCell(0).getStringCellValue());
+            assertEquals("NOT-THE-FILENAME",sheet.getRow(12).getCell(6).getStringCellValue());
+            assertNull(sheet.getRow(1).getCell(14)); // Unknown amount remains blank, not zero.
+        }
+    }
+
+    private Document completionDocument(Company company,String name,DocumentStatus status) {
+        Document d=new Document(); d.setCompany(company); d.setOriginalFileName(name);
+        d.setFileType("application/pdf"); d.setFileSize(1L); d.setStatus(status);
+        return documentRepository.saveAndFlush(d);
+    }
+
+    @Test
+    @Transactional
+    void documentExcelKeepsAccountantScopeAndExportPermission() throws Exception {
+        Company company=provisionTestCompany();
+        User accountant=userRepository.findByUsername("accountant").orElseThrow();
+        accountant.setCompany(company); userRepository.flush();
+        String prefix="scope-export-"+UUID.randomUUID();
+        Document own=completionDocument(company,prefix+"-own.pdf",DocumentStatus.PROCESSED);
+        Company foreign=new Company(); foreign.setCompanyName("Other isolated fixture"); companyRepository.saveAndFlush(foreign);
+        completionDocument(foreign,prefix+"-foreign.pdf",DocumentStatus.PROCESSED);
+        var result=mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/exports/documents")
+                .header("Authorization","Bearer "+loginToken("accountant","Accountant@123")).param("search",prefix))
+                .andExpect(status().isOk()).andReturn();
+        try(var workbook=new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(result.getResponse().getContentAsByteArray()))) {
+            assertEquals(1,workbook.getSheetAt(0).getLastRowNum());
+            assertEquals(own.getId().toString(),workbook.getSheetAt(0).getRow(1).getCell(0).getStringCellValue());
+        }
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/exports/documents")
+                .header("Authorization","Bearer "+loginToken("employee","Employee@123"))).andExpect(status().isForbidden());
+    }
+
 	@Test
 	void contextLoads() {
 	}

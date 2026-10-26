@@ -56,7 +56,19 @@ public class AiDocumentResultValidator {
 			warnings.add("INVALID_ACCOUNTING_CATEGORY: AI trả nhóm nghiệp vụ không nằm trong danh sách active; đề xuất này bị bỏ qua");
 			result = withoutAccountingCategory(result);
 		}
-		validateInvoice(result.invoice(), warnings);
+        boolean retail = "RETAIL_INVOICE".equals(result.documentType());
+		validateInvoice(result.invoice(), warnings, retail);
+        if (retail && result.invoice()!=null) {
+            var invoice=result.invoice();
+            var rows=invoice.items()==null ? List.<RetailInvoiceRules.Row>of() : invoice.items().stream()
+                    .map(item -> item==null ? new RetailInvoiceRules.Row(null,null,null)
+                            : new RetailInvoiceRules.Row(item.quantity(),item.unitPrice(),item.amount())).toList();
+            for (var check : RetailInvoiceRules.evaluate(invoice.retailDetails(),rows,invoice.totalAmount(),invoice.vatAmount(),false)) {
+                if (check.missing()) warnings.add("RETAIL_DATA_INSUFFICIENT: "+check.message());
+                else if (check.declared().subtract(check.calculated()).abs().compareTo(MONEY_TOLERANCE)>0)
+                    warnings.add("RETAIL_AMOUNT_MISMATCH: "+check.type()+"; "+check.message());
+            }
+        }
 		validateTransactionAssessment(result.transactionAssessment(), warnings);
 		validateCompanyRole(result.companyRole(), warnings);
 		validateExtraFields(result.extraFields(), warnings);
@@ -102,15 +114,15 @@ public class AiDocumentResultValidator {
 		}
 	}
 
-	private void validateInvoice(AiDocumentResult.AiInvoiceExtraction invoice, List<String> warnings) {
+	private void validateInvoice(AiDocumentResult.AiInvoiceExtraction invoice, List<String> warnings, boolean retail) {
 		if (invoice == null) return;
-		if (invoice.invoiceNumber() == null || invoice.invoiceNumber().isBlank())
+		if (!retail && (invoice.invoiceNumber() == null || invoice.invoiceNumber().isBlank()))
 			warnings.add("MISSING_INVOICE_NUMBER: thiếu số hóa đơn");
 		if (invoice.invoiceDate() == null || invoice.invoiceDate().isBlank())
 			warnings.add("MISSING_INVOICE_DATE: thiếu ngày hóa đơn");
 		if (invoice.sellerName() == null || invoice.sellerName().isBlank())
 			warnings.add("MISSING_SELLER_NAME: thiếu tên người bán");
-		if (invoice.sellerTaxCode() == null || invoice.sellerTaxCode().isBlank())
+		if (!retail && (invoice.sellerTaxCode() == null || invoice.sellerTaxCode().isBlank()))
 			warnings.add("MISSING_SELLER_TAX_CODE: thiếu mã số thuế người bán");
 		if (invoice.totalAmount() == null)
 			warnings.add("MISSING_TOTAL_AMOUNT: thiếu tổng tiền thanh toán");
@@ -128,11 +140,11 @@ public class AiDocumentResultValidator {
 		warnLength(invoice.taxAuthorityCode(), MAX_TAX_AUTHORITY_CODE_LENGTH, "TAX_AUTHORITY_CODE_INVALID_LENGTH", warnings);
 		if (invoice.items() == null || invoice.items().isEmpty())
             warnings.add("INVOICE_ITEMS_MISSING: Hóa đơn phải có ít nhất một dòng hàng hóa");
-        if (invoice.subtotal() == null) warnings.add("MISSING_SUBTOTAL: Thiếu tổng trước thuế");
-        if (invoice.vatAmount() == null) warnings.add("MISSING_VAT_AMOUNT: Thiếu tiền thuế");
+        if (!retail && invoice.subtotal() == null) warnings.add("MISSING_SUBTOTAL: Thiếu tổng trước thuế");
+        if (!retail && invoice.vatAmount() == null) warnings.add("MISSING_VAT_AMOUNT: Thiếu tiền thuế");
         if (invoice.items() != null) {
 			for (int index = 0; index < invoice.items().size(); index++)
-				validateInvoiceItem(invoice.items().get(index), index + 1, warnings);
+				validateInvoiceItem(invoice.items().get(index), index + 1, warnings, retail);
 		}
 		if (invoice.sellerTaxCode() != null && !TAX_CODE.matcher(invoice.sellerTaxCode().trim()).matches()) {
 			warnings.add("INVALID_SELLER_TAX_CODE: mã số thuế người bán không hợp lệ");
@@ -154,7 +166,7 @@ public class AiDocumentResultValidator {
 				warnings.add("INVALID_SIGN_DATE: ngày ký không phải yyyy-MM-dd hợp lệ");
 			}
 		}
-		if (invoice.subtotal() != null && invoice.vatAmount() != null && invoice.totalAmount() != null
+		if (!retail && invoice.subtotal() != null && invoice.vatAmount() != null && invoice.totalAmount() != null
 				&& invoice.subtotal().add(invoice.vatAmount()).subtract(invoice.totalAmount()).abs().compareTo(MONEY_TOLERANCE) > 0) {
 			warnings.add("TOTAL_MISMATCH: tổng tiền trước thuế cộng VAT không khớp với tổng thanh toán");
 		}
@@ -164,7 +176,7 @@ public class AiDocumentResultValidator {
 	}
 
 	private void validateInvoiceItem(AiDocumentResult.AiInvoiceItemExtraction item, int row,
-			List<String> warnings) {
+			List<String> warnings, boolean retail) {
 		if (item == null) {
 			warnings.add("INVALID_INVOICE_ITEM: row=" + row + ", item is null");
 			return;
@@ -182,11 +194,11 @@ public class AiDocumentResultValidator {
 		if (item.taxRate() != null && (item.taxRate().compareTo(BigDecimal.ZERO) < 0
 				|| item.taxRate().compareTo(BigDecimal.ONE) > 0))
 			warnings.add("INVALID_ITEM_TAX_RATE: row=" + row + ", expected decimal fraction from 0 to 1");
-		if (item.quantity() != null && item.unitPrice() != null && item.amount() != null
+		if (!retail && item.quantity() != null && item.unitPrice() != null && item.amount() != null
 				&& item.quantity().multiply(item.unitPrice()).subtract(item.amount()).abs()
 						.compareTo(MONEY_TOLERANCE) > 0)
 			warnings.add("ITEM_AMOUNT_MISMATCH: row=" + row + ", quantity * unitPrice does not match amount");
-		if (item.amount() != null && item.taxRate() != null && item.taxAmount() != null
+		if (!retail && item.amount() != null && item.taxRate() != null && item.taxAmount() != null
 				&& item.amount().multiply(item.taxRate()).subtract(item.taxAmount()).abs()
 						.compareTo(MONEY_TOLERANCE) > 0)
 			warnings.add("ITEM_TAX_MISMATCH: row=" + row + ", amount * taxRate does not match taxAmount");
