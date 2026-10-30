@@ -10,8 +10,13 @@ import '../features/documents/presentation/pages/upload_document_page.dart';
 import '../features/documents/presentation/pages/document_preview_page.dart';
 import '../features/documents/presentation/pages/remote_document_preview_page.dart';
 import '../features/documents/data/models/document_model.dart';
-import '../features/notifications/presentation/pages/notifications_page.dart';
+import '../features/workspace/presentation/role_workspace_page.dart';
+import '../features/workspace/presentation/admin_users_page.dart';
+import '../features/workspace/presentation/web_handoff_page.dart';
+import '../features/workspace/presentation/financial_transactions_page.dart';
+import '../features/workspace/data/workspace_repository.dart';
 import '../features/profile/presentation/pages/profile_page.dart';
+import '../features/profile/presentation/pages/change_password_page.dart';
 import '../shared/widgets/app_scaffold.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -32,25 +37,51 @@ GoRouter createAppRouter(ValueListenable<AuthState> authState) {
       if (location == '/login' || location == '/loading') {
         return '/dashboard';
       }
+      if (location == '/admin/users' &&
+          authState.value.user?.effectiveRole != 'ADMIN') {
+        return '/dashboard';
+      }
+      if (location.endsWith('/web') &&
+          authState.value.user?.effectiveRole != 'ACCOUNTANT') {
+        return '/dashboard';
+      }
+      if (location.startsWith('/financial-transactions/') &&
+          authState.value.user?.effectiveRole != 'ACCOUNTANT') {
+        return '/dashboard';
+      }
       return null;
     },
     routes: [
       GoRoute(
-        path: '/loading',
-        builder: (context, state) => const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
+        path: '/financial-transactions/:id',
+        parentNavigatorKey: _rootNavigatorKey,
+        redirect: (context, state) =>
+            state.extra is FinancialEntry ? null : '/notifications',
+        builder: (context, state) =>
+            FinancialDetailPage(entry: state.extra as FinancialEntry),
       ),
       GoRoute(
-        path: '/login',
-        builder: (context, state) => const LoginPage(),
+        path: '/documents/:id/web',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) =>
+            WebHandoffPage(documentId: int.parse(state.pathParameters['id']!)),
       ),
+      GoRoute(
+        path: '/profile/password',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const ChangePasswordPage(),
+      ),
+      GoRoute(
+        path: '/loading',
+        builder: (context, state) =>
+            const Scaffold(body: Center(child: CircularProgressIndicator())),
+      ),
+      GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: '/documents/upload',
-        builder: (context, state) => UploadDocumentPage(
-          versionDocument: state.extra as DocumentModel?,
-        ),
+        builder: (context, state) =>
+            UploadDocumentPage(versionDocument: state.extra as DocumentModel?),
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
@@ -97,7 +128,7 @@ GoRouter createAppRouter(ValueListenable<AuthState> authState) {
             routes: [
               GoRoute(
                 path: '/notifications',
-                builder: (context, state) => const NotificationsPage(),
+                builder: (context, state) => const RoleWorkspacePage(),
               ),
             ],
           ),
@@ -106,6 +137,10 @@ GoRouter createAppRouter(ValueListenable<AuthState> authState) {
               GoRoute(
                 path: '/profile',
                 builder: (context, state) => const ProfilePage(),
+              ),
+              GoRoute(
+                path: '/admin/users',
+                builder: (context, state) => const AdminUsersPage(),
               ),
             ],
           ),

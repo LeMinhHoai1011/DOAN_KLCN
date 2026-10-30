@@ -2,6 +2,8 @@
 
 Tài liệu này áp dụng cho môi trường Windows/PowerShell và script khởi động `scripts/start.ps1` hiện có trong project.
 
+Để chạy backend cùng ứng dụng Flutter trên Android Emulator hoặc điện thoại thật, xem [Hướng dẫn chạy backend và mobile](HUONG_DAN_CHAY_BACKEND_VA_MOBILE.md).
+
 ## 1. Thành phần của hệ thống
 
 - Backend: Java 21, Spring Boot 3.5.6, chạy mặc định tại `http://localhost:8081`.

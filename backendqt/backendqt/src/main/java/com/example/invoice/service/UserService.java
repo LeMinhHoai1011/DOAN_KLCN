@@ -137,8 +137,10 @@ public class UserService {
 		}
 		java.util.Set<Long> existing = user.getUserRoles().stream().map(a -> a.getRole().getId())
 				.collect(java.util.stream.Collectors.toSet());
-		if (hasHistoricalUserRole(user)) {
-			if (!existing.equals(request.roleIds())) throw historicalRoleChange();
+        if (request.expectedRoleIds() != null && !existing.equals(request.expectedRoleIds()))
+            throw new com.example.invoice.exception.RbacConflictException();
+        if (hasHistoricalUserRole(user)) {
+            if (!existing.equals(request.roleIds())) throw historicalRoleChange();
 			return userMapper.toResponse(user);
 		}
 		List<Role> roles = roleRepository.findAllById(request.roleIds());
@@ -152,7 +154,20 @@ public class UserService {
 		return userMapper.toResponse(userRepository.save(user));
 	}
 
-	private Role loadActiveRole(String roleCode) {
+    @Transactional(readOnly = true)
+    public com.example.invoice.dto.user.UserAccessResponse access(Long id) {
+        User user = userRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
+        var assigned = user.getUserRoles().stream().map(UserRoleAssignment::getRole)
+            .sorted(java.util.Comparator.comparing(Role::getCode))
+            .map(r -> new com.example.invoice.dto.user.UserAccessResponse.AssignedRole(r.getId(), r.getCode(), r.getName(), r.isActive())).toList();
+        var permissions = user.getUserRoles().stream().map(UserRoleAssignment::getRole).filter(Role::isActive)
+            .flatMap(r -> r.getRolePermissions().stream()).map(com.example.invoice.entity.RolePermission::getPermission)
+            .filter(com.example.invoice.entity.Permission::isActive).map(com.example.invoice.entity.Permission::getCode)
+            .collect(java.util.stream.Collectors.toSet());
+        return new com.example.invoice.dto.user.UserAccessResponse(assigned, permissions, hasActiveAdminRole(user));
+    }
+
+    private Role loadActiveRole(String roleCode) {
 		String normalized = roleCode == null ? "" : roleCode.trim().toUpperCase(Locale.ROOT);
 		if (normalized.isBlank()) throw new BadRequestException("Mã vai trò không được để trống");
 		Role role = roleRepository.findByCode(normalized)

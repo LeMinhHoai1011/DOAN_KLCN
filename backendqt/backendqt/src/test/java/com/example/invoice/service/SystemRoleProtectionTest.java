@@ -51,5 +51,5 @@ class SystemRoleProtectionTest {
 		assertEquals("New label", r.getName()); assertEquals("ADMIN", r.getCode()); assertTrue(r.isActive());
 	}
 
-	private Role role(String code) { Role r = new Role(); r.setId(1L); r.setCode(code); r.setName("Original"); when(roles.findById(1L)).thenReturn(Optional.of(r)); return r; }
+	private Role role(String code) { Role r = new Role(); r.setId(1L); r.setCode(code); r.setName("Original"); when(roles.lockById(1L)).thenReturn(Optional.of(r)); return r; }
 }

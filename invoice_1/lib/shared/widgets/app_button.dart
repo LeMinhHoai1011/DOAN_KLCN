@@ -7,11 +7,11 @@ class AppButton extends StatelessWidget {
   final bool isLoading;
 
   const AppButton({
-    Key? key,
+    super.key,
     required this.text,
     this.onPressed,
     this.isLoading = false,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -20,12 +20,13 @@ class AppButton extends StatelessWidget {
       child: ElevatedButton(
         onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
+          alignment: Alignment.centerLeft,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(12),
           ),
           backgroundColor: AppColors.primary,
-          disabledBackgroundColor: AppColors.primary.withOpacity(0.6),
+          disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.6),
         ),
         child: isLoading
             ? const SizedBox(
@@ -39,8 +40,8 @@ class AppButton extends StatelessWidget {
             : Text(
                 text,
                 style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
                   color: Colors.white,
                 ),
               ),

@@ -39,7 +39,7 @@ class _SmartInvoiceAppState extends ConsumerState<SmartInvoiceApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'Smart Invoice',
+      title: 'InvoiceFlow',
       theme: AppTheme.lightTheme,
       routerConfig: _router,
       debugShowCheckedModeBanner: false,

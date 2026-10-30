@@ -4,6 +4,12 @@ class DashboardSummaryModel {
   final int totalClassified;
   final int totalReviewRequired;
   final int totalFailed;
+  final int? approvedCount;
+  final int? correctionCount;
+  final int? rejectedCount;
+  int countStatus(String status) => documentsByStatus
+      .where((entry) => entry.status == status)
+      .fold(0, (sum, entry) => sum + entry.count);
   final List<DocumentStatusCount> documentsByStatus;
 
   const DashboardSummaryModel({
@@ -12,6 +18,9 @@ class DashboardSummaryModel {
     required this.totalClassified,
     required this.totalReviewRequired,
     required this.totalFailed,
+    this.approvedCount,
+    this.correctionCount,
+    this.rejectedCount,
     required this.documentsByStatus,
   });
 
@@ -25,10 +34,12 @@ class DashboardSummaryModel {
       totalFailed: _asInt(json['totalFailed']),
       documentsByStatus: statuses is List
           ? statuses
-              .map((item) => DocumentStatusCount.fromJson(
+                .map(
+                  (item) => DocumentStatusCount.fromJson(
                     item as Map<String, dynamic>,
-                  ))
-              .toList()
+                  ),
+                )
+                .toList()
           : const [],
     );
   }

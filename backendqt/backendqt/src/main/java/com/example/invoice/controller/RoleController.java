@@ -44,10 +44,17 @@ public class RoleController {
 	}
 
 	@PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public RoleResponse update(@PathVariable Long id, @Valid @RequestBody RoleCreateRequest request) {
+        return roleService.updateRole(id, request);
+    }
+
+    @PostMapping("/{id}/copy")
 	@PreAuthorize("hasRole('ADMIN')")
-	public RoleResponse update(@PathVariable Long id, @Valid @RequestBody RoleCreateRequest request) {
-		return roleService.updateRole(id, request);
-	}
+    @ResponseStatus(HttpStatus.CREATED)
+    public RoleResponse copy(@PathVariable Long id, @Valid @RequestBody RoleCreateRequest request) {
+        return roleService.copyRole(id, request);
+    }
 
 	@DeleteMapping("/{id}")
 	@PreAuthorize("hasRole('ADMIN')")

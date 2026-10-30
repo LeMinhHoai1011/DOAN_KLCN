@@ -1,0 +1,110 @@
+﻿[
+    {
+        "Screen":  1,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\01 • Đăng nhập.png"
+    },
+    {
+        "Screen":  2,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\02 • Trang chủ.png"
+    },
+    {
+        "Screen":  3,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\03 • Danh sách chứng từ.png"
+    },
+    {
+        "Screen":  4,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\04 • Bộ lọc bottom sheet.png"
+    },
+    {
+        "Screen":  5,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\05 • Chọn nguồn tài liệu.png"
+    },
+    {
+        "Screen":  6,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\06 • Xem trước upload.png"
+    },
+    {
+        "Screen":  7,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\07 • Tiến độ tải lên.png"
+    },
+    {
+        "Screen":  8,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\08 • Đang xử lý OCR\\AI.png"
+    },
+    {
+        "Screen":  9,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\09 • Chi tiết chứng từ.png"
+    },
+    {
+        "Screen":  10,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\10 • Bị trả lại\\bổ sung.png"
+    },
+    {
+        "Screen":  11,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\11 • Xem file đã lưu.png"
+    },
+    {
+        "Screen":  12,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\12 • Tài khoản.png"
+    },
+    {
+        "Screen":  13,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\13 • Thông báo chưa hỗ trợ.png"
+    },
+    {
+        "Screen":  14,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\14 • Danh sách rỗng.png"
+    },
+    {
+        "Screen":  15,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\15 • Lỗi và thử lại.png"
+    },
+    {
+        "Screen":  16,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\16 • Không đủ quyền.png"
+    },
+    {
+        "Screen":  17,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\17 — Kế toán • Tổng quan.png"
+    },
+    {
+        "Screen":  18,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\18 — Kế toán • Hàng đợi.png"
+    },
+    {
+        "Screen":  19,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\19 — Kế toán • Chi tiết duyệt.png"
+    },
+    {
+        "Screen":  20,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\20 — Kế toán • Yêu cầu bổ sung.png"
+    },
+    {
+        "Screen":  21,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\21 — Kế toán • Xử lý trên Web.png"
+    },
+    {
+        "Screen":  22,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\22 — Kế toán • Thu chi nhỏ lẻ.png"
+    },
+    {
+        "Screen":  23,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\23 — Kế toán • Chi tiết thu chi.png"
+    },
+    {
+        "Screen":  24,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\24 — Admin • Tổng quan.png"
+    },
+    {
+        "Screen":  25,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\25 — Admin • Chứng từ.png"
+    },
+    {
+        "Screen":  26,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\26 — Admin • Giám sát.png"
+    },
+    {
+        "Screen":  27,
+        "Path":  "D:\\maudoan_2\\DOAN_KLCN\\artifacts\\figma-mobile-reference-v1\\27 — Admin • Người dùng.png"
+    }
+]

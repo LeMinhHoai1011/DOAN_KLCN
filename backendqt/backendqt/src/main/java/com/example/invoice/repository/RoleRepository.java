@@ -9,5 +9,9 @@ public interface RoleRepository extends JpaRepository<Role, Long> {
     @org.springframework.data.jpa.repository.Query("select r from Role r where r.code = 'ADMIN'")
     @org.springframework.data.jpa.repository.QueryHints(@jakarta.persistence.QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
     Optional<Role> lockAdminGuard();
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select r from Role r where r.id = :id")
+    @org.springframework.data.jpa.repository.QueryHints(@jakarta.persistence.QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
+    Optional<Role> lockById(@org.springframework.data.repository.query.Param("id") Long id);
     Optional<Role> findByCode(String code);
 }

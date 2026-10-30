@@ -44,11 +44,11 @@ public class RoleService {
 
 	@Transactional
 	public RoleResponse createRole(RoleCreateRequest request) {
-		if (roleRepository.findByCode(request.code().toUpperCase()).isPresent()) {
+		if (roleRepository.findByCode(request.code().trim().toUpperCase(java.util.Locale.ROOT)).isPresent()) {
 			throw new BadRequestException("Mã vai trò đã tồn tại: " + request.code());
 		}
 		Role role = new Role();
-		role.setCode(request.code().toUpperCase());
+		role.setCode(request.code().trim().toUpperCase(java.util.Locale.ROOT));
 		role.setName(request.name());
 		role.setDescription(request.description());
 		role.setActive(request.active());
@@ -57,8 +57,13 @@ public class RoleService {
 
 	@Transactional
 	public RoleResponse updateRole(Long id, RoleCreateRequest request) {
-		Role role = loadRole(id);
-		String code = request.code().trim().toUpperCase(java.util.Locale.ROOT);
+		Role role = loadRoleForUpdate(id);
+        var expected = request.expected();
+        if (expected != null && (!java.util.Objects.equals(expected.code(), role.getCode())
+                || !java.util.Objects.equals(expected.name(), role.getName())
+                || !java.util.Objects.equals(expected.description(), role.getDescription())
+                || expected.active() != role.isActive())) throw new com.example.invoice.exception.RbacConflictException();
+        String code = request.code().trim().toUpperCase(java.util.Locale.ROOT);
 		if (SYSTEM_ROLES.contains(role.getCode().toUpperCase(java.util.Locale.ROOT))) {
 			if (!role.getCode().equals(code) || !request.active()) throw new BadRequestException(
 					"SYSTEM_ROLE_PROTECTED: Không được đổi code hoặc vô hiệu hóa role hệ thống");
@@ -66,11 +71,11 @@ public class RoleService {
 			throw new BadRequestException("SYSTEM_ROLE_PROTECTED: Không được đổi role khác thành role hệ thống");
 		}
 		// If code changed, check uniqueness
-		if (!role.getCode().equalsIgnoreCase(request.code())) {
-			if (roleRepository.findByCode(request.code().toUpperCase()).isPresent()) {
+		if (!role.getCode().equals(code)) {
+			if (roleRepository.findByCode(code).isPresent()) {
 				throw new BadRequestException("Mã vai trò đã tồn tại: " + request.code());
 			}
-			role.setCode(request.code().toUpperCase());
+			role.setCode(code);
 		}
 		role.setName(request.name());
 		role.setDescription(request.description());
@@ -78,9 +83,25 @@ public class RoleService {
 		return toRoleResponse(role);
 	}
 
+    @Transactional
+    public RoleResponse copyRole(Long sourceId, RoleCreateRequest request) {
+        Role source = loadRoleForUpdate(sourceId);
+        if ("USER".equals(source.getCode()))
+            throw new BadRequestException("HISTORICAL_USER_PERMISSIONS_PROTECTED: Không sao chép vai trò USER lịch sử");
+        RoleResponse created = createRole(request);
+        Role copy = loadRole(created.id());
+        for (RolePermission assignment : source.getRolePermissions()) {
+            if (!assignment.getPermission().isActive()) continue;
+            RolePermission link = new RolePermission();
+            link.setRole(copy); link.setPermission(assignment.getPermission());
+            copy.getRolePermissions().add(link);
+        }
+        return toRoleResponse(roleRepository.save(copy));
+    }
+
 	@Transactional
 	public void deleteRole(Long id) {
-		Role role = loadRole(id);
+		Role role = loadRoleForUpdate(id);
 		// Prevent deleting built-in system roles
 		if (SYSTEM_ROLES.contains(role.getCode().toUpperCase(java.util.Locale.ROOT))) {
 			throw new BadRequestException("Không thể xóa vai trò hệ thống mặc định: " + role.getCode());
@@ -100,7 +121,10 @@ public class RoleService {
 
 	@Transactional
 	public RoleResponse updateRolePermissions(Long roleId, RoleUpdatePermissionsRequest request) {
-		Role role = loadRole(roleId);
+		Role role = loadRoleForUpdate(roleId);
+        Set<Long> currentIds = role.getRolePermissions().stream().map(a -> a.getPermission().getId()).collect(Collectors.toSet());
+        if (request.expectedPermissionIds() != null && !currentIds.equals(request.expectedPermissionIds()))
+            throw new com.example.invoice.exception.RbacConflictException();
 		if ("USER".equalsIgnoreCase(role.getCode())) {
 			Set<Long> current = role.getRolePermissions().stream().map(a -> a.getPermission().getId()).collect(Collectors.toSet());
 			if (!current.equals(request.permissionIds())) throw new BadRequestException(
@@ -111,8 +135,12 @@ public class RoleService {
 		if (permissions.size() != request.permissionIds().size()) {
 			throw new BadRequestException("Một hoặc nhiều mã quyền không hợp lệ");
 		}
-		role.getRolePermissions().clear();
-		for (Permission permission : permissions) {
+        if (permissions.stream().anyMatch(p -> !p.isActive() && !currentIds.contains(p.getId())))
+            throw new BadRequestException("PERMISSION_INACTIVE: Không được cấp mới quyền đã vô hiệu hóa");
+        // Preserve retained join rows to avoid insert-before-delete unique constraint failures.
+        role.getRolePermissions().removeIf(a -> !request.permissionIds().contains(a.getPermission().getId()));
+        for (Permission permission : permissions) {
+            if (currentIds.contains(permission.getId())) continue;
 			RolePermission rolePermission = new RolePermission();
 			rolePermission.setRole(role);
 			rolePermission.setPermission(permission);
@@ -143,7 +171,11 @@ public class RoleService {
 
 	// ── Helpers ───────────────────────────────────────────────────────────────
 
-	private Role loadRole(Long id) {
+	private Role loadRoleForUpdate(Long id) {
+        return roleRepository.lockById(id).orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy vai trò"));
+    }
+
+    private Role loadRole(Long id) {
 		return roleRepository.findById(id)
 				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy vai trò"));
 	}

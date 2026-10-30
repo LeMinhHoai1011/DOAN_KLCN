@@ -9,13 +9,13 @@ class AppTextField extends StatefulWidget {
   final String? Function(String?)? validator;
 
   const AppTextField({
-    Key? key,
+    super.key,
     required this.label,
     this.hint,
     this.isPassword = false,
     this.controller,
     this.validator,
-  }) : super(key: key);
+  });
 
   @override
   State<AppTextField> createState() => _AppTextFieldState();
@@ -38,7 +38,7 @@ class _AppTextFieldState extends State<AppTextField> {
         Text(
           widget.label,
           style: const TextStyle(
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: FontWeight.w600,
             color: AppColors.textPrimary,
           ),
@@ -52,17 +52,20 @@ class _AppTextFieldState extends State<AppTextField> {
             hintText: widget.hint,
             filled: true,
             fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: AppColors.divider),
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: AppColors.divider),
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: AppColors.primary, width: 2),
             ),
             suffixIcon: widget.isPassword

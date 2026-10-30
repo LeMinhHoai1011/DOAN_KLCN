@@ -35,8 +35,9 @@ class AuthRepository {
 
   Future<UserModel> getCurrentUser() async {
     try {
-      final response =
-          await _apiClient.dio.get<Map<String, dynamic>>('/users/me');
+      final response = await _apiClient.dio.get<Map<String, dynamic>>(
+        '/users/me',
+      );
       final data = response.data;
       if (data == null) {
         throw const FormatException('Phản hồi thông tin tài khoản bị trống.');
@@ -51,6 +52,20 @@ class AuthRepository {
   }
 
   Future<String?> getStoredToken() => _secureStorage.getToken();
+
+  Future<void> changePassword(
+    String currentPassword,
+    String newPassword,
+  ) async {
+    try {
+      await _apiClient.dio.put<void>(
+        '/users/me/password',
+        data: {'currentPassword': currentPassword, 'newPassword': newPassword},
+      );
+    } catch (error) {
+      throw ApiException.from(error);
+    }
+  }
 
   Future<UserModel?> getStoredUser() => _secureStorage.getUser();
 

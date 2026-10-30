@@ -12,12 +12,13 @@ final documentRepositoryProvider = Provider((ref) {
 class DocumentListState {
   final bool isLoading;
   final bool isLoadingMore;
-  final String? error;
+  final Object? error;
   final List<DocumentModel> documents;
   final int page;
   final bool hasMore;
   final String search;
   final String? status;
+  final String? review;
 
   const DocumentListState({
     this.isLoading = true,
@@ -28,19 +29,31 @@ class DocumentListState {
     this.hasMore = true,
     this.search = '',
     this.status,
+    this.review,
   });
 }
 
 class DocumentListNotifier extends StateNotifier<DocumentListState> {
   final DocumentRepository _repository;
   static const _pageSize = 20;
+  int _requestVersion = 0;
 
   DocumentListNotifier(this._repository) : super(const DocumentListState()) {
     loadDocuments();
   }
 
-  Future<void> loadDocuments({String? search, String? status}) async {
+  Future<void> loadDocuments({
+    String? search,
+    String? status,
+    String? review,
+  }) async {
+    final requestVersion = ++_requestVersion;
     final nextSearch = search ?? state.search;
+    final nextReview = review == null
+        ? state.review
+        : review.isEmpty
+        ? null
+        : review;
     final nextStatus = status == null
         ? state.status
         : status.isEmpty || status == '*'
@@ -50,6 +63,7 @@ class DocumentListNotifier extends StateNotifier<DocumentListState> {
       isLoading: true,
       search: nextSearch,
       status: nextStatus,
+      review: nextReview,
     );
     try {
       final page = await _repository.getMyDocuments(
@@ -58,7 +72,9 @@ class DocumentListNotifier extends StateNotifier<DocumentListState> {
         sort: 'createdAt,desc',
         search: nextSearch,
         processingStatus: nextStatus,
+        reviewStatus: nextReview,
       );
+      if (!mounted || requestVersion != _requestVersion) return;
       state = DocumentListState(
         isLoading: false,
         documents: page.documents,
@@ -66,13 +82,16 @@ class DocumentListNotifier extends StateNotifier<DocumentListState> {
         hasMore: !page.last,
         search: nextSearch,
         status: nextStatus,
+        review: nextReview,
       );
     } catch (error) {
+      if (!mounted || requestVersion != _requestVersion) return;
       state = DocumentListState(
         isLoading: false,
-        error: error.toString(),
+        error: error,
         search: nextSearch,
         status: nextStatus,
+        review: nextReview,
       );
     }
   }
@@ -80,6 +99,7 @@ class DocumentListNotifier extends StateNotifier<DocumentListState> {
   Future<void> loadMore() async {
     if (state.isLoading || state.isLoadingMore || !state.hasMore) return;
     final nextPage = state.page + 1;
+    final requestVersion = _requestVersion;
     state = DocumentListState(
       isLoadingMore: true,
       documents: state.documents,
@@ -87,6 +107,7 @@ class DocumentListNotifier extends StateNotifier<DocumentListState> {
       hasMore: state.hasMore,
       search: state.search,
       status: state.status,
+      review: state.review,
     );
     try {
       final page = await _repository.getMyDocuments(
@@ -95,24 +116,29 @@ class DocumentListNotifier extends StateNotifier<DocumentListState> {
         sort: 'createdAt,desc',
         search: state.search,
         processingStatus: state.status,
+        reviewStatus: state.review,
       );
+      if (!mounted || requestVersion != _requestVersion) return;
       state = DocumentListState(
         documents: [...state.documents, ...page.documents],
         page: page.page,
         hasMore: !page.last,
         search: state.search,
         status: state.status,
+        review: state.review,
       );
     } catch (error) {
+      if (!mounted || requestVersion != _requestVersion) return;
       state = DocumentListState(
         isLoading: false,
         isLoadingMore: false,
-        error: error.toString(),
+        error: error,
         documents: state.documents,
         page: state.page,
         hasMore: state.hasMore,
         search: state.search,
         status: state.status,
+        review: state.review,
       );
     }
   }
@@ -134,3 +160,12 @@ final documentFileProvider = FutureProvider.autoDispose.family<Uint8List, int>((
 ) {
   return ref.watch(documentRepositoryProvider).getDocumentFile(id);
 });
+
+final documentBusinessProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>?, int>((ref, id) {
+      return ref.watch(documentRepositoryProvider).getBusinessState(id);
+    });
+final documentAssessmentProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>?, int>((ref, id) {
+      return ref.watch(documentRepositoryProvider).getAssessment(id);
+    });

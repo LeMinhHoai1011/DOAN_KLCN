@@ -25,6 +25,16 @@ class DocumentRepository {
 
   DocumentRepository(this._apiClient);
 
+  Future<Map<String, dynamic>?> getBusinessState(int id) async {
+    return await _getOptionalJson('/documents/$id/business-state')
+        as Map<String, dynamic>?;
+  }
+
+  Future<Map<String, dynamic>?> getAssessment(int id) async {
+    return await _getOptionalJson('/documents/$id/assessment')
+        as Map<String, dynamic>?;
+  }
+
   Future<DocumentPage> getMyDocuments({
     int page = 0,
     int size = 20,
@@ -162,11 +172,18 @@ class DocumentRepository {
     }
   }
 
-  Future<DocumentModel> runWorkflowAction(int documentId, String action) async {
+  Future<DocumentModel> runWorkflowAction(
+    int documentId,
+    String action, {
+    String? note,
+  }) async {
     try {
       final response = await _apiClient.dio.post<Map<String, dynamic>>(
         '/documents/$documentId/workflow',
-        data: {'action': action},
+        data: {
+          'action': action,
+          if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+        },
       );
       return DocumentModel.fromJson(response.data ?? const {});
     } catch (error) {

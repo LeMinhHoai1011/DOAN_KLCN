@@ -45,7 +45,13 @@ public class UserController {
 		return userService.assignRoles(id, request);
 	}
 
-	@GetMapping("/me")
+    @GetMapping("/{id}/access")
+    @PreAuthorize("hasRole('ADMIN')")
+    public com.example.invoice.dto.user.UserAccessResponse access(@PathVariable Long id) {
+        return userService.access(id);
+    }
+
+    @GetMapping("/me")
 	@PreAuthorize("isAuthenticated()")
 	public UserResponse me(Authentication authentication) {
 		return userService.currentUser(authentication);

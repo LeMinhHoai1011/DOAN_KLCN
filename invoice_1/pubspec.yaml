@@ -22,6 +22,7 @@ dependencies:
   pdfx: ^2.11.0
   riverpod: 2.5.1
   sqflite: ^2.4.4
+  url_launcher: ^6.3.3
 
 dev_dependencies:
   flutter_test:
@@ -30,3 +31,13 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/InterVariable.ttf
+    - family: NotoSansSymbols2
+      fonts:
+        - asset: assets/fonts/NotoSansSymbols2-Regular.ttf
+    - family: NotoSansSymbols
+      fonts:
+        - asset: assets/fonts/NotoSansSymbols-Regular.ttf

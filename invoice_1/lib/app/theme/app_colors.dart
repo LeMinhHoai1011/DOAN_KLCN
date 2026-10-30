@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  static const Color primary = Color(0xFF1E88E5); // Blue
-  static const Color background = Color(0xFFF5F7FA); // Light gray
-  static const Color surface = Colors.white;
-  
-  static const Color textPrimary = Color(0xFF1A237E); // Dark navy
-  static const Color textSecondary = Color(0xFF757575);
-  
-  static const Color success = Color(0xFF43A047); // Green
-  static const Color warning = Color(0xFFF57C00); // Orange
-  static const Color error = Color(0xFFE53935); // Red
-  
-  static const Color divider = Color(0xFFE0E0E0);
+  static const primary = Color(0xFF2563EB);
+  static const primarySurface = Color(0xFFEFF6FF);
+  static const background = Color(0xFFF5F7FB);
+  static const surface = Colors.white;
+  static const textPrimary = Color(0xFF0F172A);
+  static const textSecondary = Color(0xFF64748B);
+  static const success = Color(0xFF047857);
+  static const successSurface = Color(0xFFD1FAE5);
+  static const warning = Color(0xFFB45309);
+  static const warningSurface = Color(0xFFFEF3C7);
+  static const error = Color(0xFFB91C1C);
+  static const errorSurface = Color(0xFFFEE2E2);
+  static const info = Color(0xFF0369A1);
+  static const infoSurface = Color(0xFFE0F2FE);
+  static const divider = Color(0xFFE2E8F0);
 }

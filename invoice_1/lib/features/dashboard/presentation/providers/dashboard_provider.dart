@@ -6,7 +6,10 @@ import '../../../documents/data/models/document_model.dart';
 
 final dashboardRepositoryProvider = Provider((ref) {
   ref.watch(authProvider.select((state) => state.user?.userId));
-  return DashboardRepository(ref.watch(apiClientProvider));
+  return DashboardRepository(
+    ref.watch(apiClientProvider),
+    reviewQueue: ref.watch(authProvider).user?.effectiveRole == 'ACCOUNTANT',
+  );
 });
 
 class DashboardState {
@@ -57,15 +60,12 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         recentDocuments: results[1] as List<DocumentModel>,
       );
     } catch (error) {
-      state = state.copyWith(
-        isLoading: false,
-        error: error.toString(),
-      );
+      state = state.copyWith(isLoading: false, error: error.toString());
     }
   }
 }
 
 final dashboardProvider =
     StateNotifierProvider<DashboardNotifier, DashboardState>((ref) {
-  return DashboardNotifier(ref.watch(dashboardRepositoryProvider));
-});
+      return DashboardNotifier(ref.watch(dashboardRepositoryProvider));
+    });

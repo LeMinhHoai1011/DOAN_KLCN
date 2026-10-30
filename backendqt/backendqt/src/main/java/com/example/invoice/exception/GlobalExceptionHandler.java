@@ -19,7 +19,11 @@ import org.slf4j.LoggerFactory;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+	@ExceptionHandler(RbacConflictException.class)
+    ResponseEntity<ErrorResponse> handleRbacConflict(RbacConflictException ex, HttpServletRequest request) {
+        return error(HttpStatus.CONFLICT, "RBAC_UPDATE_CONFLICT", ex.getMessage(), request.getRequestURI());
+    }
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
     @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
     ResponseEntity<ErrorResponse> handleUnsupportedMethod(HttpServletRequest request) {
         return error(HttpStatus.METHOD_NOT_ALLOWED,"METHOD_NOT_ALLOWED","Không hỗ trợ thao tác này trên tài nguyên chỉ đọc.",request.getRequestURI());

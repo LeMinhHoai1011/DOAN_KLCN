@@ -1,4 +1,12 @@
 class UserModel {
+  String get effectiveRole {
+    final assigned = {...roles, ?role};
+    for (final candidate in ['ADMIN', 'ACCOUNTANT', 'EMPLOYEE', 'USER']) {
+      if (assigned.contains(candidate)) return candidate;
+    }
+    return 'USER';
+  }
+
   final int userId;
   final int? companyId;
   final String username;
@@ -60,7 +68,9 @@ class UserModel {
     if (value is int) return value;
     if (value is num) return value.toInt();
     if (value is String) return int.parse(value);
-    throw const FormatException('Backend user response did not contain a numeric id.');
+    throw const FormatException(
+      'Backend user response did not contain a numeric id.',
+    );
   }
 
   static int? _asNullableInt(Object? value) {

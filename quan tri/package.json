@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node --experimental-strip-types --test src/components/ocr-preview/ocrPreviewUtils.test.mjs src/utils/confidence.test.mjs src/services/readState.test.mjs src/utils/reconciliationPresentation.test.mjs src/components/ReconciliationResultCard.test.mjs src/utils/pipelinePresentation.test.mjs src/utils/businessStatePresentation.test.mjs src/utils/accountingCategoryPresentation.test.mjs src/utils/paymentPresentation.test.mjs src/utils/evaluationPresentation.test.mjs src/utils/documentArchivePresentation.test.mjs src/utils/dateTime.test.mjs src/components/ui/DateInput.test.mjs src/utils/financialTimeFilter.test.mjs src/components/FinancialTimeFilter.test.mjs src/utils/apiLoadError.test.mjs src/utils/paymentAutofill.test.mjs",
-    "preview": "vite preview"
+    "test": "node --experimental-strip-types --test src/components/ocr-preview/ocrPreviewUtils.test.mjs src/utils/confidence.test.mjs src/services/readState.test.mjs src/utils/reconciliationPresentation.test.mjs src/components/ReconciliationResultCard.test.mjs src/utils/pipelinePresentation.test.mjs src/utils/businessStatePresentation.test.mjs src/utils/accountingCategoryPresentation.test.mjs src/utils/paymentPresentation.test.mjs src/utils/evaluationPresentation.test.mjs src/utils/documentArchivePresentation.test.mjs src/utils/dateTime.test.mjs src/components/ui/DateInput.test.mjs src/utils/financialTimeFilter.test.mjs src/components/FinancialTimeFilter.test.mjs src/utils/apiLoadError.test.mjs src/utils/paymentAutofill.test.mjs src/utils/rbacDraft.test.mjs",
+    "preview": "vite preview",
+    "test:rbac-ui": "node scripts/rbac-ui-check.mjs"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

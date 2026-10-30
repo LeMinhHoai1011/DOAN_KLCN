@@ -13,6 +13,7 @@ class DocumentModel {
   final int? uploadedById;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final num? amount;
 
   const DocumentModel({
     required this.id,
@@ -29,6 +30,7 @@ class DocumentModel {
     this.uploadedById,
     this.createdAt,
     this.updatedAt,
+    this.amount,
   });
 
   factory DocumentModel.fromJson(Map<String, dynamic> json) {
@@ -47,6 +49,9 @@ class DocumentModel {
       uploadedById: _asNullableInt(json['uploadedById']),
       createdAt: _date(json['createdAt']),
       updatedAt: _date(json['updatedAt']),
+      amount: json['amount'] is num
+          ? json['amount'] as num
+          : num.tryParse(json['amount']?.toString() ?? ''),
     );
   }
 
@@ -54,7 +59,9 @@ class DocumentModel {
     if (value is int) return value;
     if (value is num) return value.toInt();
     if (value is String) return int.parse(value);
-    throw const FormatException('Backend document response did not contain a numeric id.');
+    throw const FormatException(
+      'Backend document response did not contain a numeric id.',
+    );
   }
 
   static int? _asNullableInt(Object? value) {
@@ -77,18 +84,22 @@ class DocumentPage {
   final int page;
   final int totalPages;
   final bool last;
+  final int totalElements;
 
   const DocumentPage({
     required this.documents,
     required this.page,
     required this.totalPages,
     required this.last,
+    this.totalElements = 0,
   });
 
   factory DocumentPage.fromJson(Map<String, dynamic> json) {
     final content = json['content'];
     if (content is! List) {
-      throw const FormatException('Backend document page did not contain content.');
+      throw const FormatException(
+        'Backend document page did not contain content.',
+      );
     }
     return DocumentPage(
       documents: content
@@ -97,6 +108,7 @@ class DocumentPage {
       page: (json['number'] as num?)?.toInt() ?? 0,
       totalPages: (json['totalPages'] as num?)?.toInt() ?? 0,
       last: json['last'] as bool? ?? true,
+      totalElements: (json['totalElements'] as num?)?.toInt() ?? 0,
     );
   }
 }
