@@ -3,12 +3,6 @@ import { Crosshair, MapPinOff } from 'lucide-react'
 import type { ExtractedFieldResponse } from '../../services/documentService'
 import { bestLocation, fieldGroup, fieldLabel } from './ocrPreviewUtils'
 
-const invoiceCoreFields = new Set([
-  'invoiceNumber', 'invoiceSeries', 'invoiceDate', 'sellerName', 'sellerTaxCode', 'sellerAddress',
-  'sellerPhone', 'buyerName', 'buyerTaxCode', 'buyerAddress', 'subtotal', 'vatAmount', 'taxAmount',
-  'totalAmount', 'paymentMethod', 'amountInWords', 'taxAuthorityCode', 'signDate', 'items',
-])
-
 export default function ExtractedFieldPanel({ fields, documentType, selectedId, hoveredId, canCorrect, onSelect, onHover, onCorrect }: {
   fields: ExtractedFieldResponse[]; documentType?: string | null; selectedId?: number; hoveredId?: number
   canCorrect: boolean
@@ -20,7 +14,7 @@ export default function ExtractedFieldPanel({ fields, documentType, selectedId, 
   const [savingFieldId, setSavingFieldId] = useState<number | null>(null)
   const [saveError, setSaveError] = useState('')
   const isVat = documentType?.toUpperCase().replace(/[- ]/g, '_') === 'VAT_INVOICE'
-  const visible = fields.filter(field => field.fieldValue?.trim() && !invoiceCoreFields.has(field.fieldName))
+  const visible = fields.filter(field => field.fieldValue?.trim())
   const grouped = visible.reduce<Map<string, ExtractedFieldResponse[]>>((result, field) => {
     const group = fieldGroup(field.fieldName, isVat)
     result.set(group, [...(result.get(group) ?? []), field]); return result
@@ -32,7 +26,7 @@ export default function ExtractedFieldPanel({ fields, documentType, selectedId, 
   return <aside className="min-h-0 overflow-y-auto border-hairline border-t bg-surface lg:border-l lg:border-t-0">
     <div className="sticky top-0 z-10 border-hairline bg-surface/95 border-b px-5 py-4 backdrop-blur">
       <h3 className="si-label">Dữ liệu trích xuất</h3>
-      <p className="mt-1.5 text-[17px] leading-[26px] text-ink-muted">Chọn một trường để xem vị trí trên chứng từ.</p>
+      <p className="mt-1.5 text-sm leading-6 text-ink-muted">Các trường có biểu tượng định vị có thể đối chiếu trên ảnh.</p>
     </div>
     <div className="space-y-5 p-4">
       {visible.length === 0 && <p className="rounded-card bg-canvas p-4 text-[18px] text-ink-muted">Chưa có dữ liệu trích xuất.</p>}
@@ -51,8 +45,8 @@ export default function ExtractedFieldPanel({ fields, documentType, selectedId, 
                 className="flex w-full items-start gap-3 text-left">
                 <span className="min-w-0 flex-1">
                   <span className="text-2xs block font-semibold text-ink-soft">{fieldLabel(field.fieldName)}</span>
-                  {!editing && <span className="text-ink mt-1 block text-[19px] leading-[28px] font-semibold break-words whitespace-pre-wrap">{field.fieldValue}</span>}
-                  {!location && <span className="text-ink-muted mt-1 text-2xs block">Chưa xác định được vị trí</span>}
+                  {!editing && <span className="text-ink mt-1 block text-sm leading-6 font-semibold break-words whitespace-pre-wrap">{field.fieldValue}</span>}
+
                 </span>
                 {location ? <Crosshair size={22} className="text-brand-700 mt-2 shrink-0" aria-label="Xem vị trí trên chứng từ" />
                   : <MapPinOff size={20} className="text-ink-muted mt-2 shrink-0" aria-label="Chưa xác định được vị trí" />}

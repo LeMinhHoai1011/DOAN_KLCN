@@ -78,9 +78,10 @@ export function PdfSurface({ url, pageNumber, width, onMetadata, onError }: {
   return <canvas ref={canvasRef} className="block bg-white shadow-elev2" />
 }
 
-export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, documentType, canCorrectFields, onCorrectField }: {
+export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, documentType, canCorrectFields, onCorrectField, showFieldPanel = true, focusedField }: {
   documentId: number; fileType: string; ocr: OCRResultResponse | null
   fields: ExtractedFieldResponse[]; documentType?: string | null
+  showFieldPanel?: boolean; focusedField?: ExtractedFieldResponse | null
   canCorrectFields: boolean; onCorrectField: (fieldId: number, fieldValue: string) => Promise<void>
 }) {
   const [url, setUrl] = useState('')
@@ -158,18 +159,18 @@ export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, 
   const renderedWidth = Math.max(1, sourceSize.width * baseScale * zoom)
   const renderedHeight = Math.max(1, sourceSize.height * baseScale * zoom)
 
-  const focusField = selected ?? hovered
+  const focusField = focusedField ?? selected ?? hovered
   const fieldLocation = bestLocation(focusField)
   useEffect(() => {
-    if (selected && fieldLocation) setActivePage(fieldLocation.page)
-  }, [fieldLocation, selected])
+    if ((focusedField || selected) && fieldLocation) setActivePage(fieldLocation.page)
+  }, [fieldLocation, selected, focusedField])
 
   const boxes = useMemo<OverlayBox[]>(() => {
 	if (!overlayVisible) return []
     if (overlayMode === 'field') {
       if (!focusField || !fieldLocation || fieldLocation.page !== activePage) return []
       return [{ key: `field-${focusField.id}-${fieldLocation.page}`, text: `${focusField.fieldName}: ${focusField.fieldValue ?? ''}`,
-        confidence: fieldLocation.matchConfidence, ...fieldLocation, active: Boolean(selected) }]
+        confidence: fieldLocation.matchConfidence, ...fieldLocation, active: Boolean(focusedField || selected) }]
     }
 	if (!layoutPage) return []
 	const pageWidth = pageWidthOf(layoutPage), pageHeight = pageHeightOf(layoutPage)
@@ -177,7 +178,7 @@ export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, 
     return (elements ?? []).map((element, index) => ({ key: element.id ?? `${overlayMode}-${index}`, text: element.text,
       confidence: element.confidence, x: element.x, y: element.y, width: element.width, height: element.height,
       pageWidth, pageHeight, active: false }))
-  }, [activePage, fieldLocation, focusField, layoutPage, overlayMode, overlayVisible, selected])
+  }, [activePage, fieldLocation, focusField, layoutPage, overlayMode, overlayVisible, selected, focusedField])
 
   const selectField = useCallback((field: ExtractedFieldResponse) => {
     setSelected(current => current?.id === field.id ? null : field)
@@ -188,15 +189,15 @@ export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, 
     setFitMode('width'); setZoom(1); viewportRef.current?.scrollTo({ top: 0, left: 0, behavior: 'smooth' })
   }, [])
 
-  return <section className="si-card flex h-full min-h-[620px] flex-col overflow-hidden">
+  return <section className="si-card flex h-full min-h-[520px] xl:min-h-0 flex-col overflow-hidden">
     <OcrPreviewToolbar page={activePage} pageCount={pageCount} zoom={zoom} onPage={setActivePage}
       onZoom={value => setZoom(clampZoom(value))} onFitWidth={() => { setFitMode('width'); setZoom(1) }}
       onFitPage={() => { setFitMode('page'); setZoom(1) }} onReset={resetView} />
-    <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+    <div className={`grid min-h-0 flex-1 grid-cols-1 ${showFieldPanel ? 'lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]' : ''}`}>
       <div ref={viewportRef} className="border-hairline bg-subtle relative min-h-[420px] overflow-auto border-r p-5"
         onWheel={event => { if (!event.ctrlKey) return; event.preventDefault(); setZoom(value => clampZoom(value + (event.deltaY < 0 ? .1 : -.1))) }}>
-        {loadError && <div className="bg-subtle/95 absolute inset-0 z-20 grid place-items-center"><p className="rounded-control bg-failed-surface px-5 py-4 text-[18px] font-semibold text-failed">Không thể tải bản xem trước chứng từ.</p></div>}
-        {!url && !loadError && <div className="absolute inset-0 grid place-items-center"><span className="animate-pulse text-[18px] font-medium text-ink-soft">Đang tải bản xem trước...</span></div>}
+        {loadError && <div className="bg-subtle/95 absolute inset-0 z-20 grid place-items-center"><p className="rounded-control bg-failed-surface px-5 py-4 text-sm font-semibold text-failed">Không thể tải bản xem trước chứng từ.</p></div>}
+        {!url && !loadError && <div className="absolute inset-0 grid place-items-center"><span className="animate-pulse text-sm font-medium text-ink-soft">Đang tải bản xem trước...</span></div>}
         {url && !loadError && <div className="mx-auto w-fit" style={{ minHeight: renderedHeight }}>
           <div className="relative" style={{ width: renderedWidth, height: renderedHeight }}>
 			{previewContentType.startsWith('image/') ? <img src={url} alt="Bản xem trước chứng từ" draggable={false}
@@ -206,25 +207,25 @@ export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, 
                 onMetadata={updatePdfMetadata} onError={markLoadError} />
                 : <iframe title="Bản xem trước chứng từ" src={url} className="h-full w-full bg-white" />}
             {overlayVisible && <OcrOverlayLayer boxes={boxes} renderedWidth={renderedWidth} renderedHeight={renderedHeight}
-              focusKey={selected && fieldLocation ? `field-${selected.id}-${fieldLocation.page}` : undefined} />}
+              focusKey={focusField && fieldLocation ? `field-${focusField.id}-${fieldLocation.page}` : undefined} />}
           </div>
         </div>}
       </div>
-      <ExtractedFieldPanel fields={fields} documentType={documentType} selectedId={selected?.id} hoveredId={hovered?.id}
-        canCorrect={canCorrectFields} onSelect={selectField} onHover={setHovered} onCorrect={onCorrectField} />
+      {showFieldPanel && <ExtractedFieldPanel fields={fields} documentType={documentType} selectedId={selected?.id} hoveredId={hovered?.id}
+        canCorrect={canCorrectFields} onSelect={selectField} onHover={setHovered} onCorrect={onCorrectField} />}
     </div>
     <footer className="flex flex-wrap items-center justify-between gap-4 border-hairline border-t bg-surface px-5 py-3">
-      <label className="flex cursor-pointer items-center gap-2.5 text-[18px] font-semibold text-ink-soft">
+      <label className="flex cursor-pointer items-center gap-2.5 text-sm font-semibold text-ink-soft">
         <input type="checkbox" checked={overlayVisible} onChange={event => setOverlayVisible(event.target.checked)} className="h-5 w-5 rounded border-hairline-strong" />
         Hiện vùng nhận dạng
       </label>
-      <label className="flex items-center gap-2.5 text-[18px] text-ink-soft">Overlay
+      <label className="flex items-center gap-2.5 text-sm text-ink-soft">Vùng đánh dấu
         <select value={overlayMode} onChange={event => setOverlayMode(event.target.value as OverlayMode)}
-          className="si-select w-auto" aria-label="Chế độ overlay">
+          className="si-select w-auto" aria-label="Chế độ vùng đánh dấu">
           <option value="field">Trường dữ liệu</option><option value="line">Dòng OCR</option><option value="word">Từ OCR</option><option value="block">Khối OCR (kiểm tra)</option>
         </select>
       </label>
-      {!fields.some(field => (field.locations?.length ?? 0) > 0) && <span className="text-[17px] text-ink-muted">Chưa có dữ liệu vị trí để đánh dấu.</span>}
+      {overlayMode === 'field' && !fields.some(field => (field.locations?.length ?? 0) > 0) && <span className="text-xs text-ink-muted">Chưa có dữ liệu vị trí để đánh dấu.</span>}
     </footer>
   </section>
 }

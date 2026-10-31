@@ -61,3 +61,8 @@ test('classifies auth, not-found and server/storage HTTP failures', () => {
   assert.equal(previewHttpError(404).code, 'PREVIEW_NOT_FOUND')
   assert.equal(previewHttpError(500).code, 'PREVIEW_SERVER_ERROR')
 })
+
+ test('preserves localized Vietnamese labels without splitting accented letters', () => {
+  assert.equal(fieldLabel('Mã số thuế'), 'Mã số thuế')
+  assert.equal(fieldLabel('Địa chỉ'), 'Địa chỉ')
+})

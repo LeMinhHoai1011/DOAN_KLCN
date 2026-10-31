@@ -70,6 +70,8 @@ const vietnameseWords: Record<string, string> = {
 
 export const fieldLabel = (name: string) => {
   if (labels[name]) return labels[name]
+  // Preserve already localized labels; camel-case rules only apply to identifiers.
+  if (/[^\x00-\x7F]/.test(name)) return name.trim()
   const words = name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim().split(/\s+/)
   const humanized = words.map((word, index) => {
     const translated = vietnameseWords[word.toLocaleLowerCase('vi-VN')] ?? word.toLocaleLowerCase('vi-VN')
