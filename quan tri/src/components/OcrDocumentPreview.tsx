@@ -215,7 +215,7 @@ export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, 
         canCorrect={canCorrectFields} onSelect={selectField} onHover={setHovered} onCorrect={onCorrectField} />}
     </div>
     <footer className="flex flex-wrap items-center justify-between gap-4 border-hairline border-t bg-surface px-5 py-3">
-      <label className="flex cursor-pointer items-center gap-2.5 text-sm font-semibold text-ink-soft">
+      {(fields.some(field => (field.locations?.length ?? 0) > 0) || pages.some(page => (page.words?.length ?? 0) + (page.lines?.length ?? 0) + (page.blocks?.length ?? 0) > 0)) && <><label className="flex cursor-pointer items-center gap-2.5 text-sm font-semibold text-ink-soft">
         <input type="checkbox" checked={overlayVisible} onChange={event => setOverlayVisible(event.target.checked)} className="h-5 w-5 rounded border-hairline-strong" />
         Hiện vùng nhận dạng
       </label>
@@ -225,6 +225,7 @@ export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, 
           <option value="field">Trường dữ liệu</option><option value="line">Dòng OCR</option><option value="word">Từ OCR</option><option value="block">Khối OCR (kiểm tra)</option>
         </select>
       </label>
+      </>}
       {overlayMode === 'field' && !fields.some(field => (field.locations?.length ?? 0) > 0) && <span className="text-xs text-ink-muted">Chưa có dữ liệu vị trí để đánh dấu.</span>}
     </footer>
   </section>

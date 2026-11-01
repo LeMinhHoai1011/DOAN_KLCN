@@ -16,6 +16,33 @@ import ch.qos.logback.core.read.ListAppender;
 import org.slf4j.LoggerFactory;
 
 class AiDocumentResultParserTest {
+    @Test
+    void parsesVietnameseSeparatorsWithoutMultiplyingUnitPricesByAThousand() {
+        var result = AiDocumentResultParser.parse("test", "test", """
+            {"documentType":"VAT_INVOICE","invoice":{"subtotal":"780.000","vatAmount":"62.400","totalAmount":"842.400","items":[
+            {"productName":"A","quantity":"3,00","unitPrice":"80.000,000","amount":"240.000"},
+            {"productName":"B","quantity":"12,00","unitPrice":"45.000,000","amount":"540.000"}]}}
+            """, "raw", 1);
+        var rows = result.invoice().items();
+        assertEquals(0, rows.getFirst().unitPrice().compareTo(new BigDecimal("80000")));
+        assertEquals(0, rows.get(1).unitPrice().compareTo(new BigDecimal("45000")));
+        for (var row : rows) assertEquals(0, row.quantity().multiply(row.unitPrice()).compareTo(row.amount()));
+        assertEquals(0, result.invoice().totalAmount().compareTo(new BigDecimal("842400")));
+    }
+
+    @Test
+    void preservesCanonicalJsonNumbersAndRejectsMalformedGrouping() {
+        var result = AiDocumentResultParser.parse("test", "test", """
+            {"invoice":{"totalAmount":80000.000,"items":[]}}
+            """, "raw", 1);
+        assertEquals(0, result.invoice().totalAmount().compareTo(new BigDecimal("80000")));
+        assertThrows(AiProviderException.class, () -> AiDocumentResultParser.parse("test", "test", """
+            {"invoice":{"totalAmount":"8.00.000","items":[]}}
+            """, "raw", 1));
+        assertEquals(0, InvoiceNumberFormat.parse("80,000.000").compareTo(new BigDecimal("80000")));
+        assertEquals(0, InvoiceNumberFormat.parse("1234.56").compareTo(new BigDecimal("1234.56")));
+    }
+
 	@Test
 	void parsesJsonWrappedInMarkdownFence() {
 		AiDocumentResult result = AiDocumentResultParser.parse("ollama", "vision", """

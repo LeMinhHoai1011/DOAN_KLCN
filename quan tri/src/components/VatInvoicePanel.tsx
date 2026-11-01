@@ -1,6 +1,7 @@
+import { parseInvoiceNumber, invoiceNumberInput } from '../utils/invoiceNumber'
 import DateInput from './ui/DateInput'
 import { formatDate } from '../utils/dateTime'
-﻿import type { InvoiceResponse, InvoiceUpdateRequest } from '../services/invoiceService'
+import type { InvoiceResponse, InvoiceUpdateRequest } from '../services/invoiceService'
 import type { ReactNode } from 'react'
 
 export interface InvoiceFormData {
@@ -22,13 +23,13 @@ export const toInvoiceForm = (invoice: InvoiceResponse): InvoiceFormData => ({
   signDate: invoice.signDate || '', sellerName: invoice.sellerName || '', sellerTaxCode: invoice.sellerTaxCode || '',
   sellerAddress: invoice.sellerAddress || '', sellerPhone: invoice.sellerPhone || '', buyerName: invoice.buyerName || '',
   buyerTaxCode: invoice.buyerTaxCode || '', buyerAddress: invoice.buyerAddress || '',
-  subtotal: invoice.subtotal == null ? '' : String(invoice.subtotal), vatAmount: invoice.vatAmount == null ? '' : String(invoice.vatAmount),
-  totalAmount: invoice.totalAmount == null ? '' : String(invoice.totalAmount), paymentMethod: invoice.paymentMethod || '',
+  subtotal: invoiceNumberInput(invoice.subtotal), vatAmount: invoiceNumberInput(invoice.vatAmount),
+  totalAmount: invoiceNumberInput(invoice.totalAmount), paymentMethod: invoice.paymentMethod || '',
   amountInWords: invoice.amountInWords || '', taxAuthorityCode: invoice.taxAuthorityCode || '',
 })
 
 const nullable = (value: string) => value.trim() || null
-const amount = (value: string) => value.trim() && Number.isFinite(Number(value)) ? Number(value) : null
+const amount = parseInvoiceNumber
 
 export const toInvoiceUpdateRequest = (documentId: number, form: InvoiceFormData, invoice: InvoiceResponse): InvoiceUpdateRequest => ({
   documentId, invoiceNumber: nullable(form.invoiceNumber), invoiceSeries: nullable(form.invoiceSeries),
@@ -57,9 +58,9 @@ export default function VatInvoicePanel({ invoice, form, editable, onChange, raw
   const Input = ({ field, label, type = 'text', multiline = false, emphasis = false }: { field: keyof InvoiceFormData; label: string; type?: string; multiline?: boolean; emphasis?: boolean }) => <label className="block min-w-0">
     <span className="si-field-label mb-1">{label}</span>
     {multiline ? <textarea value={form[field]} onChange={event => onChange(field, event.target.value)} disabled={!editable} rows={3} className="si-input disabled:bg-subtle" />
-      : type === 'date' ? <DateInput value={form[field]} onChange={event => onChange(field,event.target.value)} disabled={!editable} className="si-input disabled:bg-subtle" /> : <input type={type} value={form[field]} onChange={event => onChange(field, event.target.value)} disabled={!editable} className={`si-input disabled:bg-subtle ${emphasis ? 'border-brand-500 font-semibold text-brand-700' : ''}`} />}
+      : type === 'date' ? <DateInput value={form[field]} onChange={event => onChange(field,event.target.value)} disabled={!editable} className="si-input disabled:bg-subtle" /> : <input type={type === 'number' ? 'text' : type} inputMode={type === 'number' ? 'decimal' : undefined} value={form[field]} onChange={event => onChange(field, event.target.value)} disabled={!editable} className={`si-input disabled:bg-subtle ${emphasis ? 'border-brand-500 font-semibold text-brand-700' : ''}`} />}
     {type === 'date' && form[field] && <span className="mt-1 block text-xs text-ink-muted">{date(form[field])}</span>}
-    {type === 'number' && form[field] && <span className="mt-1 block text-xs text-ink-muted">{money(Number(form[field]))}</span>}
+    {type === 'number' && <span className="mt-1 block text-xs text-ink-muted">Dấu chấm ngăn nghìn, dấu phẩy thập phân.</span>}
   </label>
 
   return <div className="space-y-4">

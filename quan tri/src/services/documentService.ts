@@ -84,7 +84,7 @@ export interface DocumentPageQuery {
 }
 
 export type WorkflowAction = 'SUBMIT' | 'START_REVIEW' | 'APPROVE' | 'REJECT' | 'REQUEST_INFO' | 'RESUBMIT'
-export interface WorkflowActionRequest { action: WorkflowAction; note?: string }
+export interface WorkflowActionRequest { action: WorkflowAction; note?: string; activeReviewMs?: number }
 
 export interface OCRResultResponse {
   id: number

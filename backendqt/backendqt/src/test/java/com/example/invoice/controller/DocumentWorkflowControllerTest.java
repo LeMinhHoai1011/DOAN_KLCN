@@ -22,19 +22,19 @@ class DocumentWorkflowControllerTest {
 
   @Test void submitInvokesCanonicalProcessingBoundaryOnce() {
     DocumentResponse response = null;
-    when(workflow.execute(9L, "SUBMIT", null, null)).thenReturn(response);
+    when(workflow.execute(9L, "SUBMIT", null, null, null)).thenReturn(response);
     new DocumentWorkflowController(workflow, processing).act(9L, new ReviewActionRequest("SUBMIT", null), null);
     verify(processing).process(9L, false);
   }
 
   @Test void invalidSubmitDoesNotInvokeProcessing() {
-    when(workflow.execute(9L, "SUBMIT", null, null)).thenThrow(new BadRequestException("invalid state"));
+    when(workflow.execute(9L, "SUBMIT", null, null, null)).thenThrow(new BadRequestException("invalid state"));
     assertThrows(BadRequestException.class, () -> new DocumentWorkflowController(workflow, processing).act(9L, new ReviewActionRequest("SUBMIT", null), null));
     verify(processing, never()).process(9L, false);
   }
 
   @Test void resubmitInvokesProcessingAndProcessingFailurePropagates() {
-    when(workflow.execute(9L, "RESUBMIT", null, null)).thenReturn(null);
+    when(workflow.execute(9L, "RESUBMIT", null, null, null)).thenReturn(null);
     org.mockito.Mockito.doThrow(new IllegalStateException("AI unavailable")).when(processing).process(9L, false);
     assertThrows(IllegalStateException.class, () -> new DocumentWorkflowController(workflow, processing).act(9L, new ReviewActionRequest("RESUBMIT", null), null));
     verify(processing).process(9L, false);

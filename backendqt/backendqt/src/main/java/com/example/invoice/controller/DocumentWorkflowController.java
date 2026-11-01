@@ -24,7 +24,7 @@ public class DocumentWorkflowController {
 	@PostMapping
 	public DocumentResponse act(@PathVariable Long documentId, @Valid @RequestBody ReviewActionRequest request,
 			Authentication authentication) {
-		DocumentResponse response = reviewWorkflowService.execute(documentId, request.action(), request.note(), authentication);
+		DocumentResponse response = reviewWorkflowService.execute(documentId, request.action(), request.note(), request.activeReviewMs(), authentication);
 		String action = request.action().trim().toUpperCase(java.util.Locale.ROOT);
 		if ("SUBMIT".equals(action) || "RESUBMIT".equals(action)) {
 			documentAiProcessingService.process(documentId, false);

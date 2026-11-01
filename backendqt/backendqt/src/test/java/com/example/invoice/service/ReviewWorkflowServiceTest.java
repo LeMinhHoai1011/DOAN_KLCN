@@ -2,6 +2,7 @@ package com.example.invoice.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -32,4 +33,7 @@ class ReviewWorkflowServiceTest {
  @Test void repeatedApprovalAndLockedLegacyStateCannotCreateAnotherTransaction() {Document d=document(DocumentStatus.PROCESSED,ReviewStatus.PENDING);current(actor("ADMIN"),d);service().execute(4L,"APPROVE",null,null);assertThrows(BadRequestException.class,()->service().execute(4L,"APPROVE",null,null));verify(transactions,never()).createFromApprovedDocument(any(),any());verify(reviews,times(1)).save(any());}
  @Test void rejectedDocumentRequiresResubmissionAndKeepsHistory(){Document d=document(DocumentStatus.NEED_REVIEW,ReviewStatus.REJECTED);current(actor("ACCOUNTANT"),d);assertThrows(BadRequestException.class,()->service().execute(4L,"APPROVE",null,null));verifyNoInteractions(transactions);}
  @Test void inactiveReviewerCannotApprove(){Document d=document(DocumentStatus.PROCESSED,ReviewStatus.PENDING);User user=actor("ADMIN");user.getUserRoles().iterator().next().getRole().setActive(false);current(user,d);assertThrows(org.springframework.security.access.AccessDeniedException.class,()->service().execute(4L,"APPROVE",null,null));verifyNoInteractions(transactions);}
+ @Test void decisionsKeepMeasuredReviewTimeWithinBounds(){Document d=document(DocumentStatus.NEED_REVIEW,ReviewStatus.PENDING);current(actor("ACCOUNTANT"),d);service().execute(4L,"APPROVE",null,90_000L,null);ArgumentCaptor<DocumentReview> c=ArgumentCaptor.forClass(DocumentReview.class);verify(reviews).save(c.capture());assertEquals(90_000L,c.getValue().getActiveReviewMs());
+  reset(reviews);Document idle=document(DocumentStatus.NEED_REVIEW,ReviewStatus.PENDING);current(actor("ACCOUNTANT"),idle);service().execute(4L,"REJECT","sai MST",ReviewWorkflowService.MAX_ACTIVE_REVIEW_MS+1,null);c=ArgumentCaptor.forClass(DocumentReview.class);verify(reviews).save(c.capture());assertNull(c.getValue().getActiveReviewMs());
+  reset(reviews);Document start=document(DocumentStatus.PROCESSED,ReviewStatus.PENDING);current(actor("ACCOUNTANT"),start);service().execute(4L,"START_REVIEW",null,5_000L,null);c=ArgumentCaptor.forClass(DocumentReview.class);verify(reviews).save(c.capture());assertNull(c.getValue().getActiveReviewMs());}
 }

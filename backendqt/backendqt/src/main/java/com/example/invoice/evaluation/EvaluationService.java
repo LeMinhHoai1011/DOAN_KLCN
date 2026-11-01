@@ -15,6 +15,8 @@ import org.springframework.web.server.ResponseStatusException;
 /** Read-only, opt-in evaluation store. No repositories, business IDs, writes, OCR or model calls. */
 @Service
 public class EvaluationService {
+    /** A/B/C are AI variants; R is the non-LLM baseline (Tess4J + rules) used as the traditional control group. */
+    static final Set<String> STRATEGIES=Set.of("A","B","C","R");
     private final String directory;
     private final ObjectMapper json;
     public EvaluationService(@Value("${app.evaluation.directory:}") String directory, ObjectMapper json) {
@@ -33,7 +35,7 @@ public class EvaluationService {
 
     public Report report(String model,String strategy,Instant from,Instant to) {
         if(from!=null&&to!=null&&from.isAfter(to))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"INVALID_DATE_RANGE");
-        if(strategy!=null&&!Set.of("A","B","C").contains(strategy))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"INVALID_STRATEGY");
+        if(strategy!=null&&!STRATEGIES.contains(strategy))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"INVALID_STRATEGY");
         if(directory==null||directory.isBlank())return report("NOT_CONFIGURED",List.of());
         try {
             Path root=Path.of(directory).toRealPath();
@@ -82,21 +84,29 @@ public class EvaluationService {
         }
     }
     private Report report(String status,List<RunReport> runs) {
-        boolean same=!runs.isEmpty()&&runs.stream().allMatch(r->r.complete()&&r.datasetSamples()>0
+        var ai=runs.stream().filter(r->!"R".equals(r.strategy())).toList();
+        // R has its own "model" (the rule set) and runs without the AI host, so model digest and
+        // environment are only compared among AI runs; cohort and code revision apply to every run.
+        boolean same=!ai.isEmpty()&&runs.stream().allMatch(r->r.complete()&&r.datasetSamples()>0
                 &&r.groundTruthSha256().equals(runs.getFirst().groundTruthSha256())
-                &&r.modelDigest().equals(runs.getFirst().modelDigest())
-                &&r.environment().equals(runs.getFirst().environment())
-                &&r.codeRevision().equals(runs.getFirst().codeRevision()));
-        boolean allStrategies=runs.stream().map(RunReport::strategy).collect(java.util.stream.Collectors.toSet()).containsAll(Set.of("A","B","C"));
-        boolean onePerStrategy=runs.size()==3;
-        return new Report(status,List.copyOf(runs),same&&allStrategies&&onePerStrategy,
-                same&&allStrategies&&onePerStrategy?"SAME_COHORT_MODEL_ENVIRONMENT_REVISION":"REQUIRE_ONE_COMPLETE_RUN_PER_A_B_C_WITH_SAME_COHORT_MODEL_ENVIRONMENT_REVISION",
+                &&r.codeRevision().equals(runs.getFirst().codeRevision()))
+                &&ai.stream().allMatch(r->r.modelDigest().equals(ai.getFirst().modelDigest())
+                        &&r.environment().equals(ai.getFirst().environment()));
+        var strategies=runs.stream().map(RunReport::strategy).toList();
+        boolean allStrategies=strategies.containsAll(Set.of("A","B","C"));
+        boolean onePerStrategy=new HashSet<>(strategies).size()==strategies.size();
+        boolean comparable=same&&allStrategies&&onePerStrategy;
+        String reason=!comparable?"REQUIRE_ONE_COMPLETE_RUN_PER_A_B_C_WITH_SAME_COHORT_MODEL_ENVIRONMENT_REVISION"
+                :strategies.contains("R")?"SAME_COHORT_MODEL_ENVIRONMENT_REVISION_WITH_RULE_BASELINE"
+                :"SAME_COHORT_MODEL_ENVIRONMENT_REVISION";
+        return new Report(status,List.copyOf(runs),comparable,reason,
                 "exact-nfc-ws-v1",List.of("Confidence không phải accuracy.",
                 "NEED_REVIEW là xử lý hoàn tất cần kiểm tra; SUCCESS không có nghĩa dữ liệu đúng hoặc đã duyệt.",
                 "Chỉ số chỉ dựa trên ground truth thủ công và bằng chứng thực nghiệm; không lấy dữ liệu nghiệp vụ làm chuẩn.",
                 "Thiếu thời gian/fallback/attempts trả null và số mẫu quan sát, không suy diễn.",
                 "Nhóm Text/Vision là nhánh xử lý thực đo, có độ khó đầu vào khác nhau; không phải so sánh nhân quả trên cùng mẫu.",
-                "Chi tiết hàng hóa so sánh ô theo thứ tự dòng đã chốt; dòng thừa được báo riêng."));
+                "Chi tiết hàng hóa so sánh ô theo thứ tự dòng đã chốt; dòng thừa được báo riêng.",
+                "R là nhóm đối chứng truyền thống (Tess4J + luật/từ khóa, không LLM, không trích bảng hàng hóa)."));
     }
     private void validate(Path root,EvaluationData data)throws IOException {
         if(data==null||!Set.of(1,2).contains(data.schemaVersion())||!label(data.datasetId())||!label(data.datasetVersion())
@@ -117,7 +127,7 @@ public class EvaluationService {
         }
         Set<String> runIds=new HashSet<>();
         for(var run:data.runs()) {
-            if(run==null||!label(run.id())||!runIds.add(run.id())||!Set.of("A","B","C").contains(Objects.toString(run.strategy(),""))
+            if(run==null||!label(run.id())||!runIds.add(run.id())||!STRATEGIES.contains(Objects.toString(run.strategy(),""))
                     ||!label(run.model())||!digest(run.modelDigest())||!digest(run.configSha256())||!label(run.codeRevision())
                     ||run.environment()==null||run.environment().isBlank()||run.environment().length()>1000
                     ||run.startedAt()==null||run.startedAt().isAfter(Instant.now())||run.results()==null||run.results().size()>500)throw invalid();

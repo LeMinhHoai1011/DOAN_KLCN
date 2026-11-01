@@ -51,9 +51,19 @@ public class ReviewWorkflowService {
 	 * REJECTED/NEED_REVIEW, CORRECTED/NEED_REVIEW (request information); a corrected
 	 * or rejected document can be resubmitted to UPLOADED/PENDING.
 	 */
+	/** Upper bound for a single measured review; longer values are idle tabs, not review effort. */
+	static final long MAX_ACTIVE_REVIEW_MS = 4L * 60 * 60 * 1000;
+
 	@Transactional
 	public com.example.invoice.dto.document.DocumentResponse execute(Long documentId, String action, String note,
 			Authentication authentication) {
+		return execute(documentId, action, note, null, authentication);
+	}
+
+	@Transactional
+	public com.example.invoice.dto.document.DocumentResponse execute(Long documentId, String action, String note,
+			Long activeReviewMs, Authentication authentication) {
+		Long reviewMs = activeReviewMs != null && activeReviewMs > 0 && activeReviewMs <= MAX_ACTIVE_REVIEW_MS ? activeReviewMs : null;
 		User actor = userService.loadCurrent(authentication);
 		Document document = documentService.lockForWorkflow(documentId); // scope, lock and refreshed state
 		require(document.getReviewStatus() != ReviewStatus.APPROVED && document.getStatus() != DocumentStatus.COMPLETED, "Chứng từ đã duyệt hoặc đã khóa");
@@ -82,7 +92,7 @@ public class ReviewWorkflowService {
 			require(document.getStatus() == DocumentStatus.PROCESSED || document.getStatus() == DocumentStatus.NEED_REVIEW,
 					"Chỉ có thể phê duyệt chứng từ đã xử lý");
 			document.setReviewStatus(ReviewStatus.APPROVED); document.setStatus(DocumentStatus.COMPLETED);
-			append(document, actor, ReviewStatus.APPROVED, "APPROVE", note);
+			append(document, actor, ReviewStatus.APPROVED, "APPROVE", note, reviewMs);
 			// Approval is a review decision only; payment requires explicit cash confirmation.
 		}
 		case "REJECT" -> {
@@ -91,7 +101,7 @@ public class ReviewWorkflowService {
 			require(document.getStatus() == DocumentStatus.PROCESSED || document.getStatus() == DocumentStatus.NEED_REVIEW,
 					"Chỉ có thể từ chối chứng từ đã xử lý");
 			document.setReviewStatus(ReviewStatus.REJECTED); document.setStatus(DocumentStatus.NEED_REVIEW);
-			append(document, actor, ReviewStatus.REJECTED, "REJECT", note);
+			append(document, actor, ReviewStatus.REJECTED, "REJECT", note, reviewMs);
 		}
 		case "REQUEST_INFO" -> {
 			require(document.getReviewStatus() == ReviewStatus.PENDING, "Chứng từ đã trả lại cần được gửi lại trước khi xử lý tiếp");
@@ -99,7 +109,7 @@ public class ReviewWorkflowService {
 			require(document.getStatus() == DocumentStatus.PROCESSED || document.getStatus() == DocumentStatus.NEED_REVIEW,
 					"Chỉ có thể yêu cầu bổ sung thông tin cho chứng từ đã xử lý");
 			document.setReviewStatus(ReviewStatus.CORRECTED); document.setStatus(DocumentStatus.NEED_REVIEW);
-			append(document, actor, ReviewStatus.CORRECTED, "REQUEST_INFO", note);
+			append(document, actor, ReviewStatus.CORRECTED, "REQUEST_INFO", note, reviewMs);
 		}
 		case "RESUBMIT" -> {
 			requireEmployee(actor);
@@ -122,11 +132,15 @@ public class ReviewWorkflowService {
 	}
 
 	private void append(Document document, User actor, ReviewStatus status, String action, String note) {
+		append(document, actor, status, action, note, null);
+	}
+
+	private void append(Document document, User actor, ReviewStatus status, String action, String note, Long activeReviewMs) {
 		DocumentReview review = new DocumentReview();
 		review.setDocument(document); review.setReviewer(actor); review.setReviewType(ReviewType.FULL_REVIEW);
 		String message = action + (note == null || note.isBlank() ? "" : ": " + note.trim());
 		review.setReviewStatus(status); review.setReviewNote(message.substring(0, Math.min(1000, message.length())));
-		review.setReviewedAt(LocalDateTime.now()); documentReviewRepository.save(review);
+		review.setReviewedAt(LocalDateTime.now()); review.setActiveReviewMs(activeReviewMs); documentReviewRepository.save(review);
 	}
 
 	private void requireEmployee(User user) { if (!hasRole(user, "EMPLOYEE") && !hasRole(user, "USER")) throw new org.springframework.security.access.AccessDeniedException("Chỉ chủ sở hữu chứng từ mới có thể thực hiện thao tác này"); }

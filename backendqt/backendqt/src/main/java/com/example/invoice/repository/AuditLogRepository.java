@@ -5,4 +5,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AuditLogRepository extends JpaRepository<AuditLog,Long> {
  List<AuditLog> findByEntityTypeAndEntityIdOrderByCreatedAtDescIdDesc(String type,String id);
  List<AuditLog> findByEntityTypeAndCompanyIdOrderByCreatedAtDescIdDesc(String type,Long companyId);
+ List<AuditLog> findByEntityTypeAndEntityIdInOrderByCreatedAtAscIdAsc(String type,java.util.Collection<String> ids);
 }

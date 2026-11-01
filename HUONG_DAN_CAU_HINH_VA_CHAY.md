@@ -79,6 +79,16 @@ psql -X -h localhost -p 5432 -U postgres -d invoice_db -v ON_ERROR_STOP=1 -f bac
 
 Chỉ chạy file nâng cấp này cho thay đổi thanh toán; không chạy lại toàn bộ thư mục migration, đặc biệt file `20261006_03` sẽ tạo lại khóa 1–1. Script này không phải bộ khởi tạo toàn bộ schema hay migration cho các tính năng khác. Khi đã có nhiều thanh toán, không khôi phục unique index cũ vì không còn phù hợp với dữ liệu.
 
+### Nâng cấp DB để đo thời gian kiểm duyệt
+
+Thêm cột `document_reviews.active_review_ms` (nullable, không backfill). Bản ghi cũ giữ `NULL` = chưa đo:
+
+```powershell
+psql -X -h localhost -p 5432 -U postgres -d invoice_db -v ON_ERROR_STOP=1 -f backendqt/backendqt/src/main/resources/db/migration/20261101_01_review_active_time.sql
+```
+
+Sau khi nâng cấp, web và mobile tự gửi thời gian màn hình chứng từ đang hiển thị kèm quyết định Duyệt/Từ chối/Yêu cầu bổ sung. Thống kê nằm ở trang Thống kê hệ thống (admin), mục "Công sức kiểm duyệt sau AI", API `GET /api/v1/evaluation/review-effort?from=yyyy-MM-dd&to=yyyy-MM-dd`.
+
 ## 4. Chuẩn bị MinIO
 
 Tạo một thư mục để chứa dữ liệu, ví dụ:
@@ -431,3 +441,16 @@ npm test
 npm run build
 ```
 
+## 14. Chạy nhóm đối chứng truyền thống R (Tess4J + luật, không AI)
+
+R dùng cùng bộ mẫu `manifest.json` với A/B/C. Runner chỉ đọc ảnh/PDF, không cần DB hay Ollama, và không sửa `manifest.json`.
+
+```powershell
+Set-Location backendqt/backendqt
+./mvnw -q compile dependency:build-classpath "-Dmdep.outputFile=target/cp.txt"
+java -cp "target/classes;$(Get-Content target/cp.txt)" com.example.invoice.evaluation.BaselineEvidenceRunner <thu-muc-nguon> R-run-1 <git-commit> [rules.json]
+```
+
+`rules.json` (tùy chọn) khai báo từ khóa của doanh nghiệp, ví dụ `{"categoryKeywords":{"TRANSPORT":["cước vận chuyển","taxi"]},"typeKeywords":{}}`. Đổi luật là đổi "model", và `modelDigest` của R sẽ khác. Runner tạo `runs/R-run-1/run-entry.json`; chép object này vào mảng `runs` của `manifest.json`, rồi chạy `node tools/evaluation/prepare-bundle.mjs <thu-muc-nguon> <thu-muc-moi>` như A/B/C. Báo cáo coi là so sánh được khi có đủ A/B/C và R cùng bộ mẫu, cùng `codeRevision`. Riêng R được phép khác model digest và môi trường.
+
+Giới hạn của R: không tái tạo bảng hàng hóa (ô hàng hóa tính là thiếu), số tiền xuất dạng số nguyên, ngày dạng `yyyy-MM-dd`. Ground truth nên dùng cùng định dạng này.

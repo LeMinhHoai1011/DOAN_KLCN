@@ -160,6 +160,7 @@ class _Documents implements DocumentRepository {
     int id,
     String action, {
     String? note,
+    int? activeReviewMs,
   }) async {
     workflowAction = action;
     workflowNote = note;

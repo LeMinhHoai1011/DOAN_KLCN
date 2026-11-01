@@ -14,7 +14,20 @@ import org.springframework.web.server.ResponseStatusException;
 public class EvaluationController {
     private final EvaluationService service;
     private final ObjectMapper json;
-    public EvaluationController(EvaluationService service,ObjectMapper json){this.service=service;this.json=json;}
+    private final com.example.invoice.service.ReviewEffortService reviewEffort;
+    public EvaluationController(EvaluationService service,ObjectMapper json,com.example.invoice.service.ReviewEffortService reviewEffort){
+        this.service=service;this.json=json;this.reviewEffort=reviewEffort;
+    }
+
+    /** Operational human effort around AI output (review time, touchless approvals); complements the offline benchmark. */
+    @GetMapping("/review-effort")
+    public com.example.invoice.service.ReviewEffortService.Report reviewEffort(
+            @RequestParam(required=false) java.time.LocalDate from,@RequestParam(required=false) java.time.LocalDate to,
+            jakarta.servlet.http.HttpServletResponse response) {
+        response.setHeader(HttpHeaders.CACHE_CONTROL,"no-store");
+        try { return reviewEffort.report(from,to); }
+        catch(IllegalArgumentException e){ throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"INVALID_DATE_RANGE"); }
+    }
 
     @GetMapping("/statistics")
     public EvaluationService.Report statistics(@RequestParam(required=false) String model,

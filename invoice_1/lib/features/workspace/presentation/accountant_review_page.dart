@@ -16,8 +16,34 @@ class AccountantReviewPage extends ConsumerStatefulWidget {
       _AccountantReviewPageState();
 }
 
-class _AccountantReviewPageState extends ConsumerState<AccountantReviewPage> {
+class _AccountantReviewPageState extends ConsumerState<AccountantReviewPage>
+    with WidgetsBindingObserver {
   bool _busy = false;
+  // Visible review time, sent with the decision for the AI-vs-manual effort report.
+  final Stopwatch _reviewTime = Stopwatch()..start();
+  static const _decisions = {'APPROVE', 'REJECT', 'REQUEST_INFO'};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _reviewTime.start();
+    } else {
+      _reviewTime.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   Future<void> _refresh() async {
     ref.invalidate(documentDetailProvider(widget.documentId));
     ref.invalidate(documentBusinessProvider(widget.documentId));
@@ -29,9 +55,16 @@ class _AccountantReviewPageState extends ConsumerState<AccountantReviewPage> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
+      final decision = _decisions.contains(action);
       await ref
           .read(documentRepositoryProvider)
-          .runWorkflowAction(widget.documentId, action, note: note);
+          .runWorkflowAction(
+            widget.documentId,
+            action,
+            note: note,
+            activeReviewMs: decision ? _reviewTime.elapsedMilliseconds : null,
+          );
+      if (decision) _reviewTime.reset();
       if (!mounted) return;
       ref.invalidate(documentListProvider);
       ref.invalidate(dashboardProvider);

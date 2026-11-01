@@ -176,6 +176,7 @@ class DocumentRepository {
     int documentId,
     String action, {
     String? note,
+    int? activeReviewMs,
   }) async {
     try {
       final response = await _apiClient.dio.post<Map<String, dynamic>>(
@@ -183,6 +184,7 @@ class DocumentRepository {
         data: {
           'action': action,
           if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+          'activeReviewMs': ?activeReviewMs,
         },
       );
       return DocumentModel.fromJson(response.data ?? const {});

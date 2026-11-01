@@ -19,6 +19,7 @@ public final class AiDocumentResultParser {
 	public static AiDocumentResult parse(String provider, String model, String content, String rawResponse, long durationMs) {
 		try {
 			JsonNode root = OBJECT_MAPPER.readTree(stripFence(content));
+			normalizeInvoiceNumbers(root.path("invoice"));
 			logItemShape(provider, model, root);
 			AiDocumentResult result = OBJECT_MAPPER.treeToValue(root, AiDocumentResult.class)
 					.withMetadata(provider, model, rawResponse, durationMs);
@@ -34,6 +35,27 @@ public final class AiDocumentResultParser {
 			throw new AiProviderException("AI_JSON_PARSE_ERROR: nhà cung cấp không trả về JSON có cấu trúc hợp lệ", exception);
 		}
 	}
+
+    // JSON numeric tokens are already canonical. Only localized strings need parsing.
+    private static void normalizeInvoiceNumbers(JsonNode invoice) {
+        normalizeFields(invoice, "subtotal", "vatAmount", "totalAmount");
+        JsonNode items = invoice.has("items") ? invoice.path("items") : invoice.path("invoiceItems");
+        if (items.isArray()) for (JsonNode item : items)
+            normalizeFields(item, "quantity", "unitPrice", "taxRate", "taxAmount", "amount");
+    }
+
+    private static void normalizeFields(JsonNode node, String... names) {
+        if (!(node instanceof com.fasterxml.jackson.databind.node.ObjectNode object)) return;
+        for (String name : names) {
+            JsonNode value = object.path(name);
+            if (!value.isTextual()) continue;
+            try {
+                object.put(name, InvoiceNumberFormat.parse(value.textValue()));
+            } catch (IllegalArgumentException exception) {
+                throw new AiProviderException("AI_INVALID_NUMBER: Không đọc được dấu phân cách của trường " + name, exception);
+            }
+        }
+    }
 
 	private static void logItemShape(String provider, String model, JsonNode root) {
 		JsonNode invoice = root.path("invoice");

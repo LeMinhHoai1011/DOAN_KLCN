@@ -1,12 +1,16 @@
+import ProcessingHistoryCard from '../../components/ProcessingHistoryCard';
+import type { PipelineHistory } from '../../services/documentService';
+import { assessmentMessage, reviewMessages } from '../../utils/assessmentPresentation';
 import { fieldLabel } from '../../components/ocr-preview/ocrPreviewUtils';
 import DocumentArchivePanel from '../../components/DocumentArchivePanel';
 import DocumentPaymentPanel from '../../components/DocumentPaymentPanel';
 import { categoryTypeLabel } from '../../utils/accountingCategoryPresentation';
 import BusinessStateCard from "../../components/BusinessStateCard";
-import ProcessingHistoryCard from "../../components/ProcessingHistoryCard";
-import type { PipelineHistory } from "../../services/documentService";
+
+
 import type { DocumentAssessment } from "../../services/documentService";
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createActiveReviewTimer, isReviewDecision } from '../../utils/activeReviewTimer';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Download, Pencil, Save, X } from 'lucide-react';
 import clsx from 'clsx';
@@ -59,10 +63,13 @@ const AccountantDocumentDetail = () => {
   const [ocr, setOcr] = useState<OCRResultResponse | null>(null);
   const [businessState, setBusinessState] = useState<import("../../services/documentService").DocumentBusinessState | null>(null);
   const [classification, setClassification] = useState<ClassificationResponse | null>(null);
+
+
+
+  const [reloadVersion, setReloadVersion] = useState(0);
   const [processingHistory, setProcessingHistory] = useState<PipelineHistory | null>(null);
   const [historyError, setHistoryError] = useState('');
   const [retrying, setRetrying] = useState(false);
-  const [reloadVersion, setReloadVersion] = useState(0);
   const [assessment, setAssessment] = useState<DocumentAssessment | null>(null);
   const [assessmentError, setAssessmentError] = useState('');
   const [invoice, setInvoice] = useState<InvoiceResponse | null>(null);
@@ -207,12 +214,23 @@ const AccountantDocumentDetail = () => {
     setInvoiceForm((current) => ({ ...current, [field]: value }));
   };
 
+  // Measured visible review time, sent with the reviewer's decision for the AI-vs-manual effort report.
+  const reviewTimer = useRef(createActiveReviewTimer(Date.now(), globalThis.document?.visibilityState !== 'hidden'));
+  useEffect(() => {
+    reviewTimer.current.reset(Date.now(), globalThis.document.visibilityState !== 'hidden');
+    const onVisibility = () => reviewTimer.current.setVisible(globalThis.document.visibilityState !== 'hidden', Date.now());
+    globalThis.document.addEventListener('visibilitychange', onVisibility);
+    return () => globalThis.document.removeEventListener('visibilitychange', onVisibility);
+  }, [documentId]);
+
   const runWorkflow = async (action: WorkflowAction) => {
     if (!document) return;
     if ((action === 'REJECT' || action === 'REQUEST_INFO') && !workflowNote.trim()) { setWorkflowError('Nhập lý do trước khi thực hiện.'); return; }
     setIsWorkflowPending(true); setWorkflowError(''); setWorkflowMessage('');
     try {
-      await documentService.executeWorkflow(document.id, { action, note: workflowNote.trim() || undefined });
+      const activeReviewMs = isReviewDecision(action) ? reviewTimer.current.elapsed(Date.now()) : undefined;
+      await documentService.executeWorkflow(document.id, { action, note: workflowNote.trim() || undefined, activeReviewMs });
+      if (activeReviewMs !== undefined) reviewTimer.current.reset(Date.now(), globalThis.document.visibilityState !== 'hidden');
       const refreshed = await documentService.getDocumentById(document.id);
       setDocument(refreshed); setBusinessState(null); setBusinessState(await documentService.getBusinessState(document.id).catch(() => null)); setWorkflowNote(''); setWorkflowAction(null); setWorkflowMessage('Đã cập nhật workflow.'); setReloadVersion(value => value + 1);
     } catch { setWorkflowError('Không thể cập nhật workflow. Vui lòng thử lại.'); }
@@ -250,8 +268,8 @@ const AccountantDocumentDetail = () => {
       setBusinessState(null); setBusinessState(await documentService.getBusinessState(document.id).catch(() => null));
       setSaveMessage('Đã lưu thay đổi');
       setIsEditing(false);
-    } catch {
-      setSaveError('Không thể lưu thay đổi. Vui lòng thử lại.');
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Không thể lưu thay đổi. Vui lòng thử lại.');
     } finally {
       setIsSaving(false);
     }
@@ -319,6 +337,7 @@ const AccountantDocumentDetail = () => {
   }
 
   const documentView = mapDocument(document);
+  const visibleReviewReasons = reviewMessages(assessment?.reviewReasons ?? []);
   const classificationConfidence = formatConfidence(assessment?.classificationConfidence.value);
   const ocrConfidence = formatConfidence(assessment?.ocrConfidence.value);
   const canCorrect = hasCorrectionRole && document.reviewStatus !== 'APPROVED'
@@ -396,10 +415,10 @@ const AccountantDocumentDetail = () => {
                   <div><p className="text-xs text-ink-muted">Độ tin cậy phân loại</p><p>{classificationConfidence}</p></div>
                 </div>
                 <p className="mt-3 text-sm">Kiểm tra dữ liệu: {assessment?.validationStatus === 'VALID' ? 'Hợp lệ' : assessment?.validationStatus === 'NEED_REVIEW' ? 'Cần kiểm tra' : assessment?.validationStatus === 'FAILED' ? 'Xử lý thất bại' : 'Chưa xác định'}</p>
-                <p className="mt-2 text-xs text-ink-muted">Điểm phân loại do AI cung cấp. Confidence không phải độ chính xác đã đo.</p>
+                <p className="mt-2 text-xs text-ink-muted">Độ tin cậy do AI ước tính, không phải độ chính xác đã đo.</p>
                 {assessmentError && <p className="mt-2 text-sm text-review">{assessmentError}</p>}
-                {(assessment?.reviewReasons.length ?? 0) > 0 && <div className="mt-3 text-sm"><p className="font-semibold">Lý do cần kiểm tra</p><ul className="mt-2 list-disc space-y-1 pl-5">{assessment?.reviewReasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul></div>}
-                {Boolean(assessment?.warnings.length) && <details className="mt-3"><summary className="cursor-pointer text-sm text-ink-muted">Chi tiết cảnh báo ({assessment?.warnings.length ?? 0})</summary><div className="mt-3 space-y-2">{assessment?.warnings.map((warning, index) => <div key={index} className={clsx('rounded-control border p-3 text-sm', warning.severity === 'CRITICAL' ? 'border-review/25 bg-review-surface text-review' : 'border-hairline')}><p className="font-medium">{warning.severity === 'CRITICAL' ? 'Cần kiểm tra' : 'Thông tin'}</p><p className="mt-1 break-words">{warning.message}</p><code className="mt-1 block text-xs text-ink-muted">{warning.code}</code>{warning.affectedField && <p className="mt-1 text-xs">Trường liên quan: {fieldLabel(warning.affectedField)}</p>}</div>)}</div></details>}
+                {visibleReviewReasons.length > 0 && <div className="mt-3 text-sm"><p className="font-semibold">Lý do cần kiểm tra</p><ul className="mt-2 list-disc space-y-1 pl-5">{visibleReviewReasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul></div>}
+                {Boolean(assessment?.warnings.length) && <details className="mt-3"><summary className="cursor-pointer text-sm text-ink-muted">Chi tiết cảnh báo ({assessment?.warnings.length ?? 0})</summary><div className="mt-3 space-y-2">{assessment?.warnings.map((warning, index) => <div key={index} className={clsx('rounded-control border p-3 text-sm', warning.severity === 'CRITICAL' ? 'border-review/25 bg-review-surface text-review' : 'border-hairline')}><p className="font-medium">{warning.severity === 'CRITICAL' ? 'Cần kiểm tra' : 'Thông tin'}</p><p className="mt-1 break-words">{assessmentMessage(warning.message, warning.code)}</p>{warning.affectedField && <p className="mt-1 text-xs">Trường liên quan: {fieldLabel(warning.affectedField)}</p>}</div>)}</div></details>}
               </section>
               <section className="si-card border-tax-vat/25 bg-tax-vat-surface p-4"><div className="flex items-start justify-between gap-4"><div><p className="si-label text-tax-vat">Loại chứng từ</p><p className="mt-1 font-sans text-[20px] font-bold tracking-tight text-ink">{document.documentType ? documentTypeLabel(document.documentType) : 'Chưa xác định'}</p><p className="mt-1 text-xs text-ink-muted">{classification?.aiGenerated === false ? 'Đã được kế toán chỉnh sửa' : document.documentType ? 'AI đề xuất từ chứng từ' : 'AI chưa xác định được loại chứng từ'}</p></div></div>{isEditing && <label className="mt-4 block text-xs font-medium text-ink-soft">Loại chứng từ<select value={documentTypeId} onChange={event => setDocumentTypeId(event.target.value)} className="mt-1 w-full rounded-control border border-hairline-strong bg-surface px-3 py-2 text-sm"><option value="" disabled>Chưa xác định</option>{documentTypes.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>}</section>
               <section className="rounded-card border border-brand-200 bg-brand-50/60 p-4">
@@ -408,7 +427,6 @@ const AccountantDocumentDetail = () => {
                 {classificationState === 'empty' && <p className="mt-3 text-sm text-ink-soft">Chứng từ chưa được phân loại.</p>}
                 {classificationState === 'loading' && <p className="mt-3 text-sm text-ink-muted">Đang tải kết quả phân loại...</p>}
                 {classificationState === 'error' && <div className="mt-3 flex items-center justify-between gap-2 rounded-control bg-review-surface p-2 text-sm text-review"><span>Không thể tải kết quả phân loại.</span><button type="button" onClick={() => void retryClassification()} className="si-btn-secondary text-xs">Thử lại</button></div>}
-                {classificationState === 'success' && classification?.reason && <p className="mt-3 text-sm text-ink-soft">{classification.reason}</p>}
                 {isEditing && categoryState === 'loading' && <p className="mt-2 text-xs text-ink-muted">Đang tải danh mục...</p>}
                 {isEditing && categoryState === 'empty' && <p className="mt-2 text-xs text-ink-soft">Công ty chưa có nhóm nghiệp vụ đang hoạt động.</p>}
                 {isEditing && categoryState === 'error' && <div className="mt-2 flex items-center justify-between gap-2 text-xs text-review"><span>Không thể tải danh mục công ty.</span><button type="button" onClick={() => void retryCategories()} className="si-btn-secondary text-xs">Thử lại</button></div>}
@@ -421,38 +439,11 @@ const AccountantDocumentDetail = () => {
 
             </div>}
 
-            {activeTab === 'items' && <div>{invoice?.items.length ? (
-              <div className="border-hairline overflow-hidden rounded-card border">
-                <div className="overflow-x-auto">
-                  <table className="si-table min-w-[700px]">
-                    <thead>
-                      <tr>
-                        <th>Hàng hóa / dịch vụ</th>
-                        <th className="text-right">Số lượng</th>
-                        <th className="text-right">Đơn giá</th>
-                        <th className="text-right">Thuế suất</th>
-                        <th className="text-right">Thành tiền</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {invoice.items.map((item, index) => (
-                        <tr key={item.id ?? index}>
-                          <td><p className="font-medium text-ink">{valueOrDash(item.productName)}</p><p className="text-xs text-ink-muted">{valueOrDash(item.unit)}</p></td>
-                          <td className="si-num text-right text-[18px] text-ink-soft">{valueOrDash(item.quantity)}</td>
-                          <td className="si-num text-right text-[18px] text-ink-soft">{money(item.unitPrice)}</td>
-                          <td className="si-num text-right text-[18px] text-ink-soft">{rate(item.taxRate)}</td>
-                          <td className="si-num text-right text-[18px] font-semibold text-ink">{money(item.amount)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : <EmptyState title="Chưa có dữ liệu hàng hóa" description="Backend chưa trả về danh sách hàng hóa cho chứng từ này." />}</div>}
+            {activeTab === 'items' && <div className="space-y-3">{invoice?.items.length ? invoice.items.map((item, index) => <article key={item.id ?? index} className="si-card p-4"><div className="flex gap-3"><span className="text-sm text-ink-muted">{index + 1}.</span><p className="min-w-0 break-words text-sm font-medium">{valueOrDash(item.productName)}</p></div><dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm"><div><dt className="text-xs text-ink-muted">Số lượng</dt><dd>{item.quantity == null ? '—' : new Intl.NumberFormat('vi-VN', {maximumFractionDigits: 6}).format(item.quantity)} {item.unit || ''}</dd></div><div><dt className="text-xs text-ink-muted">Đơn giá</dt><dd className="si-num break-words">{money(item.unitPrice)}</dd></div><div><dt className="text-xs text-ink-muted">Thuế suất</dt><dd>{rate(item.taxRate)}</dd></div><div><dt className="text-xs text-ink-muted">Thành tiền</dt><dd className="si-num break-words font-semibold">{money(item.amount)}</dd></div></dl></article>) : <EmptyState title="Chưa có dữ liệu hàng hóa" />}</div>}
 
-            {activeTab === 'reconciliation' && <div className="space-y-3">{hasCorrectionRole && <DocumentPaymentPanel documentId={document.id} companyId={document.companyId} canRun={hasCorrectionRole} onUpdated={() => { void documentService.getBusinessState(document.id).then(setBusinessState).catch(() => setBusinessState(null)); }} />}{hasCorrectionRole && document.reviewStatus === 'APPROVED' && <div className="flex gap-2">{(['INCOME','EXPENSE'] as const).map(type => <button key={type} type="button" className="si-btn-secondary" onClick={() => navigate(`/${role === 'ADMIN' ? 'admin' : 'accountant'}/financial-transactions?documentId=${document.id}&companyId=${document.companyId ?? ''}&type=${type}`)}>{type === 'INCOME' ? 'Tạo phiếu Thu' : 'Tạo phiếu Chi'}</button>)}</div>}<h3 className="si-section-title">Đối soát chứng từ</h3><div className="flex items-center justify-between gap-3"><p className="text-[17px] text-ink-muted">Kết quả đối soát được hệ thống tính toán và lưu lại.</p>{hasCorrectionRole && <button type="button" disabled={isReconciling || document.reviewStatus === 'APPROVED' || document.status === 'COMPLETED'} onClick={() => void runReconciliation()} className="si-btn-primary">{isReconciling ? 'Đang đối soát...' : reconciliations.length ? 'Chạy lại' : 'Chạy đối soát'}</button>}</div>{reconciliationError && <p className="rounded-control border-failed/25 bg-failed-surface border p-3 text-sm text-failed">{reconciliationError}</p>}{hasInsufficientReconciliationData(reconciliations.map(item => item.status)) && <p className="rounded-control border-review/25 bg-review-surface border p-3 text-sm text-review">Chưa đủ dữ liệu hàng hóa để đối soát. Giá trị chưa xác định được hiển thị “—”; xem chi tiết từng phép kiểm tra để bổ sung dữ liệu theo quy trình hiện có.</p>}{reconciliations.length ? reconciliations.map(item => <ReconciliationResultCard key={item.id ?? item.type} item={item} />) : <EmptyState title="Chưa có kết quả đối soát" description="Giao diện không tự suy diễn trạng thái khớp. Hãy chạy đối soát để hệ thống tính toán và lưu kết quả." />}</div>}
+            {activeTab === 'reconciliation' && <div className="space-y-3">{hasCorrectionRole && <DocumentPaymentPanel documentId={document.id} companyId={document.companyId} canRun={hasCorrectionRole} onUpdated={() => { void documentService.getBusinessState(document.id).then(setBusinessState).catch(() => setBusinessState(null)); }} />}{hasCorrectionRole && document.reviewStatus === 'APPROVED' && <div className="flex gap-2">{(['INCOME','EXPENSE'] as const).map(type => <button key={type} type="button" className="si-btn-secondary" onClick={() => navigate(`/${role === 'ADMIN' ? 'admin' : 'accountant'}/financial-transactions?documentId=${document.id}&companyId=${document.companyId ?? ''}&type=${type}`)}>{type === 'INCOME' ? 'Tạo phiếu Thu' : 'Tạo phiếu Chi'}</button>)}</div>}<h3 className="si-section-title">Đối soát chứng từ</h3><div className="flex items-center justify-between gap-3"><p className="text-sm text-ink-muted">Kết quả đối soát được hệ thống tính toán và lưu lại.</p>{hasCorrectionRole && <button type="button" disabled={isReconciling || document.reviewStatus === 'APPROVED' || document.status === 'COMPLETED'} onClick={() => void runReconciliation()} className="si-btn-primary">{isReconciling ? 'Đang đối soát...' : reconciliations.length ? 'Chạy lại' : 'Chạy đối soát'}</button>}</div>{reconciliationError && <p className="rounded-control border-failed/25 bg-failed-surface border p-3 text-sm text-failed">{reconciliationError}</p>}{hasInsufficientReconciliationData(reconciliations.map(item => item.status)) && <p className="rounded-control border-review/25 bg-review-surface border p-3 text-sm text-review">Chưa đủ dữ liệu hàng hóa để đối soát. Giá trị chưa xác định được hiển thị “—”; xem chi tiết từng phép kiểm tra để bổ sung dữ liệu theo quy trình hiện có.</p>}{reconciliations.length ? reconciliations.map(item => <ReconciliationResultCard key={item.id ?? item.type} item={item} />) : <EmptyState title="Chưa có kết quả đối soát" description="Giao diện không tự suy diễn trạng thái khớp. Hãy chạy đối soát để hệ thống tính toán và lưu kết quả." />}</div>}
 
-            {activeTab === 'storage' && <div className="space-y-4"><div className="flex flex-wrap gap-2">{([['storage','File & lưu trữ'],['versions','Phiên bản'],['history','Lịch sử']] as const).map(([key,label]) => <button type="button" key={key} onClick={() => setArchiveTab(key)} className={archiveTab === key ? 'si-btn-primary' : 'si-btn-secondary'}>{label}</button>)}</div><DocumentArchivePanel key={document.id + '-' + archiveTab} documentId={document.id} mode={archiveTab} />{archiveTab === 'history' && <ProcessingHistoryCard history={processingHistory} error={historyError} retrying={retrying} documentStatus={document.status} reviewStatus={document.reviewStatus} onRetry={() => { setRetrying(true); documentService.retryProcessing(document.id).catch(() => setHistoryError('Không thể xử lý lại.')).finally(() => { setRetrying(false); setReloadVersion(n => n + 1); }); }} />}<details className="si-card p-4"><summary className="cursor-pointer">Thông tin kỹ thuật và OCR gốc</summary><p className="mt-2 text-sm">Bộ nhận dạng: {ocr?.ocrEngine || 'Chưa xác định'}</p><pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs">{ocr?.rawText || 'Chưa có nội dung OCR'}</pre></details></div>}
+            {activeTab === 'storage' && <div className="space-y-4"><div className="flex flex-wrap gap-2">{([['storage','File & lưu trữ'],['versions','Phiên bản'],['history','Lịch sử']] as const).map(([key,label]) => <button type="button" key={key} onClick={() => setArchiveTab(key)} className={archiveTab === key ? 'si-btn-primary' : 'si-btn-secondary'}>{label}</button>)}</div><DocumentArchivePanel key={document.id + '-' + archiveTab} documentId={document.id} mode={archiveTab} /><details className="si-card p-4"><summary className="cursor-pointer">Thông tin kỹ thuật và OCR gốc</summary>{archiveTab === 'history' && <ProcessingHistoryCard history={processingHistory} error={historyError} retrying={retrying} documentStatus={document.status} reviewStatus={document.reviewStatus} onRetry={() => { setRetrying(true); documentService.retryProcessing(document.id).catch(() => setHistoryError('Không thể xử lý lại.')).finally(() => { setRetrying(false); setReloadVersion(n => n + 1); }); }} />}<details className="mt-3"><summary>Cảnh báo kỹ thuật gốc</summary><pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words text-xs">{[...(assessment?.reviewReasons ?? []), ...(classification?.reason ? [classification.reason] : [])].join('\n') || 'Không có cảnh báo'}</pre></details><p className="mt-2 text-sm">Bộ nhận dạng: {ocr?.ocrEngine || 'Chưa xác định'}</p><pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs">{ocr?.rawText || 'Chưa có nội dung OCR'}</pre></details></div>}
 
           </div>
 

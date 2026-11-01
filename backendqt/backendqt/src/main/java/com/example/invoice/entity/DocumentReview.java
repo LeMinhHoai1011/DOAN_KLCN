@@ -47,6 +47,10 @@ public class DocumentReview {
 	private String reviewNote;
 	private LocalDateTime reviewedAt;
 
+	/** Visible time the reviewer spent on the document before this decision; null when not measured. */
+	@Column(name = "active_review_ms")
+	private Long activeReviewMs;
+
 	@OneToMany(mappedBy = "review")
 	private List<FieldCorrection> fieldCorrections = new ArrayList<>();
 

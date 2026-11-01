@@ -19,7 +19,10 @@ class EvaluationServiceTest {
         String hash=EvaluationService.hash(bytes);Files.createDirectories(directory.resolve(folder));Files.write(directory.resolve(folder).resolve(hash+suffix),bytes);return hash;
     }
     EvaluationData.Run run(String strategy,List<EvaluationData.Result> results)throws Exception {
-        String model="qwen3-vl",digest="a".repeat(64),env="test-only fixed CPU RAM GPU threads seed warm-up",revision="test-revision";
+        return run(strategy,"qwen3-vl","a".repeat(64),"test-only fixed CPU RAM GPU threads seed warm-up",results);
+    }
+    EvaluationData.Run run(String strategy,String model,String digest,String env,List<EvaluationData.Result> results)throws Exception {
+        String revision="test-revision";
         String config=artifact("configs",json.writeValueAsBytes(Map.of("strategy",strategy,"model",model,"modelDigest",digest,"environment",env,"codeRevision",revision,"settings",Map.of("temperature",0,"promptSha256","b".repeat(64)))),".json");
         return new EvaluationData.Run("run-"+strategy,strategy,model,digest,config,env,revision,Instant.parse("2026-01-01T00:00:00Z"),results);
     }
@@ -104,5 +107,20 @@ class EvaluationServiceTest {
                 old.verifiedBy(),old.verifiedAt(),null,null,null,null,null,"OFFICE");
         data = new EvaluationData(2,"unit-only","2",List.of(invalid),List.of()); write();
         assertThrows(ResponseStatusException.class,()->service().report(null,null,null,null));
+    }
+    @Test void ruleBaselineJoinsCohortWithItsOwnModelAndEnvironment()throws Exception {
+        var r=data.runs().getFirst().results();
+        data=new EvaluationData(1,data.datasetId(),data.datasetVersion(),data.samples(),List.of(run("A",r),run("B",r),run("C",r),
+                run("R","rule-baseline-v1","c".repeat(64),"java; offline",r)));write();
+        var report=service().report(null,null,null,null);
+        assertTrue(report.comparable());assertEquals(4,report.runs().size());
+        assertEquals("SAME_COHORT_MODEL_ENVIRONMENT_REVISION_WITH_RULE_BASELINE",report.comparisonReason());
+        assertEquals(1,service().report(null,"R",null,null).runs().size());
+        var second=run("R","rule-baseline-v1","c".repeat(64),"java; offline",r);
+        second=new EvaluationData.Run("run-R2",second.strategy(),second.model(),second.modelDigest(),second.configSha256(),
+                second.environment(),second.codeRevision(),second.startedAt(),second.results());
+        data=new EvaluationData(1,data.datasetId(),data.datasetVersion(),data.samples(),List.of(run("A",r),run("B",r),run("C",r),
+                run("R","rule-baseline-v1","c".repeat(64),"java; offline",r),second));write();
+        assertFalse(service().report(null,null,null,null).comparable());
     }
 }

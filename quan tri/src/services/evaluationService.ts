@@ -25,7 +25,16 @@ export interface EvaluationRun {
 }
 export interface EvaluationReport { status: 'AVAILABLE' | 'NOT_CONFIGURED' | 'NO_TEST_DATA'; runs: EvaluationRun[]; comparable: boolean; comparisonReason: string; metricVersion: string; notes: string[] }
 export interface EvaluationFilter { model?: string; strategy?: string; from?: string; to?: string }
+export interface TypeEffort { approved: number; touchless: number; touchlessRate: number | null; timed: number; averageReviewMs: number | null }
+export interface ReviewEffortReport {
+  from: string | null; to: string | null; decisions: number; approvals: number; rejections: number; infoRequests: number
+  timedDecisions: number; averageDecisionMs: number | null; medianDecisionMs: number | null
+  approvedDocuments: number; timedApprovedDocuments: number; averageReviewMsPerDocument: number | null; medianReviewMsPerDocument: number | null
+  touchlessApproved: number; touchlessRate: number | null; averageEditsPerApprovedDocument: number | null
+  byDocumentType: Record<string, TypeEffort>; notes: string[]
+}
 export const evaluationService = {
+  reviewEffort: async (params: { from?: string; to?: string }) => (await api.get<ReviewEffortReport>('/api/v1/evaluation/review-effort', { params })).data,
   report: async (params: EvaluationFilter) => (await api.get<EvaluationReport>('/api/v1/evaluation/statistics', { params })).data,
   export: async (params: EvaluationFilter) => (await api.get<Blob>('/api/v1/evaluation/export', { params, responseType: 'blob' })).data,
 }
