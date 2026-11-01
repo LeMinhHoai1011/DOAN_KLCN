@@ -1,14 +1,18 @@
-﻿import { useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, CheckCircle2, FileType, Info, Loader2, Upload, UploadCloud, X, XCircle } from 'lucide-react';
 import documentService from '../../services/documentService';
-import type { DocumentUploadResponse } from '../../services/documentService';
+import type { DocumentUploadResponse, ProcessingProgress } from '../../services/documentService';
+import ProcessingProgressPanel from '../../components/ProcessingProgressPanel';
+import { stepLabel } from '../../utils/processingProgressPresentation';
 import { getCurrentUser, getEffectiveRole, getErrorMessage } from '../../services/authService';
 import PageHeader from '../../components/ui/PageHeader';
 import ContentCard from '../../components/ui/ContentCard';
 import ErrorState from '../../components/ui/ErrorState';
 
-type UploadState = 'idle' | 'uploading' | 'completed' | 'error';
+type UploadState = 'idle' | 'uploading' | 'processing' | 'completed' | 'error';
+
+const PROGRESS_POLL_MS = 1000;
 
 /** Must stay in sync with the `accept` attribute of the file input. */
 const ACCEPTED_TYPES = '.pdf,.jpg,.jpeg,.png';
@@ -28,6 +32,13 @@ const AccountantUpload = () => {
   const [uploadState, setUploadState] = useState<UploadState>('idle');
   const [uploadResult, setUploadResult] = useState<DocumentUploadResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
+  const [progress, setProgress] = useState<ProcessingProgress | null>(null);
+  const pollTimer = useRef<number | null>(null);
+  const mounted = useRef(true);
+  const isBusy = uploadState === 'uploading' || uploadState === 'processing';
+  const stopPolling = () => { if (pollTimer.current !== null) { window.clearInterval(pollTimer.current); pollTimer.current = null; } };
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; stopPolling(); }; }, []);
   const isEmployeeView = getEffectiveRole(getCurrentUser()) === 'EMPLOYEE';
 
   const handleFileSelect = (selectedFile: File | undefined) => {
@@ -52,19 +63,42 @@ const AccountantUpload = () => {
 
     setUploadState('uploading');
     setErrorMessage('');
+    setUploadPercent(0);
+    setProgress(null);
 
     try {
-      const response = await documentService.uploadDocument(file);
+      // 1) Transfer the file only (real byte progress), 2) process while polling the live pipeline step.
+      const stored = await documentService.uploadDocument(file, { process: false, onProgress: setUploadPercent });
+      if (!mounted.current) return;
+      setUploadPercent(null);
+      setUploadResult(stored);
+      setUploadState('processing');
+      const poll = async () => {
+        try { const snapshot = await documentService.getProcessingProgress(stored.documentId); if (mounted.current) setProgress(snapshot); }
+        catch { /* progress is best-effort; the processing request decides the outcome */ }
+      };
+      stopPolling();
+      pollTimer.current = window.setInterval(() => void poll(), PROGRESS_POLL_MS);
+      void poll();
+      const response = await documentService.processUploadedDocument(stored.documentId);
+      stopPolling();
+      await poll();
+      if (!mounted.current) return;
       setUploadResult(response);
       setUploadState(response.success ? 'completed' : 'error');
       if (response.error) setErrorMessage(`${response.error.code}: ${response.error.message}`);
     } catch (error: unknown) {
+      stopPolling();
+      if (!mounted.current) return;
       setUploadState('error');
       setErrorMessage(getErrorMessage(error, 'Upload hoặc xử lý AI thất bại. Vui lòng thử lại.'));
     }
   };
 
   const handleCancel = () => {
+    stopPolling();
+    setUploadPercent(null);
+    setProgress(null);
     setFile(null);
     setUploadResult(null);
     setUploadState('idle');
@@ -83,7 +117,9 @@ const AccountantUpload = () => {
   const openFileDialog = () => fileInputRef.current?.click();
 
   const stateLabel = uploadState === 'uploading'
-    ? 'Đang tải lên và phân loại tự động...'
+    ? 'Đang tải file lên...'
+    : uploadState === 'processing'
+      ? `Đang xử lý: ${progress?.currentStep ? stepLabel(progress.currentStep) : 'chờ bắt đầu'}`
     : uploadState === 'completed'
       ? 'Tải lên và xử lý hoàn tất'
       : uploadState === 'error'
@@ -136,7 +172,7 @@ const AccountantUpload = () => {
                   <div className="flex shrink-0 items-center gap-2">
                     {uploadState === 'completed' && <CheckCircle2 size={20} className="text-parsed" />}
                     {uploadState === 'error' && <XCircle size={20} className="text-failed" />}
-                    {uploadState !== 'uploading' && (
+                    {!isBusy && (
                       <button type="button" onClick={handleCancel} title="Bỏ tệp đã chọn" aria-label="Bỏ tệp đã chọn" className="text-ink-muted hover:bg-subtle hover:text-ink rounded p-1.5 transition-colors">
                         <X size={20} />
                       </button>
@@ -177,13 +213,13 @@ const AccountantUpload = () => {
                       <td>
                         <div className="flex flex-col gap-1">
                           <span className="inline-flex items-center gap-2 text-[17px] text-ink-soft">
-                            {uploadState === 'uploading' && <Loader2 size={20} className="text-extracting shrink-0 animate-spin" />}
+                            {isBusy && <Loader2 size={20} className="text-extracting shrink-0 animate-spin" />}
                             {uploadState === 'completed' && <CheckCircle2 size={20} className="text-parsed shrink-0" />}
                             {uploadState === 'error' && <XCircle size={20} className="text-failed shrink-0" />}
                             {uploadState === 'idle' && <UploadCloud size={20} className="text-ink-muted shrink-0" />}
                             {stateLabel}
                           </span>
-                          {uploadResult?.success && (
+                          {uploadResult?.success && !isBusy && (
                             <>
                               {uploadResult.documentTypeName && (
                                 <span className="text-2xs text-ink-muted">Loại chứng từ AI đề xuất: {uploadResult.documentTypeName}</span>
@@ -193,19 +229,19 @@ const AccountantUpload = () => {
                               </span>
                             </>
                           )}
-                          {uploadResult?.message && <span className="text-2xs text-ink-muted">{uploadResult.message}</span>}
+                          {uploadResult?.message && !isBusy && <span className="text-2xs text-ink-muted">{uploadResult.message}</span>}
                         </div>
                       </td>
                       <td className="text-center">
                         <div className="inline-flex items-center gap-2">
-                          {uploadResult ? (
+                          {uploadResult && !isBusy ? (
                             <button type="button" onClick={() => navigate(`${getBasePath()}/documents/${uploadResult.documentId}`)} className="si-btn-secondary !px-2.5 !py-1 text-2xs">Xem chi tiết</button>
                           ) : (
-                            <button type="button" disabled={uploadState === 'uploading'} onClick={() => void handleUpload()} className="si-btn-primary !px-2.5 !py-1 text-2xs">
+                            <button type="button" disabled={isBusy} onClick={() => void handleUpload()} className="si-btn-primary !px-2.5 !py-1 text-2xs">
                               <Upload size={20} />Tải lên
                             </button>
                           )}
-                          <button type="button" onClick={handleCancel} className="si-btn-ghost !px-2.5 !py-1 text-2xs">Bỏ qua</button>
+                          {!isBusy && <button type="button" onClick={handleCancel} className="si-btn-ghost !px-2.5 !py-1 text-2xs">Bỏ qua</button>}
                         </div>
                       </td>
                     </tr>
@@ -213,10 +249,17 @@ const AccountantUpload = () => {
                 </tbody>
               </table>
             </div>
+            {/* Outside the wide table so the steps never end up in a horizontally scrolled column. */}
+            {file && uploadState !== 'idle' && (
+              <div className="border-t border-hairline px-5 py-4">
+                <ProcessingProgressPanel uploadPercent={uploadPercent} progress={progress}
+                  finished={uploadState === 'completed' || uploadState === 'error'} failed={uploadState === 'error'} />
+              </div>
+            )}
             <div className="flex flex-col items-center justify-between gap-3 border-t border-hairline px-5 py-3 sm:flex-row">
               <span className="text-2xs text-ink-muted">Chứng từ sau khi tải lên sẽ xuất hiện trong danh sách chứng từ kèm trạng thái xử lý.</span>
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" onClick={() => { handleCancel(); openFileDialog(); }} className="si-btn-secondary"><Upload size={20} />Tiếp tục tải thêm</button>
+                <button type="button" disabled={isBusy} onClick={() => { handleCancel(); openFileDialog(); }} className="si-btn-secondary"><Upload size={20} />Tiếp tục tải thêm</button>
                 <button type="button" onClick={() => navigate(`${getBasePath()}/documents`)} className="si-btn-primary">Chuyển sang Danh sách chứng từ<ArrowRight size={20} /></button>
               </div>
             </div>

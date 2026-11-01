@@ -21,6 +21,18 @@ public class DocumentUploadProcessingService {
 	private final ProcessingLogService processingLogService;
 
 	public DocumentUploadResponse uploadAndProcess(MultipartFile file, Authentication authentication) {
+		return processUploaded(store(file, authentication).id());
+	}
+
+	/** Stores the file only; processing is started separately so the caller can show live progress. */
+	public DocumentUploadResponse upload(MultipartFile file, Authentication authentication) {
+		DocumentResponse uploaded = store(file, authentication);
+		return new DocumentUploadResponse(true, uploaded.id(), uploaded.status(), uploaded.reviewStatus(),
+				uploaded.documentTypeCode(), uploaded.documentTypeName(), uploaded.aiConfidence(),
+				"Đã tải lên chứng từ, đang chờ xử lý", null);
+	}
+
+	private DocumentResponse store(MultipartFile file, Authentication authentication) {
 		DocumentResponse uploaded;
         try { uploaded = documentService.createFromUpload(file, authentication); }
         catch (com.example.invoice.exception.PipelineException exception) { throw exception; }
@@ -30,6 +42,12 @@ public class DocumentUploadProcessingService {
             throw new com.example.invoice.exception.PipelineException(PipelineFailures.classify(exception, "UPLOAD", 0), 500);
         } catch (org.springframework.security.core.AuthenticationException | org.springframework.security.access.AccessDeniedException | com.example.invoice.exception.ResourceNotFoundException exception) { throw exception; }
         catch (RuntimeException exception) { throw new com.example.invoice.exception.PipelineException(PipelineFailures.classify(exception, "UPLOAD", 0), 500); }
+		return uploaded;
+	}
+
+	/** Runs the first automatic processing of an uploaded document; failures are reported in the response. */
+	public DocumentUploadResponse processUploaded(Long documentId) {
+		DocumentResponse uploaded = documentService.findById(documentId);
 		RuntimeException processingFailure = null;
 		try {
 			documentAiProcessingService.process(uploaded.id(), false);

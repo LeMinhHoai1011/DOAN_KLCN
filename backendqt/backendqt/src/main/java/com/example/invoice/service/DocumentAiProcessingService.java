@@ -60,9 +60,29 @@ public class DocumentAiProcessingService {
 	private final ObjectMapper objectMapper = new ObjectMapper();
     private PipelineExecutionService executions;
     private final ThreadLocal<String> stage = new ThreadLocal<>();
+    private ProcessingProgressRegistry progress;
+    private final ThreadLocal<Long> progressDocument = new ThreadLocal<>();
+    private final ThreadLocal<String> progressPage = new ThreadLocal<>();
 
     @Autowired
     public void setPipelineExecutionService(PipelineExecutionService executions) { this.executions = executions; }
+
+    @Autowired(required = false)
+    public void setProgressRegistry(ProcessingProgressRegistry progress) { this.progress = progress; }
+
+    /** Sets the failure stage and publishes it as the live progress step. */
+    private void enter(String code) {
+        stage.set(code);
+        Long documentId = progressDocument.get();
+        if (progress != null && documentId != null) progress.step(documentId, code, progressPage.get());
+    }
+
+    private void progressDetail(String detail) {
+        Long documentId = progressDocument.get();
+        String page = progressPage.get();
+        if (progress != null && documentId != null && stage.get() != null)
+            progress.step(documentId, stage.get(), page == null ? detail : page + " · " + detail);
+    }
 
     public AiDocumentProcessingResponse retry(Long id) { return processAttempt(id, true, true); }
 
@@ -109,7 +129,11 @@ public class DocumentAiProcessingService {
             throw new com.example.invoice.exception.PipelineException(PipelineFailures.create("INVALID_FILE", "FILE_VALIDATION", false, 0), 400);
 		PipelineExecutionService.Run run = executions == null ? null : executions.start(documentId, reprocess, retryOnly);
         document = run == null ? documentService.claimForAiProcessing(documentId, reprocess) : run.document();
-        stage.set("VALIDATION");
+        if (progress != null) progress.start(documentId);
+        progressDocument.set(documentId);
+        boolean succeeded = false;
+        enter("VALIDATION");
+        progressDetail("Chuẩn bị loại chứng từ và danh mục kế toán");
 
 		try {
 		List<DocumentType> types = documentTypeRepository.findByActiveTrue();
@@ -129,7 +153,8 @@ public class DocumentAiProcessingService {
 				.map(category -> new AccountingCategoryOption(category.getCategoryCode(), category.getCategoryName(), category.getDescription()))
 				.toList();
 
-		stage.set("STORAGE");
+		enter("STORAGE");
+		progressDetail("Đọc file từ kho lưu trữ");
 		byte[] bytes = documentService.loadFileBytes(documentId);
 		if (bytes.length == 0) throw new BadRequestException("Nội dung chứng từ tải từ MinIO bị trống");
 		if (document.getFileSize() != null && document.getFileSize() != bytes.length)
@@ -138,20 +163,22 @@ public class DocumentAiProcessingService {
 		processingLogService.append(documentId, "AI_DOCUMENT", "START", "PROCESSING", null, null,
 				reprocess ? "AI reprocess requested" : "AI process requested");
 
-			stage.set("OCR");
+			enter("OCR");
             AiDocumentProcessingResponse completed = isPdf(document.getFileType())
 					? processPdf(documentId, document, bytes, typeCodes, categoryCodes, categoryOptions, allowedTypes, company)
 					: processImage(documentId, document, bytes, typeCodes, categoryCodes, categoryOptions, allowedTypes, company, reprocess);
             if (run != null) executions.complete(run);
+            succeeded = true;
             return completed;
 		} catch (RuntimeException exception) {
 			if (exception instanceof AiDocumentResultValidator.UnresolvedDocumentTypeException) {
 				try {
 					persistenceService.persistUnresolvedType(documentId);
 					if (run != null) executions.complete(run);
+					succeeded = true;
 					return response(documentId, true, List.of(exception.getMessage()), null);
 				} catch (RuntimeException persistenceFailure) {
-					exception = persistenceFailure; stage.set("PERSISTENCE");
+					exception = persistenceFailure; enter("PERSISTENCE");
 				}
 			}
             if (run != null) {
@@ -176,13 +203,16 @@ public class DocumentAiProcessingService {
 						exception.getMessage(), logException);
 			}
 			throw exception;
-		} finally { stage.remove(); }
+		} finally {
+			stage.remove(); progressDocument.remove(); progressPage.remove();
+			if (progress != null) progress.finish(documentId, succeeded);
+		}
 	}
 
 	private AiDocumentProcessingResponse processPdf(Long documentId, Document document, byte[] bytes,
 			List<String> typeCodes, List<String> categoryCodes, List<AccountingCategoryOption> categoryOptions,
 			Set<String> allowedTypes, Company company) {
-		stage.set("TEXT_EXTRACTION");
+		enter("TEXT_EXTRACTION");
 		List<PageAnalysis> analyzedPages = analyzePdfPages(documentId, document.getOriginalFileName(), bytes,
 				typeCodes, categoryCodes, categoryOptions, company);
 		OcrDocumentResult ocr = aggregateOcr(analyzedPages.stream().map(PageAnalysis::ocr).toList());
@@ -192,11 +222,12 @@ public class DocumentAiProcessingService {
 		logItemTelemetry(documentId, result);
 		result = addMissingInvoiceItemsWarning(result, ocr);
 
-		stage.set("VALIDATION");
+		enter("VALIDATION");
+		progressDetail("Kiểm tra MST, ngày, số tiền và loại chứng từ");
 		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes, Set.copyOf(categoryCodes));
 		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
 				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
-		stage.set("PERSISTENCE");
+		enter("PERSISTENCE");
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);
 		log.info("AI_CLASSIFICATION_COMPLETED documentId={} companyId={} model={} categoryCode={} needsReview={} durationMs={}",
 				documentId, company.getId(), result.model(), result.accountingCategoryCode(), requiresReview, result.durationMs());
@@ -219,7 +250,8 @@ public class DocumentAiProcessingService {
 		ImagePreprocessingMetadata metadata = null;
 
 		{
-			stage.set("OCR");
+			enter("OCR");
+			progressDetail("Tesseract đọc chữ, tự tiền xử lý ảnh nếu chất lượng thấp");
 			AdaptiveOcrService.AdaptiveOcrResult adaptive = adaptiveOcrService.recognize(originalBytes, document.getFileType(), 1);
 			bytes = adaptive.selectedImageBytes();
 			contentType = adaptive.selectedContentType();
@@ -243,7 +275,7 @@ public class DocumentAiProcessingService {
 			pageOcr = reconstructLayout(adaptive.page());
 			logOcr(documentId, pageOcr);
 			ocr = aggregateOcr(List.of(pageOcr));
-			stage.set("PERSISTENCE");
+			enter("PERSISTENCE");
             persistenceService.persistOcr(documentId, ocr);
 			metadata = adaptive.imageQuality() == null ? null : new ImagePreprocessingMetadata(
 					adaptive.selectedProfile() != OcrProcessingProfile.NORMAL, adaptive.imageQuality().skewAngleDegrees(),
@@ -255,11 +287,12 @@ public class DocumentAiProcessingService {
 				bytes, typeCodes, categoryCodes, categoryOptions, company, pageOcr), company);
 		logItemTelemetry(documentId, result);
 		result = addMissingInvoiceItemsWarning(result, ocr);
-		stage.set("VALIDATION");
+		enter("VALIDATION");
+		progressDetail("Kiểm tra MST, ngày, số tiền và loại chứng từ");
 		ValidatedAiDocumentResult validated = resultValidator.validate(result, allowedTypes, Set.copyOf(categoryCodes));
 		processingLogService.append(documentId, "AI_DOCUMENT", "ANALYZE", "SUCCESS", validated.confidence(),
 				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
-		stage.set("PERSISTENCE");
+		enter("PERSISTENCE");
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);
 		log.info("AI_CLASSIFICATION_COMPLETED documentId={} companyId={} model={} categoryCode={} needsReview={} durationMs={}",
 				documentId, company.getId(), result.model(), result.accountingCategoryCode(), requiresReview, result.durationMs());
@@ -289,7 +322,7 @@ public class DocumentAiProcessingService {
 				: ocrLayoutReconstructor == null ? ocr.text() : ocrLayoutReconstructor.structuredContext(ocr));
 		String prompt = AiDocumentPromptFactory.createWithCategories(documentTypes, categoryOptions,
 				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
-		stage.set("AI_EXTRACTION");
+		enter("AI_EXTRACTION");
 		AdaptiveOcrService.OcrQualityEvaluation quality = adaptiveOcrService == null
 				? null : adaptiveOcrService.evaluateDetailed(ocr);
 		boolean reliableOcr = ocr != null && ocr.successful()
@@ -309,16 +342,25 @@ public class DocumentAiProcessingService {
 			String textPrompt = AiDocumentPromptFactory.forTextExtraction(prompt);
 			try {
 				log.info("AI structured extraction file={} requestMode=TEXT retryAttempt=0", fileName);
+				progressDetail("Gửi văn bản OCR cho " + modelLabel());
 				return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText, textPrompt));
 			} catch (AiProviderException firstFailure) {
 				if (!isStructuredOutputFailure(firstFailure)) throw firstFailure;
                 log.warn("AI text format invalid; one vision fallback file={}", fileName);
+                progressDetail("Kết quả chưa đúng định dạng, thử lại bằng ảnh với " + modelLabel());
                 return aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt));
 			}
 		}
 		log.info("AI vision fallback file={} reason={} imageBytes={}", fileName,
 				ocr == null ? "OCR_UNAVAILABLE" : "OCR_LOW_CONFIDENCE", bytes.length);
+		progressDetail("OCR chưa đủ tin cậy, gửi ảnh cho " + modelLabel());
 		return aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt));
+	}
+
+	private String modelLabel() {
+		if (aiProperties == null) return "AI";
+		String model = "ollama".equalsIgnoreCase(aiProperties.getProvider()) ? aiProperties.getOllama().getModel() : aiProperties.getCloud().getModel();
+		return model == null || model.isBlank() ? "AI" : model;
 	}
 
 	private boolean isInvoiceTypeCode(String code) {
@@ -455,19 +497,23 @@ public class DocumentAiProcessingService {
 		List<PdfImageConversionService.PdfTextPage> textPages = pdfImageConversionService.extractTextPages(pdfBytes);
 		if (!textPages.isEmpty() && textPages.stream().allMatch(PdfImageConversionService.PdfTextPage::usable)) {
 			for (PdfImageConversionService.PdfTextPage page : textPages) {
+				progressPage.set("Trang " + page.pageNumber() + "/" + textPages.size());
 				OcrPageResult textLayer = new OcrPageResult(page.pageNumber(), 0, 0, page.text(), Float.NaN,
 						List.of(), 0, null, "pdf-text-layer");
 				recognizedPages.add(textLayer);
 				results.add(new PageAnalysis(analyzeDigitalPdfText(fileName + "#page-" + page.pageNumber(), page.text(),
 						documentTypes, categoryOptions, company), textLayer));
 			}
-			stage.set("PERSISTENCE");
+			progressPage.remove();
+			enter("PERSISTENCE");
             persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
 			log.info("PDF text layer selected documentId={} pages={} renderedPages=0", documentId, textPages.size());
 			return List.copyOf(results);
 		}
-		stage.set("TEXT_EXTRACTION");
-		for (PdfPageImage page : pdfImageConversionService.convert(pdfBytes)) {
+		enter("TEXT_EXTRACTION");
+		List<PdfPageImage> renderedPages = pdfImageConversionService.convert(pdfBytes);
+		for (PdfPageImage page : renderedPages) {
+			progressPage.set("Trang " + page.pageNumber() + "/" + renderedPages.size());
 			PdfImageConversionService.PdfTextPage nativeText = textPages.stream()
 					.filter(value -> value.pageNumber() == page.pageNumber()).findFirst().orElse(null);
 			if (nativeText != null && nativeText.usable()) {
@@ -478,17 +524,18 @@ public class DocumentAiProcessingService {
 						documentTypes, categoryOptions, company), textLayer));
 				continue;
 			}
-			stage.set("OCR");
+			enter("OCR");
 			AdaptiveOcrService.AdaptiveOcrResult adaptive = adaptiveOcrService.recognize(page.bytes(), page.contentType(), page.pageNumber());
 			OcrPageResult ocr = reconstructLayout(adaptive.page());
 			logOcr(documentId, ocr);
 			recognizedPages.add(ocr);
-			stage.set("PERSISTENCE");
+			enter("PERSISTENCE");
             persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
 			results.add(new PageAnalysis(analyzeSingleImage(fileName + "#page-" + page.pageNumber(), adaptive.selectedContentType(),
 					adaptive.selectedImageBytes(), documentTypes, categoryCodes, categoryOptions, company, ocr), ocr));
 		}
-		stage.set("PERSISTENCE");
+		progressPage.remove();
+		enter("PERSISTENCE");
             persistenceService.persistOcr(documentId, aggregateOcr(recognizedPages));
 		return List.copyOf(results);
 	}
@@ -497,7 +544,8 @@ public class DocumentAiProcessingService {
 			List<AccountingCategoryOption> categoryOptions, Company company) {
 		String prompt = AiDocumentPromptFactory.createWithCategories(documentTypes, categoryOptions,
 				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
-		stage.set("AI_EXTRACTION");
+		enter("AI_EXTRACTION");
+		progressDetail("Gửi lớp chữ PDF cho " + modelLabel());
 		return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizeOcrText(text),
 				AiDocumentPromptFactory.forTextExtraction(prompt)));
 	}

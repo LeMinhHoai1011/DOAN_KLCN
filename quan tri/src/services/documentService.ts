@@ -242,11 +242,33 @@ const getDocumentTypes = async () => {
   return data.map(type => ({ ...type, active: type.active ?? true, documentCount: Number(type.documentCount || 0) }))
 }
 
-const uploadDocument = async (file: File) => {
+export interface ProcessingStep { code: string; detail: string | null; startedAt: string; endedAt: string | null }
+export interface ProcessingProgress {
+  documentId: number; state: 'IDLE' | 'RUNNING' | 'DONE' | 'FAILED'
+  currentStep: string | null; currentDetail: string | null
+  startedAt: string | null; finishedAt: string | null; steps: ProcessingStep[]
+}
+export interface UploadOptions { process?: boolean; onProgress?: (percent: number) => void }
+
+/** process=false only stores the file, so the caller can follow /progress while calling processUploadedDocument. */
+const uploadDocument = async (file: File, options: UploadOptions = {}) => {
   const formData = new FormData()
   formData.append('file', file)
 
-  const { data } = await api.post<DocumentUploadResponse>('/api/v1/documents/upload', formData)
+  const { data } = await api.post<DocumentUploadResponse>('/api/v1/documents/upload', formData, {
+    params: options.process === false ? { process: false } : undefined,
+    onUploadProgress: event => { if (event.total) options.onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100))) },
+  })
+  return data
+}
+
+const processUploadedDocument = async (id: number) => {
+  const { data } = await api.post<DocumentUploadResponse>(`/api/v1/documents/${id}/process-upload`)
+  return data
+}
+
+const getProcessingProgress = async (id: number) => {
+  const { data } = await api.get<ProcessingProgress>(`/api/v1/documents/${id}/progress`)
   return data
 }
 
@@ -308,6 +330,8 @@ const documentService = {
 	getDocumentExtractedFields,
 	correctExtractedField,
   uploadDocument,
+  processUploadedDocument,
+  getProcessingProgress,
   processDocument,
   executeWorkflow,
   getDocumentTypes,

@@ -44,6 +44,7 @@ public class DocumentController {
 	private final DocumentAiProcessingService documentAiProcessingService;
 	private final DocumentUploadProcessingService documentUploadProcessingService;
 	private final com.example.invoice.service.ProcessingLogService processingLogService;
+	private final com.example.invoice.service.ProcessingProgressRegistry processingProgressRegistry;
     private final com.example.invoice.service.PipelineExecutionService pipelineExecutionService;
 
     @GetMapping("/{id}/processing-history")
@@ -53,6 +54,14 @@ public class DocumentController {
     @PostMapping("/{id}/retry")
     @PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_CREATE') or hasAuthority('PERMISSION_DOCUMENT_UPDATE') or hasRole('ADMIN')")
     public AiDocumentProcessingResponse retry(@PathVariable Long id) { return documentAiProcessingService.retry(id); }
+
+	/** Live pipeline step for upload progress screens; IDLE when nothing is running or recently finished. */
+	@GetMapping("/{id}/progress")
+	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_VIEW') or hasRole('ADMIN')")
+	public com.example.invoice.service.ProcessingProgressRegistry.Snapshot progress(@PathVariable Long id) {
+		documentService.load(id); // scope check: same visibility as the document itself
+		return processingProgressRegistry.snapshot(id);
+	}
 
 	@GetMapping("/{id}/assessment")
 	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_VIEW') or hasRole('ADMIN')")
@@ -72,8 +81,17 @@ public class DocumentController {
 	@ResponseStatus(HttpStatus.CREATED)
 	public DocumentUploadResponse upload(
 			@RequestParam("file") MultipartFile file,
+			@RequestParam(name = "process", defaultValue = "true") boolean process,
 			Authentication authentication) {
-		return documentUploadProcessingService.uploadAndProcess(file, authentication);
+		// process=false: return the id right away so the client can follow /progress while it calls /process-upload.
+		return process ? documentUploadProcessingService.uploadAndProcess(file, authentication)
+				: documentUploadProcessingService.upload(file, authentication);
+	}
+
+	@PostMapping("/{id}/process-upload")
+	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_CREATE') or hasRole('ADMIN')")
+	public DocumentUploadResponse processUpload(@PathVariable Long id) {
+		return documentUploadProcessingService.processUploaded(id);
 	}
 
 	@PostMapping("/{id}/versions")
