@@ -13,6 +13,7 @@ class ApiConstants {
   );
   static const int receiveTimeout = int.fromEnvironment(
     'API_RECEIVE_TIMEOUT_MS',
-    defaultValue: 180000,
+    // Upload processes every page with the AI (up to 300 s each on the backend).
+    defaultValue: 600000,
   );
 }

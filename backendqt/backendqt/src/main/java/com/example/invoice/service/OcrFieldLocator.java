@@ -31,7 +31,12 @@ public class OcrFieldLocator {
 		if (fieldValue == null || fieldValue.isBlank()) return List.of();
 		String layout = repository.findFirstByDocumentIdOrderByProcessedAtDesc(documentId)
 				.map(com.example.invoice.entity.OCRResult::getLayoutJson).orElse(null);
-		if (layout == null || layout.isBlank()) return List.of();
+		return locateInLayout(layout, fieldName, fieldValue);
+	}
+
+	/** Same matching against an already loaded layout; empty when absent or ambiguous. */
+	public List<FieldLocation> locateInLayout(String layout, String fieldName, String fieldValue) {
+		if (fieldValue == null || fieldValue.isBlank() || layout == null || layout.isBlank()) return List.of();
 		try {
 			JsonNode root = objectMapper.readTree(layout);
 			JsonNode pages = root.isArray() ? root : root.path("pages");

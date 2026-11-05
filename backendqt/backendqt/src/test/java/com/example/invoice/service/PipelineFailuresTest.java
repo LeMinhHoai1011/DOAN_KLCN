@@ -25,4 +25,13 @@ class PipelineFailuresTest {
         String technical = PipelineFailures.technicalDetails(new IllegalStateException("secret-token", new java.sql.SQLException("private SQL", "42703")));
         assertTrue(technical.contains("42703")); assertFalse(technical.contains("secret-token")); assertFalse(technical.contains("private SQL"));
     }
+    @Test void unreachableAiIsReportedAsUnavailableNotAsAnExtractionProblem() {
+        var refused = PipelineFailures.classify(new AiProviderException("AI_CONNECTION_ERROR: Failed to connect to localhost/[0:0:0:0:0:0:0:1]:11434",
+                new java.net.ConnectException("refused")), "AI_EXTRACTION", 1);
+        assertEquals("AI_UNAVAILABLE", refused.errorCode()); assertTrue(refused.retryable());
+        assertFalse(refused.userMessage().contains("11434"), "no host/port in the public message");
+        assertEquals("AI_UNAVAILABLE", PipelineFailures.classify(new AiProviderException("AI_HTTP_ERROR: Ollama returned HTTP 503"), "AI_EXTRACTION", 1).errorCode());
+        // Anything unclassified keeps the generic code.
+        assertEquals("EXTRACTION_FAILED", PipelineFailures.classify(new IllegalStateException("unexpected"), "PERSISTENCE", 1).errorCode());
+    }
 }

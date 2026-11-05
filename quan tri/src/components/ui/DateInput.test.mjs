@@ -11,10 +11,15 @@ test('shared input displays Vietnamese dates, preserves ISO payloads, rejects im
  try{
  const source=await readFile(new URL('./DateInput.tsx',import.meta.url),'utf8')
  const helper=pathToFileURL(fileURLToPath(new URL('../../utils/dateTime.ts',import.meta.url))).href
- const output=ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext}}).outputText.replaceAll("'../../utils/dateTime'",JSON.stringify(helper))
- const file=path.join(temp,'input.mjs');await writeFile(file,output);const {default:Input}=await import(pathToFileURL(file).href)
+ const calendar=pathToFileURL(fileURLToPath(new URL('../../utils/calendarMonth.ts',import.meta.url))).href
+ const output=ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext}}).outputText.replaceAll("'../../utils/dateTime'",JSON.stringify(helper)).replaceAll("'../../utils/calendarMonth'",JSON.stringify(calendar))
+ const file=path.join(temp,'input.mjs');await writeFile(file,output);const {default:Picker,DateTextInput:Input}=await import(pathToFileURL(file).href)
  const html=renderToStaticMarkup(React.createElement(Input,{value:'2024-02-29',required:true}))
  assert.ok(html.includes('value="29/02/2024"'));assert.ok(html.includes('dd/MM/yyyy'));assert.doesNotMatch(html,/type="date"/)
+ // The picker keeps the same typed input and adds a calendar button, still without a native date input.
+ const picker=renderToStaticMarkup(React.createElement(Picker,{value:'2024-02-29',className:'si-input'}))
+ assert.ok(picker.includes('value="29/02/2024"'));assert.ok(picker.includes('Chọn ngày trên lịch'));assert.doesNotMatch(picker,/type="date"/)
+ assert.ok(renderToStaticMarkup(React.createElement(Picker,{value:'',disabled:true})).match(/<button[^>]*disabled/))
  let received,validity;const input=Input({value:'',onChange:e=>received=e.target.value})
  const dispatch=value=>input.props.onChange({currentTarget:{value,setCustomValidity:v=>validity=v}})
  dispatch('31/12/2026');assert.equal(received,'2026-12-31');assert.equal(validity,'')

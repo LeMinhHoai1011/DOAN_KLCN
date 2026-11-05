@@ -7,10 +7,10 @@
   "ai": {
     "provider": "ollama",
     "ollama": {
-      "host": "localhost",
+      "host": "127.0.0.1",
       "port": 11434,
       "model": "qwen3-vl:8b",
-      "timeoutSeconds": 120,
+      "timeoutSeconds": 300,
       "numContext": 8192,
       "numPredict": 3072,
       "reservedOutputTokens": 3072

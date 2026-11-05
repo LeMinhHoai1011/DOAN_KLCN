@@ -14,6 +14,7 @@ test('renders three modes with Vietnamese dates and month navigation preserves o
    const source=await readFile(new URL(relative,import.meta.url),'utf8')
    let out=ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext}}).outputText
    out=out.replaceAll("'../../utils/dateTime'",JSON.stringify(pathToFileURL(fileURLToPath(new URL('../utils/dateTime.ts',import.meta.url))).href))
+    .replaceAll("'../../utils/calendarMonth'",JSON.stringify(pathToFileURL(fileURLToPath(new URL('../utils/calendarMonth.ts',import.meta.url))).href))
     .replaceAll("'../utils/financialTimeFilter'",JSON.stringify(pathToFileURL(fileURLToPath(new URL('../utils/financialTimeFilter.ts',import.meta.url))).href))
     .replaceAll("'./ui/DateInput'","'./date.mjs'")
    await writeFile(path.join(temp,name+'.mjs'),out)

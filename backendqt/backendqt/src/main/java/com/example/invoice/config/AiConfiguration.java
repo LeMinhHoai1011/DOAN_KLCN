@@ -10,6 +10,6 @@ import org.springframework.context.annotation.Configuration;
 public class AiConfiguration {
 	@Bean
 	OkHttpClient aiHttpClient() {
-		return new OkHttpClient();
+		return new OkHttpClient.Builder().dns(new LoopbackIpv4Dns()).build();
 	}
 }

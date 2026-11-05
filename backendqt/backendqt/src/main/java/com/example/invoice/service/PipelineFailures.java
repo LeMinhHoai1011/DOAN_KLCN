@@ -35,7 +35,8 @@ public final class PipelineFailures {
         else if (text.contains("JSON") || text.contains("INVALID_RESPONSE") || text.contains("EMPTY_RESPONSE")
                 || text.contains("TOKEN_LIMIT") || text.contains("MODEL_NOT_FOUND")) code = "AI_INVALID_RESPONSE";
         else if (hasCause(exception, java.net.ConnectException.class) || text.contains("CONNECTION_ERROR") || text.contains("UNAVAILABLE") || text.contains("HTTP 503") || text.contains("HTTP 429")) {
-            code = "EXTRACTION_FAILED"; retryable = true;
+            // Infrastructure, not the document: say so, instead of the generic extraction failure.
+            code = "AI_UNAVAILABLE"; retryable = true;
         } else if (stage.equals("TEXT_EXTRACTION") && exception instanceof com.example.invoice.exception.BadRequestException) code = "INVALID_FILE";
         else if (stage.equals("VALIDATION")) code = "VALIDATION_FAILED";
         else if (stage.equals("UPLOAD")) code = "UPLOAD_FAILED";
@@ -64,6 +65,7 @@ public final class PipelineFailures {
             case "OCR_FAILED" -> "Không thể nhận dạng văn bản. Vui lòng kiểm tra tệp và cấu hình OCR.";
             case "OCR_LOW_QUALITY" -> "Chất lượng OCR chưa đạt; kết quả cần được kiểm tra.";
             case "AI_TIMEOUT" -> "AI xử lý quá thời gian cho phép. Có thể thử lại khi dịch vụ sẵn sàng.";
+            case "AI_UNAVAILABLE" -> "Không kết nối được dịch vụ AI. Kiểm tra Ollama đang chạy và địa chỉ cấu hình, rồi thử lại.";
             case "AI_INVALID_RESPONSE" -> "AI trả kết quả không hợp lệ. Vui lòng kiểm tra dịch vụ hoặc cấu hình trước khi xử lý lại.";
             case "STORAGE_FAILED" -> "Không thể truy cập kho tệp. Vui lòng kiểm tra dịch vụ lưu trữ.";
             case "DATABASE_ERROR" -> "Không thể hoàn tất thao tác cơ sở dữ liệu.";

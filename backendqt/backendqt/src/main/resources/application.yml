@@ -55,7 +55,8 @@ app:
 # provider credentials are never committed to source control.
 ai:
   provider: ${AI_PROVIDER:ollama}
-  request-timeout: ${AI_TIMEOUT:120s}
+  # One page of a dense e-invoice takes ~100 s on qwen3-vl:8b (measured); 120 s left no margin.
+  request-timeout: ${AI_TIMEOUT:300s}
   max-image-size-bytes: ${AI_MAX_IMAGE_SIZE_BYTES:10485760}
   ocr:
     enabled: ${OCR_ENABLED:true}
@@ -78,7 +79,8 @@ ai:
       minimum-deskew-angle-degrees: ${OCR_MINIMUM_DESKEW_ANGLE_DEGREES:0.5}
       maximum-deskew-angle-degrees: ${OCR_MAXIMUM_DESKEW_ANGLE_DEGREES:5.0}
   ollama:
-    base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+    # 127.0.0.1, not localhost: Ollama listens on IPv4 only and "localhost" also resolves to ::1.
+    base-url: ${OLLAMA_BASE_URL:http://127.0.0.1:11434}
     model: ${OLLAMA_MODEL:qwen3-vl:8b}
     think: ${OLLAMA_THINK:false}
     num-predict: ${OLLAMA_NUM_PREDICT:3072}
