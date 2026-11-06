@@ -28,11 +28,11 @@ public class ExcelExportService {
 
     /** Same query/scope/date/search as the document list, across all matching pages. */
     @Transactional(readOnly = true)
-    public byte[] documents(LocalDate dateFrom, LocalDate dateTo,
+    public byte[] documents(LocalDate dateFrom, LocalDate dateTo, Long companyId,
             com.example.invoice.entity.DocumentStatus processingStatus,
             com.example.invoice.entity.ReviewStatus reviewStatus, Long typeId, String search,
             org.springframework.data.domain.Sort sort, Authentication authentication) {
-        var documents = documentService.findPage(dateFrom, dateTo, null, processingStatus, reviewStatus,
+        var documents = documentService.findPage(dateFrom, dateTo, companyId, processingStatus, reviewStatus,
                 typeId, null, search, Pageable.unpaged(sort), authentication).getContent();
         try (Workbook book = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = book.createSheet("Chung tu");
@@ -83,9 +83,12 @@ public class ExcelExportService {
     }
 
 	@Transactional(readOnly = true)
-	public byte[] invoices(LocalDate fromDate, LocalDate toDate, String search) {
+	public byte[] invoices(LocalDate fromDate, LocalDate toDate, String search) { return invoices(fromDate, toDate, null, search); }
+
+	@Transactional(readOnly = true)
+	public byte[] invoices(LocalDate fromDate, LocalDate toDate, Long companyId, String search) {
         com.example.invoice.util.DateRanges.validate(fromDate, toDate);
-		List<InvoiceResponse> rows = invoiceService.findAll().stream()
+		List<InvoiceResponse> rows = invoiceService.findAll(companyId).stream()
 				.filter(i -> fromDate == null || (i.invoiceDate() != null && !i.invoiceDate().isBefore(fromDate)))
 				.filter(i -> toDate == null || (i.invoiceDate() != null && !i.invoiceDate().isAfter(toDate)))
 				.filter(i -> matches(i, search)).toList();

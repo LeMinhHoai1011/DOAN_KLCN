@@ -46,6 +46,19 @@ public class InvoiceService {
 		invoiceRepository.saveAndFlush(invoice);remember(document,"INVOICE_CREATE",previous);return toResponse(invoice);
 	}
 
+	/** Same company rule as the document list: null keeps the caller's scope, another company is denied. */
+	@Transactional(readOnly = true)
+	public List<InvoiceResponse> findAll(Long companyId) {
+		if (companyId == null) return findAll();
+		User user = userService.loadCurrent(SecurityContextHolder.getContext().getAuthentication());
+		if (hasRole(user, "ADMIN"))
+			return invoiceRepository.findAllByDocumentCompanyId(companyId).stream().map(this::toResponse).toList();
+		if (user.getCompany() == null && !isEmployee(user)) return List.of();
+		if (user.getCompany() == null || !companyId.equals(user.getCompany().getId()))
+			throw new org.springframework.security.access.AccessDeniedException("Bạn không thể truy cập công ty khác");
+		return findAll();
+	}
+
 	@Transactional(readOnly = true)
 	public List<InvoiceResponse> findAll() {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();

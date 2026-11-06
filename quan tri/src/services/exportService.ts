@@ -2,7 +2,7 @@ import { assertDateRange } from '../utils/dateTime'
 import api from './api'
 import type { DocumentPageQuery } from './documentService'
 
-type InvoiceFilters = { fromDate?: string; toDate?: string; search?: string }
+type InvoiceFilters = { fromDate?: string; toDate?: string; companyId?: number; search?: string }
 
 const download = (blob: Blob, fallbackName: string, disposition?: string) => {
   const match = disposition?.match(/filename="?([^";]+)"?/i)

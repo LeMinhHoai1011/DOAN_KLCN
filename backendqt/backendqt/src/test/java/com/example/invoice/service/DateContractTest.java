@@ -21,7 +21,7 @@ class DateContractTest {
   FinancialTransactionService payments=mock(FinancialTransactionService.class);
   InvoiceResponse first=mock(InvoiceResponse.class),last=mock(InvoiceResponse.class),outside=mock(InvoiceResponse.class);
   when(first.invoiceDate()).thenReturn(LocalDate.of(2024,2,29));when(last.invoiceDate()).thenReturn(LocalDate.of(2024,3,1));when(outside.invoiceDate()).thenReturn(LocalDate.of(2024,3,2));
-  when(invoices.findAll()).thenReturn(List.of(first,last,outside));
+  when(invoices.findAll(null)).thenReturn(List.of(first,last,outside));
   ExcelExportService service=new ExcelExportService(invoices,payments,mock(DocumentService.class));
   byte[] bytes=service.invoices(LocalDate.of(2024,2,29),LocalDate.of(2024,3,1),null);
   try(var book=new XSSFWorkbook(new ByteArrayInputStream(bytes))){

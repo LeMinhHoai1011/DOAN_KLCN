@@ -99,6 +99,18 @@ class PaymentIntegrationTest {
    mvc.perform(get("/api/v1/financial-transactions/link-options/invoices").param("companyId","1").header("Authorization",auth)).andExpect(status().isForbidden());
  }
 
+ java.util.Set<String> exportedColumn(String path,int column,String companyId,String auth)throws Exception{var request=get("/api/v1/exports/"+path).header("Authorization",auth);if(companyId!=null)request=request.param("companyId",companyId);var bytes=mvc.perform(request).andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();var values=new java.util.HashSet<String>();try(var book=org.apache.poi.ss.usermodel.WorkbookFactory.create(new java.io.ByteArrayInputStream(bytes))){for(var row:book.getSheetAt(0))if(row.getRowNum()>0)values.add(row.getCell(column).getStringCellValue());}return values;}
+ @Test void documentAndInvoiceExportsUseSelectedCompanyAndDenyCrossCompanyAccountant()throws Exception {
+   var own=invoice(13,false);own.setInvoiceNumber("OWN-EXPORT");var foreign=invoice(1,false);foreign.setInvoiceNumber("FOREIGN-EXPORT");invoices.saveAndFlush(own);invoices.saveAndFlush(foreign);
+   String accountant=token("accountant"),admin=token("admin"),ownDocument=own.getDocument().getId().toString(),foreignDocument=foreign.getDocument().getId().toString();
+   for(String path:List.of("documents","invoices"))mvc.perform(get("/api/v1/exports/"+path).param("companyId","1").header("Authorization",accountant)).andExpect(status().isForbidden());
+   mvc.perform(get("/api/v1/documents").param("companyId","1").header("Authorization",accountant)).andExpect(status().isForbidden());
+   var adminDocuments=exportedColumn("documents",0,"1",admin);assertTrue(adminDocuments.contains(foreignDocument));assertFalse(adminDocuments.contains(ownDocument));
+   var adminInvoices=exportedColumn("invoices",1,"1",admin);assertTrue(adminInvoices.contains("FOREIGN-EXPORT"));assertFalse(adminInvoices.contains("OWN-EXPORT"));
+   assertTrue(exportedColumn("invoices",1,null,admin).containsAll(List.of("OWN-EXPORT","FOREIGN-EXPORT")));
+   var accountantDocuments=exportedColumn("documents",0,"13",accountant);assertTrue(accountantDocuments.contains(ownDocument));assertFalse(accountantDocuments.contains(foreignDocument));
+   var accountantInvoices=exportedColumn("invoices",1,null,accountant);assertTrue(accountantInvoices.contains("OWN-EXPORT"));assertFalse(accountantInvoices.contains("FOREIGN-EXPORT"));
+ }
  @Test void cashExportUsesSelectedCompanyAndDeniesCrossCompanyAccountant()throws Exception {
    String accountant=token("accountant"),admin=token("admin");create(body(null,"5.00"),accountant);var foreign=body(null,"7.00");foreign.put("companyId",1);create(foreign,admin);
    mvc.perform(get("/api/v1/exports/financial-report").param("companyId","1").header("Authorization",accountant)).andExpect(status().isForbidden());

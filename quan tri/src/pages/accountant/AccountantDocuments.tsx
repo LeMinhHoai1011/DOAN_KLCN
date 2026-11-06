@@ -9,6 +9,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import documentService from '../../services/documentService';
 import type { DocumentListItem, DocumentStatus, DocumentType } from '../../services/documentService';
 import dashboardService, { type DashboardStatistics } from '../../services/dashboardService';
+import accountingCategoryService, { type CategoryCompany } from '../../services/accountingCategoryService';
 import exportService from '../../services/exportService';
 import { getEffectiveRole } from '../../services/authService';
 import StatCard from '../../components/StatCard';
@@ -49,6 +50,8 @@ const AccountantDocuments = () => {
   const [processingStatus, setProcessingStatus] = useState<DocumentStatus | 'ALL'>(isReviewWorkspace ? 'NEED_REVIEW' : 'ALL');
   const [reviewStatus, setReviewStatus] = useState<(typeof REVIEW_STATUSES)[number] | 'ALL'>('ALL');
   const [typeId, setTypeId] = useState('ALL');
+  const [companies, setCompanies] = useState<CategoryCompany[]>([]);
+  const [companyId, setCompanyId] = useState('ALL');
   const [dateFrom, setDateFrom] = useDateFilter('AccountantDocuments.from');
   const [dateTo, setDateTo] = useDateFilter('AccountantDocuments.to');
   const [sort, setSort] = useState('createdAt,desc');
@@ -69,11 +72,13 @@ const AccountantDocuments = () => {
   }, [incoming, location.pathname, navigate]);
 
   useEffect(() => { let mounted = true; void documentService.getDocumentTypes().then((types) => { if (mounted) setDocumentTypes(types); }).catch(() => undefined); return () => { mounted = false; }; }, []);
+  // The company list is admin-only; other roles are always limited to their own scope by the backend.
+  useEffect(() => { if (role !== 'ADMIN') return; let mounted = true; void accountingCategoryService.getCompanies().then((items) => { if (mounted) setCompanies(items); }).catch(() => undefined); return () => { mounted = false; }; }, [role]);
   useEffect(() => { let mounted = true; void dashboardService.getDashboardStatistics().then((summary) => { if (mounted) setStatistics(summary); }).catch(() => undefined); return () => { mounted = false; }; }, []);
   useEffect(() => {
     let mounted = true;
     setIsLoading(true);
-    void documentService.getDocumentPage({ page: pageNumber, size: pageSize, sort, search: search.trim() || undefined, processingStatus: processingStatus === 'ALL' ? undefined : processingStatus, reviewStatus: reviewStatus === 'ALL' ? undefined : reviewStatus, typeId: typeId === 'ALL' ? undefined : Number(typeId), dateFrom: dateFrom || undefined, dateTo: dateTo || undefined })
+    void documentService.getDocumentPage({ page: pageNumber, size: pageSize, sort, search: search.trim() || undefined, processingStatus: processingStatus === 'ALL' ? undefined : processingStatus, reviewStatus: reviewStatus === 'ALL' ? undefined : reviewStatus, typeId: typeId === 'ALL' ? undefined : Number(typeId), companyId: companyId === 'ALL' ? undefined : Number(companyId), dateFrom: dateFrom || undefined, dateTo: dateTo || undefined })
       .then(async (page) => {
         if (!mounted) return;
         setDocuments(page.content); setTotalPages(page.totalPages); setTotalElements(page.totalElements); setError(''); setProcessingHistory({});
@@ -83,18 +88,18 @@ const AccountantDocuments = () => {
       .catch(() => { if (mounted) setError('Không thể tải danh sách chứng từ'); })
       .finally(() => { if (mounted) setIsLoading(false); });
     return () => { mounted = false; };
-  }, [dateFrom, dateTo, pageNumber, pageSize, processingStatus, reviewStatus, search, sort, typeId, reloadVersion]);
+  }, [companyId, dateFrom, dateTo, pageNumber, pageSize, processingStatus, reviewStatus, search, sort, typeId, reloadVersion]);
 
   const exportExcel = async () => {
     const rangeError=dateRangeError(dateFrom,dateTo);if(rangeError){setError(rangeError);return;}
     setExporting(true);
-    try { await exportService.exportDocuments({ search: search.trim() || undefined, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, processingStatus: processingStatus === 'ALL' ? undefined : processingStatus, reviewStatus: reviewStatus === 'ALL' ? undefined : reviewStatus, typeId: typeId === 'ALL' ? undefined : Number(typeId), sort }); }
+    try { await exportService.exportDocuments({ search: search.trim() || undefined, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, processingStatus: processingStatus === 'ALL' ? undefined : processingStatus, reviewStatus: reviewStatus === 'ALL' ? undefined : reviewStatus, typeId: typeId === 'ALL' ? undefined : Number(typeId), companyId: companyId === 'ALL' ? undefined : Number(companyId), sort }); }
     catch { setError('Không thể xuất danh sách chứng từ. Vui lòng thử lại.'); }
     finally { setExporting(false); }
   };
 
   const firstPage = () => setPageNumber(1);
-  const resetFilters = () => { setSearch(''); setProcessingStatus('ALL'); setReviewStatus('ALL'); setTypeId('ALL'); setDateFrom(''); setDateTo(''); setSort('createdAt,desc'); firstPage(); };
+  const resetFilters = () => { setSearch(''); setProcessingStatus('ALL'); setReviewStatus('ALL'); setTypeId('ALL'); setCompanyId('ALL'); setDateFrom(''); setDateTo(''); setSort('createdAt,desc'); firstPage(); };
   const updateSearch = (value: string) => { setSearch(value); firstPage(); };
 
   const activeFilters = useMemo(() => {
@@ -103,10 +108,11 @@ const AccountantDocuments = () => {
     if (processingStatus !== 'ALL') chips.push({ key: 'processing', label: `Xử lý: ${processingLabels[processingStatus]}`, clear: () => { setProcessingStatus('ALL'); firstPage(); } });
     if (reviewStatus !== 'ALL') chips.push({ key: 'review', label: `Kiểm tra: ${reviewLabels[reviewStatus]}`, clear: () => { setReviewStatus('ALL'); firstPage(); } });
     if (typeId !== 'ALL') chips.push({ key: 'type', label: `Loại: ${documentTypes.find((type) => String(type.id) === typeId)?.name ?? typeId}`, clear: () => { setTypeId('ALL'); firstPage(); } });
+    if (companyId !== 'ALL') chips.push({ key: 'company', label: `Doanh nghiệp: ${companies.find((company) => String(company.id) === companyId)?.companyName ?? companyId}`, clear: () => { setCompanyId('ALL'); firstPage(); } });
     if (dateFrom) chips.push({ key: 'from', label: `Từ ${formatDate(dateFrom)}`, clear: () => { setDateFrom(''); firstPage(); } });
     if (dateTo) chips.push({ key: 'to', label: `Đến ${formatDate(dateTo)}`, clear: () => { setDateTo(''); firstPage(); } });
     return chips;
-  }, [dateFrom, dateTo, documentTypes, processingStatus, reviewStatus, search, typeId]);
+  }, [companies, companyId, dateFrom, dateTo, documentTypes, processingStatus, reviewStatus, search, typeId]);
 
   const rangeFrom = totalElements === 0 ? 0 : (pageNumber - 1) * pageSize + 1;
   const rangeTo = Math.min(pageNumber * pageSize, totalElements);
@@ -149,6 +155,7 @@ const AccountantDocuments = () => {
 
         <div className="border-b border-hairline p-4">
           <FilterBar actions={<button type="button" onClick={resetFilters} className="si-btn-ghost"><RotateCcw size={20} />Đặt lại</button>}>
+              {role === 'ADMIN' && <label className="grid gap-1"><span className="si-field-label">Doanh nghiệp</span><select value={companyId} onChange={(event) => { setCompanyId(event.target.value); firstPage(); }} className="si-select"><option value="ALL">Tất cả</option>{companies.map((company) => <option key={company.id} value={company.id}>{company.companyName}</option>)}</select></label>}
               <label className="grid gap-1"><span className="si-field-label">Xử lý</span><select value={processingStatus} onChange={(event) => { setProcessingStatus(event.target.value as DocumentStatus | 'ALL'); firstPage(); }} className="si-select"><option value="ALL">Tất cả</option>{PROCESSING_STATUSES.map((status) => <option key={status} value={status}>{processingLabels[status]}</option>)}</select></label>
               <label className="grid gap-1"><span className="si-field-label">Kiểm tra</span><select value={reviewStatus} onChange={(event) => { setReviewStatus(event.target.value as typeof reviewStatus); firstPage(); }} className="si-select"><option value="ALL">Tất cả</option>{REVIEW_STATUSES.map((status) => <option key={status} value={status}>{reviewLabels[status]}</option>)}</select></label>
               <label className="grid gap-1"><span className="si-field-label">Loại chứng từ</span><select value={typeId} onChange={(event) => { setTypeId(event.target.value); firstPage(); }} className="si-select"><option value="ALL">Tất cả</option>{documentTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>

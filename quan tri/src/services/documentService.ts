@@ -77,6 +77,7 @@ export interface DocumentPageQuery {
   search?: string
   dateFrom?: string
   dateTo?: string
+  companyId?: number
   processingStatus?: DocumentStatus
   reviewStatus?: DocumentResponse['reviewStatus']
   typeId?: number

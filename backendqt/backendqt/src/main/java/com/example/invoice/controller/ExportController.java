@@ -24,15 +24,16 @@ public class ExportController {
     public ResponseEntity<byte[]> documents(
             @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate dateFrom,
             @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate dateTo,
+            @RequestParam(required=false) Long companyId,
             @RequestParam(required=false) com.example.invoice.entity.DocumentStatus processingStatus,
             @RequestParam(required=false) com.example.invoice.entity.ReviewStatus reviewStatus,
             @RequestParam(required=false) Long typeId, @RequestParam(required=false) String search,
             @org.springframework.data.web.SortDefault(sort="createdAt", direction=org.springframework.data.domain.Sort.Direction.DESC)
             org.springframework.data.domain.Sort sort, Authentication authentication) {
-        return file(exportService.documents(dateFrom,dateTo,processingStatus,reviewStatus,typeId,search,sort,authentication),"documents");
+        return file(exportService.documents(dateFrom,dateTo,companyId,processingStatus,reviewStatus,typeId,search,sort,authentication),"documents");
     }
 	@GetMapping("/invoices") @PreAuthorize("hasAuthority('PERMISSION_REPORT_EXPORT') or hasRole('ADMIN')")
-	public ResponseEntity<byte[]> invoices(@RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate fromDate,@RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate toDate,@RequestParam(required=false) String search){return file(exportService.invoices(fromDate,toDate,search),"invoices");}
+	public ResponseEntity<byte[]> invoices(@RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate fromDate,@RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate toDate,@RequestParam(required=false) Long companyId,@RequestParam(required=false) String search){return file(exportService.invoices(fromDate,toDate,companyId,search),"invoices");}
 	@GetMapping("/financial-report") @PreAuthorize("hasAuthority('PERMISSION_REPORT_EXPORT') or hasRole('ADMIN')")
 	public ResponseEntity<byte[]> report(@RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate fromDate,@RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate toDate,@RequestParam(required=false) Long companyId,Authentication authentication){return file(exportService.financialReportScoped(fromDate,toDate,companyId,authentication),"financial_report");}
 	private ResponseEntity<byte[]> file(byte[] body,String prefix){String name=prefix+"_"+java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))+".xlsx";return ResponseEntity.ok().contentType(XLSX).header(HttpHeaders.CONTENT_DISPOSITION,"attachment; filename=\""+name+"\"").body(body);}

@@ -416,11 +416,11 @@ public class DocumentService {
 					: (root, query, builder) -> builder.equal(root.get("company").get("id"), requestedCompanyId);
 		}
 		if (hasRole(user, "EMPLOYEE") || hasRole(user, "USER")) {
-			if (requestedCompanyId != null && (user.getCompany() == null || !requestedCompanyId.equals(user.getCompany().getId()))) throw new IllegalArgumentException("Bạn không thể truy cập công ty khác");
+			if (requestedCompanyId != null && (user.getCompany() == null || !requestedCompanyId.equals(user.getCompany().getId()))) throw new org.springframework.security.access.AccessDeniedException("Bạn không thể truy cập công ty khác");
 			return (root, query, builder) -> builder.equal(root.get("uploadedBy").get("id"), user.getId());
 		}
 		if (user.getCompany() == null) return (root, query, builder) -> builder.disjunction();
-		if (requestedCompanyId != null && !requestedCompanyId.equals(user.getCompany().getId())) throw new IllegalArgumentException("Bạn không thể truy cập công ty khác");
+		if (requestedCompanyId != null && !requestedCompanyId.equals(user.getCompany().getId())) throw new org.springframework.security.access.AccessDeniedException("Bạn không thể truy cập công ty khác");
 		return (root, query, builder) -> builder.equal(root.get("company").get("id"), user.getCompany().getId());
 	}
 	
