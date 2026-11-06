@@ -1,10 +1,8 @@
 package com.example.invoice.dto.user;
-import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
 import java.util.Set;
+/** UserService validates the lists: bean validation here would answer 400 before @PreAuthorize can answer 403. */
 public record AssignRolesRequest(
-    @NotEmpty Set<@NotNull @Positive Long> roleIds,
-    Set<@NotNull @Positive Long> expectedRoleIds) {
+    Set<Long> roleIds,
+    Set<Long> expectedRoleIds) {
     public AssignRolesRequest(Set<Long> roleIds) { this(roleIds, null); }
 }
