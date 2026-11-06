@@ -1,6 +1,7 @@
 import api from './api'
 
-export interface FieldScore { expected: number; correct: number; missing: number; incorrect: number; accuracy: number | null; missingRate: number | null; incorrectRate: number | null }
+export interface FieldScore { expected: number; correct: number; missing: number; incorrect: number; accuracy: number | null; missingRate: number | null; incorrectRate: number | null; spurious: number; precision: number | null; recall: number | null; f1: number | null }
+export interface ReconciliationScore { samples: number; checks: number; correctChecks: number; checkAccuracy: number | null; correctDocuments: number; documentAccuracy: number | null; extraChecks: number; confusionMatrix: Record<string, Record<string, number>> }
 export interface Score {
   costCategoryMetrics?: Record<string, {
     samples: number; correct: number; missing: number; accuracy: number | null
@@ -16,6 +17,8 @@ export interface Score {
   classificationAccuracy: number | null; classificationSamples: number; macroPrecision: number | null; macroRecall: number | null; macroF1: number | null
   classes: Record<string, { support: number; predicted: number; truePositive: number; precision: number; recall: number; f1: number }>
   confusionMatrix: Record<string, Record<string, number>>; failuresByCode: Record<string, number>
+  fieldTotals: FieldScore; fieldMacroPrecision: number | null; fieldMacroRecall: number | null; fieldMacroF1: number | null
+  exactDocuments: number; exactEligible: number; exactDocumentRate: number | null; reconciliation: ReconciliationScore | null
 }
 export interface EvaluationRun {
   runId: string; datasetId: string; datasetVersion: string; groundTruthSha256: string; bundleSha256: string

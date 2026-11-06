@@ -10,11 +10,17 @@ public record EvaluationData(int schemaVersion, String datasetId, String dataset
     public record Sample(String id, String assetSha256, String documentType, List<String> tags,
             String verifiedBy, Instant verifiedAt, String ocrText, Map<String, String> fields,
             Map<String, String> ocrFields, List<Map<String, String>> items,
-            String categoryTaxonomy, String accountingCategory) {
+            String categoryTaxonomy, String accountingCategory, Map<String, String> reconciliation) {
         public Sample(String id, String assetSha256, String documentType, List<String> tags,
                 String verifiedBy, Instant verifiedAt, String ocrText, Map<String,String> fields,
                 Map<String,String> ocrFields, List<Map<String,String>> items) {
-            this(id,assetSha256,documentType,tags,verifiedBy,verifiedAt,ocrText,fields,ocrFields,items,null,null);
+            this(id,assetSha256,documentType,tags,verifiedBy,verifiedAt,ocrText,fields,ocrFields,items,null,null,null);
+        }
+        public Sample(String id, String assetSha256, String documentType, List<String> tags,
+                String verifiedBy, Instant verifiedAt, String ocrText, Map<String,String> fields,
+                Map<String,String> ocrFields, List<Map<String,String>> items,
+                String categoryTaxonomy, String accountingCategory) {
+            this(id,assetSha256,documentType,tags,verifiedBy,verifiedAt,ocrText,fields,ocrFields,items,categoryTaxonomy,accountingCategory,null);
         }
     }
     public record Run(String id, String strategy, String model, String modelDigest, String configSha256,

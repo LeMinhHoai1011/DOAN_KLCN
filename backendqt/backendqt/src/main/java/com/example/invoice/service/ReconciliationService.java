@@ -1,5 +1,6 @@
 package com.example.invoice.service;
 
+import com.example.invoice.ai.InvoiceReconciliationRules;
 import com.example.invoice.dto.reconciliation.ReconciliationResponse;
 import com.example.invoice.entity.*;
 import com.example.invoice.exception.BadRequestException;
@@ -24,10 +25,7 @@ public class ReconciliationService {
  @org.springframework.beans.factory.annotation.Autowired private PaymentReconciliationService paymentReconciliation;
  public com.example.invoice.dto.accounting.PaymentSummary runPayments(Long document,Long invoice,Long company,Authentication auth){return paymentReconciliation.run(document,invoice,company,auth);}
 
-	private static final BigDecimal TOLERANCE = new BigDecimal("0.01");
-	private static final String MATCHED = "MATCHED";
-	private static final String MISMATCH = "MISMATCH";
-	private static final String INSUFFICIENT_DATA = "INSUFFICIENT_DATA";
+	private static final String MATCHED = InvoiceReconciliationRules.MATCHED;
 	private static final String ACCEPTED = "ACCEPTED";
 	private static final String NEED_REVIEW = "NEED_REVIEW";
 	private final DocumentService documentService;
@@ -91,46 +89,11 @@ public class ReconciliationService {
             return com.example.invoice.ai.RetailInvoiceRules.evaluate(view.details(),rows,invoice.getTotalAmount(),invoice.getVatAmount(),view.stale())
                     .stream().map(check -> new Check(check.type(),check.declared(),check.calculated(),check.missing(),check.message())).toList();
         }
-		List<Check> result = new ArrayList<>();
-		List<InvoiceItem> items = invoice.getItems() == null ? List.of() : invoice.getItems();
-		if (items.isEmpty())
-			result.add(insufficient("ITEMS_PRESENT", null, null,
-					"Chưa đủ dữ liệu hàng hóa để đối soát; cần bổ sung ít nhất một dòng hàng hóa"));
-		for (int index = 0; index < items.size(); index++) {
-			InvoiceItem item = items.get(index);
-			BigDecimal amount = multiply(item.getQuantity(), item.getUnitPrice());
-			result.add(check("ITEM_" + (index + 1) + "_AMOUNT", item.getAmount(), amount,
-					item.getQuantity() == null || item.getUnitPrice() == null || item.getAmount() == null,
-					"Thành tiền dòng = số lượng × đơn giá; cần quantity, unitPrice và amount"));
-			BigDecimal rate = rate(item.getTaxRate());
-			BigDecimal vat = item.getAmount() == null || rate == null ? null : round(item.getAmount().multiply(rate));
-			result.add(check("ITEM_" + (index + 1) + "_VAT", item.getTaxAmount(), vat,
-					item.getAmount() == null || item.getTaxRate() == null || item.getTaxAmount() == null,
-					"VAT dòng theo thuế suất; cần amount, taxRate và taxAmount"));
-		}
-		BigDecimal itemSum = completeSum(items.stream().map(InvoiceItem::getAmount).toList());
-		BigDecimal vatSum = completeSum(items.stream().map(InvoiceItem::getTaxAmount).toList());
-		result.add(check("SUBTOTAL", invoice.getSubtotal(), itemSum,
-				invoice.getSubtotal() == null || items.isEmpty() || itemSum == null,
-				"Tổng dòng so với tổng trước thuế; cần items[].amount và subtotal"));
-		result.add(check("VAT_TOTAL", invoice.getVatAmount(), vatSum,
-				invoice.getVatAmount() == null || items.isEmpty() || vatSum == null,
-				"Tổng VAT dòng, hỗ trợ nhiều thuế suất; cần items[].taxAmount và vatAmount"));
-		BigDecimal total = invoice.getSubtotal() == null || invoice.getVatAmount() == null
-				? null : round(invoice.getSubtotal().add(invoice.getVatAmount()));
-		result.add(check("TOTAL", invoice.getTotalAmount(), total,
-				invoice.getSubtotal() == null || invoice.getVatAmount() == null || invoice.getTotalAmount() == null,
-				"Tổng trước thuế + VAT so với thanh toán; cần subtotal, vatAmount và totalAmount"));
-		return result;
-	}
-
-	private Check check(String type, BigDecimal declared, BigDecimal calculated, boolean missing, String message) {
-		return missing ? insufficient(type, declared, calculated, message)
-				: new Check(type, declared, calculated, false, message);
-	}
-
-	private Check insufficient(String type, BigDecimal declared, BigDecimal calculated, String message) {
-		return new Check(type, declared, calculated, true, message);
+		var rows = (invoice.getItems() == null ? List.<InvoiceItem>of() : invoice.getItems()).stream()
+				.map(item -> new InvoiceReconciliationRules.Row(item.getQuantity(), item.getUnitPrice(), item.getTaxRate(),
+						item.getTaxAmount(), item.getAmount())).toList();
+		return InvoiceReconciliationRules.evaluate(rows, invoice.getSubtotal(), invoice.getVatAmount(), invoice.getTotalAmount())
+				.stream().map(check -> new Check(check.type(), check.declared(), check.calculated(), check.missing(), check.message())).toList();
 	}
 
 	private Reconciliation save(Reconciliation current, ReconciliationBatch batch, Document document,
@@ -143,10 +106,9 @@ public class ReconciliationService {
 		result.setExpectedAmount(roundNullable(check.declared()));
 		result.setActualAmount(roundNullable(check.calculated()));
 		BigDecimal difference = check.missing() || check.declared() == null || check.calculated() == null
-				? null : round(check.calculated().subtract(check.declared()));
+				? null : InvoiceReconciliationRules.difference(check.declared(), check.calculated());
 		result.setDifferenceAmount(difference);
-		result.setStatus(check.missing() ? INSUFFICIENT_DATA
-				: difference.abs().compareTo(TOLERANCE) <= 0 ? MATCHED : MISMATCH);
+		result.setStatus(InvoiceReconciliationRules.status(check.declared(), check.calculated(), check.missing()));
 		result.setComment(check.type() + ": " + (check.missing() ? "INSUFFICIENT_DATA; " : "")
 				+ check.message() + "; rounding=HALF_UP scale=2");
 		return reconciliationRepository.save(result);
@@ -172,19 +134,6 @@ public class ReconciliationService {
 		return new ReconciliationResponse(result.getId(), type(result), result.getExpectedAmount(),
 				result.getActualAmount(), result.getDifferenceAmount(), result.getStatus(), result.getComment(),
 				result.getReconciliationBatch() == null ? null : result.getReconciliationBatch().getId(), result.getReviewedAt());
-	}
-
-	private BigDecimal rate(BigDecimal value) {
-		return value == null ? null : value.abs().compareTo(BigDecimal.ONE) <= 0 ? value : value.movePointLeft(2);
-	}
-
-	private BigDecimal multiply(BigDecimal left, BigDecimal right) {
-		return left == null || right == null ? null : round(left.multiply(right));
-	}
-
-	private BigDecimal completeSum(List<BigDecimal> values) {
-		if (values.isEmpty() || values.stream().anyMatch(Objects::isNull)) return null;
-		return round(values.stream().reduce(BigDecimal.ZERO, BigDecimal::add));
 	}
 
 	private BigDecimal roundNullable(BigDecimal value) {

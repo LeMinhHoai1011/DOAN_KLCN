@@ -17,6 +17,9 @@ import org.springframework.web.server.ResponseStatusException;
 public class EvaluationService {
     /** A/B/C are AI variants; R is the non-LLM baseline (Tess4J + rules) used as the traditional control group. */
     static final Set<String> STRATEGIES=Set.of("A","B","C","R");
+    static final String RETAIL_INVOICE="RETAIL_INVOICE";
+    private static final Set<String> RECONCILIATION_STATUSES=Set.of(com.example.invoice.ai.InvoiceReconciliationRules.MATCHED,
+            com.example.invoice.ai.InvoiceReconciliationRules.MISMATCH,com.example.invoice.ai.InvoiceReconciliationRules.INSUFFICIENT_DATA);
     private final String directory;
     private final ObjectMapper json;
     public EvaluationService(@Value("${app.evaluation.directory:}") String directory, ObjectMapper json) {
@@ -48,6 +51,8 @@ public class EvaluationService {
             if (data.schemaVersion()==1) truth.forEach(sample -> {
                 ((com.fasterxml.jackson.databind.node.ObjectNode)sample).remove(List.of("categoryTaxonomy","accountingCategory"));
             });
+            // Older bundles keep their published ground-truth hash.
+            if (data.schemaVersion()<3) truth.forEach(sample -> ((com.fasterxml.jackson.databind.node.ObjectNode)sample).remove("reconciliation"));
             String truthHash=hash(json.writeValueAsBytes(truth));
             String bundleHash=hash(bytes);
             var reports=new ArrayList<RunReport>();
@@ -106,10 +111,13 @@ public class EvaluationService {
                 "Thiếu thời gian/fallback/attempts trả null và số mẫu quan sát, không suy diễn.",
                 "Nhóm Text/Vision là nhánh xử lý thực đo, có độ khó đầu vào khác nhau; không phải so sánh nhân quả trên cùng mẫu.",
                 "Chi tiết hàng hóa so sánh ô theo thứ tự dòng đã chốt; dòng thừa được báo riêng.",
-                "R là nhóm đối chứng truyền thống (Tess4J + luật/từ khóa, không LLM, không trích bảng hàng hóa)."));
+                "R là nhóm đối chứng truyền thống (Tess4J + luật/từ khóa, không LLM, không trích bảng hàng hóa).",
+                "Precision/Recall/F1 theo trường: sai giá trị tính cả ở Precision và Recall, nên Recall bằng Accuracy; bộ chuẩn phải đủ trường, vì trường AI trả về ngoài bộ chuẩn tính là thừa.",
+                "Chứng từ đúng hoàn toàn: mọi trường và ô hàng hóa trong bộ chuẩn đều đúng, không có giá trị thừa hoặc dòng thừa.",
+                "Đối soát đúng: áp luật đối soát lên dữ liệu trích xuất rồi so với kết quả đã được người xác nhận trên bộ mẫu; chỉ tính mẫu có nhãn đối soát, không gồm hóa đơn bán lẻ."));
     }
     private void validate(Path root,EvaluationData data)throws IOException {
-        if(data==null||!Set.of(1,2).contains(data.schemaVersion())||!label(data.datasetId())||!label(data.datasetVersion())
+        if(data==null||!Set.of(1,2,3).contains(data.schemaVersion())||!label(data.datasetId())||!label(data.datasetVersion())
                 ||data.samples()==null||data.runs()==null||data.samples().size()>500||data.runs().size()>20)throw invalid();
         Map<String,EvaluationData.Sample> samples=new HashMap<>();
         Set<String> assets=new HashSet<>();
@@ -124,6 +132,12 @@ public class EvaluationService {
             if (sample.categoryTaxonomy()!=null && (!label(sample.categoryTaxonomy()) || !label(sample.accountingCategory())
                     || "__NO_PREDICTION__".equals(sample.accountingCategory()))) throw invalid();
             text(sample.ocrText());fields(sample.fields(),false);fields(sample.ocrFields(),false);items(sample.items(),false);
+            // Retail checks need details the benchmark does not hold, so a retail label could never be scored fairly.
+            if (sample.reconciliation()!=null) {
+                if (data.schemaVersion()<3||RETAIL_INVOICE.equals(sample.documentType())||sample.reconciliation().isEmpty()
+                        ||!RECONCILIATION_STATUSES.containsAll(sample.reconciliation().values()))throw invalid();
+                fields(sample.reconciliation(),false);
+            }
         }
         Set<String> runIds=new HashSet<>();
         for(var run:data.runs()) {

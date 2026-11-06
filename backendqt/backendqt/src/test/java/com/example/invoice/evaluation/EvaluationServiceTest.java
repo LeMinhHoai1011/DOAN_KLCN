@@ -59,6 +59,34 @@ class EvaluationServiceTest {
         ((com.fasterxml.jackson.databind.node.ObjectNode)tree.path("samples").get(0)).putNull("verifiedBy");Files.write(directory.resolve("benchmark.json"),json.writeValueAsBytes(tree));assertThrows(ResponseStatusException.class,()->service().report(null,null,null,null));
         write();tree=json.readTree(Files.readAllBytes(directory.resolve("benchmark.json")));((com.fasterxml.jackson.databind.node.ObjectNode)tree.path("runs").get(0).path("results").get(0)).put("confidence",100);Files.write(directory.resolve("benchmark.json"),json.writeValueAsBytes(tree));assertThrows(ResponseStatusException.class,()->service().report(null,null,null,null));
     }
+    EvaluationData.Sample labelled(String type,Map<String,String> reconciliation) {
+        var s=data.samples().getFirst();
+        return new EvaluationData.Sample(s.id(),s.assetSha256(),type,s.tags(),s.verifiedBy(),s.verifiedAt(),s.ocrText(),s.fields(),s.ocrFields(),s.items(),null,null,reconciliation);
+    }
+    void bundle(int schema,EvaluationData.Sample sample)throws Exception {
+        var r=new EvaluationData.Result("s1",sample.assetSha256(),null,"SUCCESS",null,25L,false,1,"Hóa đơn",null,Map.of("totalAmount","100"),null,"INVOICE");
+        var evidence=json.readTree(json.writeValueAsBytes(r));((com.fasterxml.jackson.databind.node.ObjectNode)evidence).remove("evidenceSha256");
+        String hash=artifact("evidence",json.writeValueAsBytes(evidence),".json");
+        r=new EvaluationData.Result("s1",sample.assetSha256(),hash,"SUCCESS",null,25L,false,1,"Hóa đơn",null,r.fields(),null,"INVOICE");
+        data=new EvaluationData(schema,data.datasetId(),data.datasetVersion(),List.of(sample),List.of(run("A",List.of(r))));write();
+    }
+    @Test void reconciliationLabelsNeedSchema3AndAreScored()throws Exception {
+        bundle(3,labelled("INVOICE",Map.of("TOTAL","INSUFFICIENT_DATA")));
+        var score=service().report(null,null,null,null).runs().getFirst().metrics().reconciliation();
+        assertEquals(1,score.samples());assertEquals(1,score.correctChecks());assertEquals(3,score.extraChecks());assertEquals(0,score.correctDocuments());
+        bundle(2,labelled("INVOICE",Map.of("TOTAL","MATCHED")));assertThrows(ResponseStatusException.class,()->service().report(null,null,null,null));
+    }
+    @Test void invalidReconciliationLabelsFailClosed()throws Exception {
+        for(var bad:List.of(labelled("INVOICE",Map.of("TOTAL","ACCEPTED")),labelled("INVOICE",Map.of()),labelled("RETAIL_INVOICE",Map.of("TOTAL","MATCHED")))) {
+            bundle(3,bad);assertEquals(422,assertThrows(ResponseStatusException.class,()->service().report(null,null,null,null)).getStatusCode().value());
+        }
+    }
+    @Test void unlabelledRunsReportNoReconciliationAndOlderGroundTruthHashIsUnchanged()throws Exception {
+        bundle(2,labelled("INVOICE",null));
+        var truth=json.valueToTree(data.samples());((com.fasterxml.jackson.databind.node.ObjectNode)truth.get(0)).remove("reconciliation");
+        var run=service().report(null,null,null,null).runs().getFirst();
+        assertNull(run.metrics().reconciliation());assertEquals(EvaluationService.hash(json.writeValueAsBytes(truth)),run.groundTruthSha256());
+    }
     @Test void incompleteRunReportsCoverageAndCannotCompare()throws Exception {
         data=new EvaluationData(1,data.datasetId(),data.datasetVersion(),data.samples(),List.of(run("A",List.of())));write();
         var report=service().report(null,null,null,null);assertFalse(report.comparable());assertFalse(report.runs().getFirst().complete());assertEquals(0,report.runs().getFirst().evaluatedSamples());assertNull(report.runs().getFirst().metrics().successRate());
