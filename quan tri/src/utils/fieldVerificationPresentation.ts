@@ -15,6 +15,10 @@ export const ruleOutcomeLabel = { PASS: 'Đạt', FAIL: 'Không đạt', NOT_APP
 export const indexVerifications = (report: FieldVerificationReport | null) =>
   Object.fromEntries((report?.fields ?? []).map(view => [view.fieldKey, view])) as Record<string, FieldVerificationView>
 
+/** Item badges are keyed by row position, so they no longer apply once rows are added or removed. */
+export const withoutItemVerifications = (report: FieldVerificationReport | null) =>
+  report && { ...report, fields: report.fields.filter(view => view.itemIndex == null) }
+
 /** Worst status first, so a row shows its most important problem. */
 const severity: Record<VerificationStatus, number> = { WARNING: 0, MISSING: 1, UNVERIFIED: 2, VERIFIED: 3 }
 export const worstStatus = (views: Array<FieldVerificationView | undefined>) =>

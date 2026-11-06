@@ -8,10 +8,10 @@ public record InvoiceItemRequest(
 		@NotBlank String productName,
 		@PositiveOrZero BigDecimal quantity,
 		String unit,
-		@PositiveOrZero BigDecimal unitPrice,
+		BigDecimal unitPrice, // Money may be negative on discount rows.
 		@PositiveOrZero BigDecimal taxRate,
-		@PositiveOrZero BigDecimal taxAmount,
-		@PositiveOrZero BigDecimal amount) {
+		BigDecimal taxAmount,
+		BigDecimal amount) {
 	public InvoiceItemRequest(String productName, BigDecimal quantity, BigDecimal unitPrice, BigDecimal amount) {
 		this(productName, quantity, null, unitPrice, null, null, amount);
 	}

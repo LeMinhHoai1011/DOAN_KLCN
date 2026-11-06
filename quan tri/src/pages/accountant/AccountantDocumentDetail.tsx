@@ -30,7 +30,8 @@ import LoadingState from '../../components/ui/LoadingState';
 import ExtractedFieldPanel from '../../components/ocr-preview/ExtractedFieldPanel';
 import OcrDocumentPreview from '../../components/OcrDocumentPreview';
 import { fieldVerificationService, type FieldVerificationReport, type FieldVerificationView } from '../../services/fieldVerificationService';
-import { aiInputModeLabel, indexVerifications, toPreviewFocus, verificationStatusLabel } from '../../utils/fieldVerificationPresentation';
+import { aiInputModeLabel, indexVerifications, toPreviewFocus, verificationStatusLabel, withoutItemVerifications } from '../../utils/fieldVerificationPresentation';
+import InvoiceItemsPanel from '../../components/InvoiceItemsPanel';
 import VatInvoicePanel, { documentTypeLabel, emptyInvoiceForm, toInvoiceForm, toInvoiceUpdateRequest, type InvoiceFormData } from '../../components/VatInvoicePanel';
 import { formatConfidence } from '../../utils/confidence';
 import { listReadOutcome } from '../../services/readState';
@@ -41,7 +42,6 @@ type DetailTab = 'overview' | 'items' | 'reconciliation' | 'storage';
 type RemoteState = 'idle' | 'loading' | 'empty' | 'success' | 'error';
 
 const money = (value: number | null | undefined) => value == null ? '—' : `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(value)} đ`;
-const rate = (value: number | null) => value == null ? '—' : `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(Math.abs(value) <= 1 ? value * 100 : value)}%`;
 const valueOrDash = (value: string | number | null | undefined) => value == null || value === '' ? '—' : String(value);
 
 const hasCompletedPipeline = (status: DocumentResponse['status']) => (
@@ -89,6 +89,7 @@ const AccountantDocumentDetail = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [itemsDirty, setItemsDirty] = useState(false);
   const [error, setError] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -302,6 +303,14 @@ const AccountantDocumentDetail = () => {
     }
   };
 
+  /** Header drafts stay untouched; only the stored items, derived state and index-keyed badges change. */
+  const handleItemsSaved = (updated: InvoiceResponse) => {
+    setInvoice(updated);
+    setVerification(withoutItemVerifications);
+    void recheckFields();
+    void documentService.getBusinessState(documentId).then(setBusinessState).catch(() => setBusinessState(null));
+  };
+
   const handleCorrectExtractedField = async (fieldId: number, fieldValue: string) => {
     await documentService.correctExtractedField(documentId, fieldId, fieldValue);
     void recheckFields();
@@ -342,12 +351,13 @@ const AccountantDocumentDetail = () => {
   };
 
   const hasUnsavedChanges = useMemo(() => {
+    if (itemsDirty) return true;
     if (!isEditing) return false;
     const originalForm = invoice ? toInvoiceForm(invoice) : emptyInvoiceForm;
     const originalCategory = classification?.accountingCategoryCode || classification?.category || '';
     return JSON.stringify(invoiceForm) !== JSON.stringify(originalForm) || classificationValue !== originalCategory
 	  || documentTypeId !== (document?.typeId == null ? '' : String(document.typeId));
-  }, [classification, classificationValue, document, documentTypeId, invoice, invoiceForm, isEditing]);
+  }, [classification, classificationValue, document, documentTypeId, invoice, invoiceForm, isEditing, itemsDirty]);
 
   useEffect(() => {
     if (!hasUnsavedChanges) return;
@@ -374,10 +384,11 @@ const AccountantDocumentDetail = () => {
   const editVerification = (view: FieldVerificationView) => {
     locateVerification(view);
     if (!canCorrect) return;
+    if (view.itemIndex != null) { setActiveTab('items'); return; }
     setIsEditing(true); setSaveMessage(''); setSaveError('');
-    const key = view.itemIndex == null ? view.fieldKey : null;
+    const key = view.fieldKey;
     window.setTimeout(() => {
-      const input = key ? globalThis.document.getElementById(`invoice-field-${key}`) : null;
+      const input = globalThis.document.getElementById(`invoice-field-${key}`);
       input?.scrollIntoView({ block: 'center' }); (input as HTMLInputElement | null)?.focus();
     }, 50);
   };
@@ -486,7 +497,7 @@ const AccountantDocumentDetail = () => {
 
             </div>}
 
-            {activeTab === 'items' && <div className="space-y-3">{invoice?.items.length ? invoice.items.map((item, index) => <article key={item.id ?? index} className="si-card p-4"><div className="flex gap-3"><span className="text-sm text-ink-muted">{index + 1}.</span><p className="min-w-0 break-words text-sm font-medium">{valueOrDash(item.productName)}</p></div><dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm"><div><dt className="text-xs text-ink-muted">Số lượng</dt><dd>{item.quantity == null ? '—' : new Intl.NumberFormat('vi-VN', {maximumFractionDigits: 6}).format(item.quantity)} {item.unit || ''}</dd></div><div><dt className="text-xs text-ink-muted">Đơn giá</dt><dd className="si-num break-words">{money(item.unitPrice)}</dd></div><div><dt className="text-xs text-ink-muted">Thuế suất</dt><dd>{rate(item.taxRate)}</dd></div><div><dt className="text-xs text-ink-muted">Thành tiền</dt><dd className="si-num break-words font-semibold">{money(item.amount)}</dd></div></dl></article>) : <EmptyState title="Chưa có dữ liệu hàng hóa" />}</div>}
+            <div hidden={activeTab !== 'items'}><InvoiceItemsPanel invoice={invoice} canEdit={canCorrect} onSaved={handleItemsSaved} onDirtyChange={setItemsDirty} onOpenReconciliation={() => setActiveTab('reconciliation')} /></div>
 
             {activeTab === 'reconciliation' && <div className="space-y-3">{hasCorrectionRole && <DocumentPaymentPanel documentId={document.id} companyId={document.companyId} canRun={hasCorrectionRole} onUpdated={() => { void documentService.getBusinessState(document.id).then(setBusinessState).catch(() => setBusinessState(null)); }} />}{hasCorrectionRole && document.reviewStatus === 'APPROVED' && <div className="flex gap-2">{(['INCOME','EXPENSE'] as const).map(type => <button key={type} type="button" className="si-btn-secondary" onClick={() => navigate(`/${role === 'ADMIN' ? 'admin' : 'accountant'}/financial-transactions?documentId=${document.id}&companyId=${document.companyId ?? ''}&type=${type}`)}>{type === 'INCOME' ? 'Tạo phiếu Thu' : 'Tạo phiếu Chi'}</button>)}</div>}<h3 className="si-section-title">Đối soát chứng từ</h3><div className="flex items-center justify-between gap-3"><p className="text-sm text-ink-muted">Kết quả đối soát được hệ thống tính toán và lưu lại.</p>{hasCorrectionRole && <button type="button" disabled={isReconciling || document.reviewStatus === 'APPROVED' || document.status === 'COMPLETED'} onClick={() => void runReconciliation()} className="si-btn-primary">{isReconciling ? 'Đang đối soát...' : reconciliations.length ? 'Chạy lại' : 'Chạy đối soát'}</button>}</div>{reconciliationError && <p className="rounded-control border-failed/25 bg-failed-surface border p-3 text-sm text-failed">{reconciliationError}</p>}{hasInsufficientReconciliationData(reconciliations.map(item => item.status)) && <p className="rounded-control border-review/25 bg-review-surface border p-3 text-sm text-review">Chưa đủ dữ liệu hàng hóa để đối soát. Giá trị chưa xác định được hiển thị “—”; xem chi tiết từng phép kiểm tra để bổ sung dữ liệu theo quy trình hiện có.</p>}{reconciliations.length ? reconciliations.map(item => <ReconciliationResultCard key={item.id ?? item.type} item={item} />) : <EmptyState title="Chưa có kết quả đối soát" description="Giao diện không tự suy diễn trạng thái khớp. Hãy chạy đối soát để hệ thống tính toán và lưu kết quả." />}</div>}
 
