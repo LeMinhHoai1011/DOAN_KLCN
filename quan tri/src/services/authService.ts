@@ -78,6 +78,13 @@ export const logout = () => {
   window.dispatchEvent(new Event('auth-changed'))
 }
 
+/** Server revocation needs the token, so local data goes last and is cleared even when the call fails. */
+export const logoutEverywhere = async () => {
+  try { await api.post('/api/v1/auth/logout', undefined, { timeout: 5000 }) }
+  catch { /* Signing out on this device must not depend on the server being reachable. */ }
+  finally { logout() }
+}
+
 export const getEffectiveRole = (user: User | null = getCurrentUser()) => {
   const normalizeRole = (value: string | undefined) => {
     return value?.trim().toUpperCase().replace(/^ROLE_/, '')

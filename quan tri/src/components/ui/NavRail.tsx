@@ -2,7 +2,7 @@ import type { ElementType } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import { LogOut } from 'lucide-react'
-import { getCurrentUser, logout } from '../../services/authService'
+import { getCurrentUser, logoutEverywhere } from '../../services/authService'
 
 export interface NavRailItem {
   name: string
@@ -54,8 +54,8 @@ const NavRail = ({ roleLabel, sections, footerItems = [] }: NavRailProps) => {
   const displayName = user?.fullName || user?.username || 'Người dùng'
   const initials = displayName.split(' ').filter(Boolean).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
 
-  const handleLogout = () => {
-    logout()
+  const handleLogout = async () => {
+    await logoutEverywhere()
     navigate('/login', { replace: true })
   }
 
@@ -105,7 +105,7 @@ const NavRail = ({ roleLabel, sections, footerItems = [] }: NavRailProps) => {
               <span className="truncate text-2xs text-ink-muted">{user?.email || user?.username || roleLabel}</span>
             </div>
           </div>
-          <button type="button" onClick={handleLogout} title="Đăng xuất" aria-label="Đăng xuất" className="text-ink-soft hover:text-failed flex items-center justify-center rounded p-1.5 transition-colors">
+          <button type="button" onClick={() => void handleLogout()} title="Đăng xuất" aria-label="Đăng xuất" className="text-ink-soft hover:text-failed flex items-center justify-center rounded p-1.5 transition-colors">
             <LogOut size={20} />
           </button>
         </div>

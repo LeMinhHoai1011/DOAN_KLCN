@@ -50,6 +50,32 @@ class TokenVersionIntegrationTest {
 	private static final String OLD = "OldPassword123!";
 	private static final String NEW = "NewPassword456!";
 
+	private void me(String authorization, int expected) throws Exception {
+		mvc.perform(get("/api/v1/users/me").header("Authorization", authorization)).andExpect(status().is(expected));
+	}
+
+	@Test
+	void logoutRevokesEveryTokenOfTheUserOnly() throws Exception {
+		String name = account(), other = account();
+		String first = "Bearer " + auth.login(new LoginRequest(name, OLD)).token();
+		String second = "Bearer " + auth.login(new LoginRequest(name, OLD)).token();
+		String unrelated = "Bearer " + auth.login(new LoginRequest(other, OLD)).token();
+		me(first, 200); me(second, 200);
+		mvc.perform(post("/api/v1/auth/logout").header("Authorization", first)).andExpect(status().isNoContent());
+		me(first, 401); me(second, 401); me(unrelated, 200);
+		me("Bearer " + auth.login(new LoginRequest(name, OLD)).token(), 200);
+	}
+
+	@Test
+	void logoutIsIdempotentForMissingInvalidAndRevokedTokens() throws Exception {
+		String name = account();
+		String token = "Bearer " + auth.login(new LoginRequest(name, OLD)).token();
+		mvc.perform(post("/api/v1/auth/logout").header("Authorization", token)).andExpect(status().isNoContent());
+		mvc.perform(post("/api/v1/auth/logout").header("Authorization", token)).andExpect(status().isNoContent());
+		mvc.perform(post("/api/v1/auth/logout").header("Authorization", "Bearer not-a-token")).andExpect(status().isNoContent());
+		mvc.perform(post("/api/v1/auth/logout")).andExpect(status().isNoContent());
+	}
+
 	private String account() {
 		String name = "tv-" + UUID.randomUUID();
 		new TransactionTemplate(transactions).executeWithoutResult(status -> {

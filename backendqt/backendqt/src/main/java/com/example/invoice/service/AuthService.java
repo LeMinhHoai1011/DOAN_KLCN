@@ -48,4 +48,11 @@ public class AuthService {
 		UserDetails userDetails = customUserDetailsService.fromUser(user);
 		return new LoginResponse(jwtService.generateToken(userDetails), "Bearer", userMapper.toResponse(user));
 	}
+
+	/** Revokes every token of the user. Idempotent: an expired or missing token has nothing left to revoke. */
+	@Transactional
+	public void logout(org.springframework.security.core.Authentication authentication) {
+		if (authentication == null || !(authentication.getPrincipal() instanceof UserDetails principal)) return;
+		userRepository.findByUsernameForAuthentication(principal.getUsername()).ifPresent(User::revokeTokens);
+	}
 }
