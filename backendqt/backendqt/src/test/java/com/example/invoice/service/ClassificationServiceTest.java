@@ -37,6 +37,56 @@ class ClassificationServiceTest {
 				documentService, documentTypeRepository);
 	}
 
+	private Classification accountFixture() {
+		Document document = new Document();
+		document.setId(42L);
+		Classification classification = classification(document);
+		classification.setAccountingAccount("642");
+		org.mockito.Mockito.lenient().when(documentService.lockForEdit(42L)).thenReturn(document);
+		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(42L)).thenReturn(Optional.of(classification));
+		return classification;
+	}
+
+	private ClassificationUpdateRequest account(String value) {
+		return new ClassificationUpdateRequest(null, null, null, null, null, null, value);
+	}
+
+	@Test
+	void correctionChangesAccountAndMarksItManual() {
+		Classification classification = accountFixture();
+		var response = service.correction(42L, account(" 6421 "));
+		assertEquals("6421", response.accountingAccount());
+		assertEquals(ClassificationStatus.CORRECTED, classification.getStatus());
+		assertEquals(false, classification.isAiGenerated());
+	}
+
+	@Test
+	void blankClearsAccountAndNullKeepsIt() {
+		Classification classification = accountFixture();
+		service.correction(42L, account(null));
+		assertEquals("642", classification.getAccountingAccount());
+		service.correction(42L, account(""));
+		assertEquals(null, classification.getAccountingAccount());
+	}
+
+	@Test
+	void upsertCanChangeAccountWithoutCategory() {
+		Classification classification = accountFixture();
+		service.upsert(42L, account("331"));
+		assertEquals("331", classification.getAccountingAccount());
+		assertEquals(ClassificationStatus.CORRECTED, classification.getStatus());
+		assertEquals(false, classification.isAiGenerated());
+	}
+
+	@Test
+	void accountFormatIsValidated() {
+		var validator = jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator();
+		for (String valid : new String[] {null, "", " ", "111", "33311", " 6421 "})
+			assertEquals(0, validator.validate(account(valid)).size(), valid);
+		for (String invalid : new String[] {"64", "064", "64a", "642.1", "12345678901"})
+			assertEquals(1, validator.validate(account(invalid)).size(), invalid);
+	}
+
 	@Test
 	void accountantCorrectionChangesActiveDocumentTypeAndKeepsAiProposal() {
 		Document document = new Document();

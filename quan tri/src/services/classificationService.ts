@@ -36,6 +36,8 @@ export interface ClassificationUpdateRequest {
   reason?: string
   status?: ClassificationStatus
   aiGenerated?: boolean
+  /** Omitted keeps the current account, an empty string clears it. */
+  accountingAccount?: string
 }
 
 const getClassification = async (documentId: number) => {

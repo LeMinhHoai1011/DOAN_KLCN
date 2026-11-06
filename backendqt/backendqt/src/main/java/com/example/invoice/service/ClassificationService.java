@@ -73,6 +73,7 @@ public class ClassificationService {
 		// The effective category is the user's correction and is marked separately below.
 		if (request.category() != null) applyAccountingCategory(classification, request.category());
 		if (request.documentType() != null) applyDocumentType(classification.getDocument(), request.documentType());
+		if (request.accountingAccount() != null) applyAccountingAccount(classification, request.accountingAccount());
 		classification.setStatus(ClassificationStatus.CORRECTED);
 		classification.setAiGenerated(false);
 		remember(document,"CLASSIFICATION_CORRECTION",previous);return toResponse(classification);
@@ -95,6 +96,15 @@ public class ClassificationService {
 			classification.setAiGenerated(false);
 			classification.setStatus(ClassificationStatus.CORRECTED);
 		}
+		if (request.accountingAccount() != null) {
+			applyAccountingAccount(classification, request.accountingAccount());
+			classification.setAiGenerated(false);
+			classification.setStatus(ClassificationStatus.CORRECTED);
+		}
+	}
+
+	private void applyAccountingAccount(Classification classification, String account) {
+		classification.setAccountingAccount(account.isBlank() ? null : account.trim());
 	}
 
 	private void applyDocumentType(Document document, String typeCode) {

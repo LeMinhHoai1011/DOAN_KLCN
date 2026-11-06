@@ -4,7 +4,7 @@ import { assessmentMessage, reviewMessages } from '../../utils/assessmentPresent
 import { fieldLabel } from '../../components/ocr-preview/ocrPreviewUtils';
 import DocumentArchivePanel from '../../components/DocumentArchivePanel';
 import DocumentPaymentPanel from '../../components/DocumentPaymentPanel';
-import { categoryTypeLabel } from '../../utils/accountingCategoryPresentation';
+import { accountingAccountError, categoryTypeLabel } from '../../utils/accountingCategoryPresentation';
 import BusinessStateCard from "../../components/BusinessStateCard";
 
 
@@ -80,6 +80,7 @@ const AccountantDocumentDetail = () => {
   const [extractedFields, setExtractedFields] = useState<ExtractedFieldResponse[]>([]);
   const [invoiceForm, setInvoiceForm] = useState<InvoiceFormData>(emptyInvoiceForm);
   const [classificationValue, setClassificationValue] = useState('');
+  const [accountingAccount, setAccountingAccount] = useState('');
   const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
   const [documentTypeId, setDocumentTypeId] = useState('');
   const [accountingCategories, setAccountingCategories] = useState<AccountingCategory[]>([]);
@@ -123,7 +124,7 @@ const AccountantDocumentDetail = () => {
     const loadDocumentDetail = async () => {
       setIsLoading(true); setError(''); setSectionErrors([]);
       setOcr(null); setClassification(null); setInvoice(null); setExtractedFields([]);
-      setReconciliations([]); setFocusedField(null); setClassificationValue('');
+      setReconciliations([]); setFocusedField(null); setClassificationValue(''); setAccountingAccount('');
       setInvoiceForm(emptyInvoiceForm);
       let loadedDocument: DocumentResponse;
       try {
@@ -188,6 +189,7 @@ const AccountantDocumentDetail = () => {
         if (classificationResult.value) {
           setClassification(classificationResult.value);
           setClassificationValue(classificationResult.value.accountingCategoryCode || classificationResult.value.category || '');
+          setAccountingAccount(classificationResult.value.accountingAccount || '');
           setClassificationState('success');
         }
         else setClassificationState('empty');
@@ -268,6 +270,9 @@ const AccountantDocumentDetail = () => {
   const handleSave = async () => {
     if (!document || !isEditing) return;
 
+    const accountError = accountingAccountError(accountingAccount);
+    if (accountError) { setSaveMessage(''); setSaveError(accountError); return; }
+
     setIsSaving(true);
     setSaveMessage('');
     setSaveError('');
@@ -279,11 +284,14 @@ const AccountantDocumentDetail = () => {
         setInvoiceForm(toInvoiceForm(updatedInvoice));
       }
 
-      if (classificationValue) {
+      const accountChanged = accountingAccount.trim() !== (classification?.accountingAccount || '');
+      if (classificationValue || accountChanged) {
+        const request = { category: classificationValue || undefined, accountingAccount: accountChanged ? accountingAccount.trim() : undefined };
         const updatedClassification = classification
-          ? await classificationService.correctClassification(document.id, { category: classificationValue })
-          : await classificationService.updateClassification(document.id, { category: classificationValue });
+          ? await classificationService.correctClassification(document.id, request)
+          : await classificationService.updateClassification(document.id, request);
         setClassification(updatedClassification);
+        setAccountingAccount(updatedClassification.accountingAccount || '');
         setClassificationValue(updatedClassification.category || classificationValue);
       }
 
@@ -339,6 +347,7 @@ const AccountantDocumentDetail = () => {
       const result = await classificationService.getClassificationOrNull(document.id);
       setClassification(result);
       setClassificationValue(result?.accountingCategoryCode || result?.category || '');
+      setAccountingAccount(result?.accountingAccount || '');
       setClassificationState(result ? 'success' : 'empty');
     } catch { setClassificationState('error'); }
   };
@@ -363,8 +372,9 @@ const AccountantDocumentDetail = () => {
     const originalForm = invoice ? toInvoiceForm(invoice) : emptyInvoiceForm;
     const originalCategory = classification?.accountingCategoryCode || classification?.category || '';
     return JSON.stringify(invoiceForm) !== JSON.stringify(originalForm) || classificationValue !== originalCategory
+	  || accountingAccount.trim() !== (classification?.accountingAccount || '')
 	  || documentTypeId !== (document?.typeId == null ? '' : String(document.typeId));
-  }, [classification, classificationValue, document, documentTypeId, invoice, invoiceForm, isEditing, itemsDirty]);
+  }, [accountingAccount, classification, classificationValue, document, documentTypeId, invoice, invoiceForm, isEditing, itemsDirty]);
 
   useEffect(() => {
     if (!hasUnsavedChanges) return;
@@ -432,7 +442,7 @@ const AccountantDocumentDetail = () => {
             <Pencil size={22} />
             <span>Chỉnh sửa thủ công</span>
           </button>}
-          {isEditing && <button onClick={() => { setInvoiceForm(invoice ? toInvoiceForm(invoice) : emptyInvoiceForm); setClassificationValue(classification?.category || ''); setDocumentTypeId(document.typeId == null ? '' : String(document.typeId)); setIsEditing(false); setSaveError(''); }} disabled={isSaving} className="si-btn-secondary">
+          {isEditing && <button onClick={() => { setInvoiceForm(invoice ? toInvoiceForm(invoice) : emptyInvoiceForm); setClassificationValue(classification?.category || ''); setAccountingAccount(classification?.accountingAccount || ''); setDocumentTypeId(document.typeId == null ? '' : String(document.typeId)); setIsEditing(false); setSaveError(''); }} disabled={isSaving} className="si-btn-secondary">
             <X size={22} /><span>Hủy</span>
           </button>}
           {isEditing && <button onClick={handleSave} disabled={isSaving} className="si-btn-primary">
@@ -488,8 +498,9 @@ const AccountantDocumentDetail = () => {
               </section>
               <section className="si-card border-tax-vat/25 bg-tax-vat-surface p-4"><div className="flex items-start justify-between gap-4"><div><p className="si-label text-tax-vat">Loại chứng từ</p><p className="mt-1 font-sans text-[20px] font-bold tracking-tight text-ink">{document.documentType ? documentTypeLabel(document.documentType) : 'Chưa xác định'}</p><p className="mt-1 text-xs text-ink-muted">{classification?.aiGenerated === false ? 'Đã được kế toán chỉnh sửa' : document.documentType ? 'AI đề xuất từ chứng từ' : 'AI chưa xác định được loại chứng từ'}</p></div></div>{isEditing && <label className="mt-4 block text-xs font-medium text-ink-soft">Loại chứng từ<select value={documentTypeId} onChange={event => setDocumentTypeId(event.target.value)} className="mt-1 w-full rounded-control border border-hairline-strong bg-surface px-3 py-2 text-sm"><option value="" disabled>Chưa xác định</option>{documentTypes.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>}</section>
               <section className="rounded-card border border-brand-200 bg-brand-50/60 p-4">
-                <div><p className="si-label text-brand-700">Nhóm nghiệp vụ kế toán</p><p className="mt-1 font-sans text-[20px] font-bold tracking-tight text-ink">{classification?.accountingCategoryName || classification?.category || 'Chưa phân loại'}</p><p className="mt-1 text-xs text-ink-muted">{classification?.accountingAccount ? `Tài khoản gợi ý · ${classification.accountingAccount}` : 'Độc lập với loại chứng từ'}</p></div>
+                <div><p className="si-label text-brand-700">Nhóm nghiệp vụ kế toán</p><p className="mt-1 font-sans text-[20px] font-bold tracking-tight text-ink">{classification?.accountingCategoryName || classification?.category || 'Chưa phân loại'}</p><p className="mt-1 text-xs text-ink-muted">{classification?.accountingAccount ? `${classification.aiGenerated ? 'Tài khoản gợi ý' : 'Tài khoản kế toán'} · ${classification.accountingAccount}` : 'Độc lập với loại chứng từ'}</p></div>
                 {isEditing && <label className="mt-4 block text-xs font-medium text-ink-soft">Hạng mục kế toán<select value={classificationValue} onChange={event => setClassificationValue(event.target.value)} className="mt-1 w-full rounded-control border border-hairline-strong bg-surface px-3 py-2 text-sm"><option value="">Chưa phân loại</option>{accountingCategories.map(category => <option key={category.id} value={category.categoryCode}>{category.categoryName} · {categoryTypeLabel(category.categoryType)}</option>)}</select></label>}
+                {isEditing && <label className="mt-3 block text-xs font-medium text-ink-soft">Tài khoản kế toán<input value={accountingAccount} onChange={event => setAccountingAccount(event.target.value)} inputMode="numeric" placeholder="Ví dụ: 6421" className="si-input mt-1" /></label>}
                 {classificationState === 'empty' && <p className="mt-3 text-sm text-ink-soft">Chứng từ chưa được phân loại.</p>}
                 {classificationState === 'loading' && <p className="mt-3 text-sm text-ink-muted">Đang tải kết quả phân loại...</p>}
                 {classificationState === 'error' && <div className="mt-3 flex items-center justify-between gap-2 rounded-control bg-review-surface p-2 text-sm text-review"><span>Không thể tải kết quả phân loại.</span><button type="button" onClick={() => void retryClassification()} className="si-btn-secondary text-xs">Thử lại</button></div>}
