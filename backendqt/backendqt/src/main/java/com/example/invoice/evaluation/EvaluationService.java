@@ -18,7 +18,7 @@ public class EvaluationService {
     /** A/B/C are AI variants; R is the non-LLM baseline (Tess4J + rules) used as the traditional control group. */
     static final Set<String> STRATEGIES=Set.of("A","B","C","R");
     static final String RETAIL_INVOICE="RETAIL_INVOICE";
-    private static final Set<String> RECONCILIATION_STATUSES=Set.of(com.example.invoice.ai.InvoiceReconciliationRules.MATCHED,
+    static final Set<String> RECONCILIATION_STATUSES=Set.of(com.example.invoice.ai.InvoiceReconciliationRules.MATCHED,
             com.example.invoice.ai.InvoiceReconciliationRules.MISMATCH,com.example.invoice.ai.InvoiceReconciliationRules.INSUFFICIENT_DATA);
     private final String directory;
     private final ObjectMapper json;

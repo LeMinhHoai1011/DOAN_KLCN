@@ -7,6 +7,8 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import AccountantDashboard from './pages/accountant/AccountantDashboard';
 import AccountantDocuments from './pages/accountant/AccountantDocuments';
+import EvaluationLabels from './pages/accountant/EvaluationLabels';
+import EvaluationLabeling from './pages/accountant/EvaluationLabeling';
 import AccountantDocumentDetail from './pages/accountant/AccountantDocumentDetail';
 import AccountantUpload from './pages/accountant/AccountantUpload';
 import FinancialTransactions from './pages/accountant/FinancialTransactions';
@@ -72,6 +74,8 @@ function App() {
               <Route path="upload" element={<AccountantUpload />} />
               <Route path="financial-transactions" element={<FinancialTransactions />} />
               <Route path="review" element={<AccountantDocuments />} />
+              <Route path="evaluation-labels" element={<EvaluationLabels />} />
+              <Route path="evaluation-labels/:id" element={<EvaluationLabeling />} />
               <Route path="reports" element={<Reports />} />
               <Route path="password" element={<ChangePassword />} />
             </Route>
@@ -86,6 +90,8 @@ function App() {
               <Route path="documents/:id" element={<AccountantDocumentDetail />} />
               <Route path="upload" element={<AccountantUpload />} />
               <Route path="statistics" element={<SystemStatistics />} />
+              <Route path="evaluation-labels" element={<EvaluationLabels />} />
+              <Route path="evaluation-labels/:id" element={<EvaluationLabeling />} />
               <Route path="categories" element={<CatalogManagement />} />
               <Route path="financial-transactions" element={<FinancialTransactions />} />
               <Route path="password" element={<ChangePassword />} />

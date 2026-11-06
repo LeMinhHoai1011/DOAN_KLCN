@@ -19,6 +19,7 @@ import classificationService from '../../services/classificationService';
 import accountingCategoryService, { type AccountingCategory } from '../../services/accountingCategoryService';
 import documentService, { mapDocument } from '../../services/documentService';
 import invoiceService from '../../services/invoiceService';
+import { liveEvaluationService } from '../../services/liveEvaluationService';
 import reconciliationService, { type Reconciliation } from '../../services/reconciliationService';
 import type { ClassificationResponse } from '../../services/classificationService';
 import type { DocumentResponse, DocumentType, ExtractedFieldResponse, OCRResultResponse, WorkflowAction } from '../../services/documentService';
@@ -360,6 +361,12 @@ const AccountantDocumentDetail = () => {
     finally { setIsReconciling(false); }
   };
 
+  const addToEvaluation = async () => {
+    setWorkflowError(''); setWorkflowMessage('');
+    try { await liveEvaluationService.select(documentId); navigate(`/${role === 'ADMIN' ? 'admin' : 'accountant'}/evaluation-labels/${documentId}`); }
+    catch (failure) { setWorkflowError(withoutErrorCode(getErrorMessage(failure, 'Không thể đưa chứng từ vào bộ đánh giá.'))); }
+  };
+
   const decideReconciliation = async (id: number, status: 'ACCEPTED' | 'NEED_REVIEW', comment?: string) => {
     const updated = await reconciliationService.decide(documentId, id, status, comment);
     setReconciliations(current => current.map(item => item.id === id ? updated : item));
@@ -458,6 +465,7 @@ const AccountantDocumentDetail = () => {
       {workflowError && <div className="rounded-control bg-failed-surface border border-failed/25 px-4 py-3 text-sm text-failed">{workflowError}</div>}
       {displaySectionErrors.length > 0 && <div className="rounded-control border border-review/25 bg-review-surface px-4 py-3 text-sm text-review">{displaySectionErrors.join(' ')}</div>}
 
+      {hasCorrectionRole && invoice && <div className="flex justify-end"><button type="button" onClick={() => void addToEvaluation()} className="si-btn-secondary !px-2 !py-1 text-xs">Đưa vào bộ đánh giá</button></div>}
       {(canReview || canSubmit || canResubmit) && <div className="si-card p-4"><div className="flex flex-wrap items-center gap-2"><span className="si-label mr-2">Kiểm duyệt</span>{canSubmit && <button disabled={isWorkflowPending} onClick={() => void runWorkflow('SUBMIT')} className="si-btn-primary">Gửi xử lý</button>}{canResubmit && <button disabled={isWorkflowPending} onClick={() => void runWorkflow('RESUBMIT')} className="si-btn-primary">Gửi lại</button>}{canReview && <><button disabled={isWorkflowPending} onClick={() => void runWorkflow('START_REVIEW')} hidden={businessState?.review === 'IN_REVIEW'} className="si-btn-secondary border-brand-200 text-brand-700">Bắt đầu kiểm duyệt</button><button disabled={isWorkflowPending || Boolean(approvalBlock)} title={approvalBlock ?? undefined} onClick={() => void runWorkflow('APPROVE')} className="si-btn-secondary border-parsed/30 text-parsed">Duyệt</button><button disabled={isWorkflowPending} onClick={() => setWorkflowAction('REJECT')} className="si-btn-secondary border-failed/30 text-failed">Từ chối</button><button disabled={isWorkflowPending} onClick={() => setWorkflowAction('REQUEST_INFO')} className="si-btn-secondary border-review/30 text-review">Yêu cầu bổ sung</button></>}</div>{approvalBlock && <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-review"><span>{approvalBlock}</span><button type="button" onClick={() => setActiveTab('reconciliation')} className="si-btn-secondary !px-2 !py-1 text-xs">Mở Đối soát</button></p>}{workflowAction && <div className="mt-3 flex flex-wrap gap-2"><input value={workflowNote} onChange={(event) => setWorkflowNote(event.target.value)} placeholder="Nhập lý do" className="si-input min-w-64 flex-1" /><button disabled={isWorkflowPending} onClick={() => void runWorkflow(workflowAction)} className="si-btn-primary">{isWorkflowPending ? 'Đang gửi...' : 'Xác nhận'}</button><button disabled={isWorkflowPending} onClick={() => { setWorkflowAction(null); setWorkflowNote(''); }} className="rounded-control px-3 py-2 text-sm text-ink-soft">Hủy</button></div>}</div>}
 
       {hasUnsavedChanges && <div className="rounded-control border border-review/30 bg-review-surface px-3 py-2 text-sm text-review">Có thay đổi chưa lưu. Dữ liệu vẫn được giữ khi đổi tab.</div>}

@@ -1,4 +1,4 @@
-import { BarChart3, KeyRound, LayoutDashboard, Shield, Tags, Users } from 'lucide-react'
+import { BarChart3, FileCheck2, KeyRound, LayoutDashboard, Shield, Tags, Users } from 'lucide-react'
 import NavRail from '../ui/NavRail'
 
 // Menu bám đúng điều hướng của bộ thiết kế Stitch (dashboard_quan_tri/code.html): một nhóm
@@ -15,6 +15,7 @@ const AdminSidebar = () => (
           { name: 'Quản lý vai trò', path: '/admin/roles', icon: Shield, end: true },
           { name: 'Danh mục loại chứng từ', path: '/admin/categories', icon: Tags, end: true },
           { name: 'Thống kê hệ thống', path: '/admin/statistics', icon: BarChart3, end: true },
+          { name: 'Gán nhãn đánh giá', path: '/admin/evaluation-labels', icon: FileCheck2 },
         ],
       },
     ]}
