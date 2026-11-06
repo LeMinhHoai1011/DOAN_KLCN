@@ -1,7 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  approvalBlockReason,
   hasInsufficientReconciliationData,
+  latestReconciliationRun,
+  reconciliationDecision,
+  withoutErrorCode,
   reconciliationMoney,
   reconciliationStatusLabel,
   reconciliationRuleLabel,
@@ -60,6 +64,37 @@ test('manual comments remain readable while embedded rule/status codes are trans
   assert.equal(reconciliationCommentLabel('ITEM_6_VAT: Kế toán đã kiểm tra lại, cần bổ sung tiền thuế.'), 'Thuế GTGT sản phẩm 6: Kế toán đã kiểm tra lại, cần bổ sung tiền thuế.')
   assert.equal(reconciliationCommentLabel('TOTAL: Manual decision; PASS'), 'Tổng tiền thanh toán: Quyết định kiểm tra thủ công; Đạt')
   assert.equal(reconciliationCommentLabel('FUTURE_CHECK: FAIL'), 'Nội dung đối soát bổ sung: Không đạt')
+})
+
+test('only the newest run is shown; legacy rows without a batch stay together', () => {
+  const row = (id, batchId) => ({ id, batchId })
+  assert.deepEqual(latestReconciliationRun([row(3, 2), row(4, 2), row(1, 1)]).map(item => item.id), [3, 4])
+  assert.deepEqual(latestReconciliationRun([]), [])
+  assert.equal(latestReconciliationRun([row(1, null), row(2, null)]).length, 2)
+})
+
+test('decision actions depend on the current status', () => {
+  assert.equal(reconciliationDecision('MATCHED'), null)
+  assert.equal(reconciliationDecision('ACCEPTED'), 'REOPEN')
+  for (const status of ['MISMATCH', 'INSUFFICIENT_DATA', 'NEED_REVIEW']) assert.equal(reconciliationDecision(status), 'ACCEPT')
+  assert.equal(reconciliationStatusLabel('ACCEPTED'), 'Đã chấp nhận')
+})
+
+test('approval explanation mirrors the backend gate', () => {
+  const state = (reconciliation, reconciliationStale = false) => ({ reconciliation, reconciliationStale })
+  assert.equal(approvalBlockReason(state('MATCHED'), true), null)
+  assert.equal(approvalBlockReason(state('ACCEPTED'), true), null)
+  assert.equal(approvalBlockReason(state('NOT_RUN'), false), null)
+  assert.equal(approvalBlockReason(null, true), null)
+  assert.match(approvalBlockReason(state('NOT_RUN'), true), /Cần chạy đối soát/)
+  assert.match(approvalBlockReason(state('WARNING', true), true), /chạy lại/)
+  assert.match(approvalBlockReason(state('MISMATCH'), true), /chưa xử lý/)
+  assert.match(approvalBlockReason(state('WARNING'), true), /chưa xử lý/)
+})
+
+test('machine codes are removed from server messages', () => {
+  assert.equal(withoutErrorCode('RECONCILIATION_REQUIRED: Cần chạy đối soát'), 'Cần chạy đối soát')
+  assert.equal(withoutErrorCode('Lý do: thiếu dữ liệu'), 'Lý do: thiếu dữ liệu')
 })
 
 test('distinguishes matched mismatch and insufficient data', () => {

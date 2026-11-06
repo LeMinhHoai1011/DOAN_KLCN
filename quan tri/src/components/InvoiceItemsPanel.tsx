@@ -15,8 +15,8 @@ const numberFields: { field: DraftField; label: string }[] = [
   { field: 'taxAmount', label: 'Tiền thuế' }, { field: 'amount', label: 'Thành tiền' },
 ]
 
-export default function InvoiceItemsPanel({ invoice, canEdit, onSaved, onDirtyChange, onOpenReconciliation }: {
-  invoice: InvoiceResponse | null; canEdit: boolean
+export default function InvoiceItemsPanel({ invoice, canEdit, needsReconciliation, onSaved, onDirtyChange, onOpenReconciliation }: {
+  invoice: InvoiceResponse | null; canEdit: boolean; needsReconciliation: boolean
   onSaved: (invoice: InvoiceResponse) => void; onDirtyChange: (dirty: boolean) => void; onOpenReconciliation: () => void
 }) {
   const items = useMemo(() => invoice?.items ?? [], [invoice])
@@ -44,7 +44,7 @@ export default function InvoiceItemsPanel({ invoice, canEdit, onSaved, onDirtyCh
 
   if (!canEdit || drafts === null) return <div className="space-y-3">
     {canEdit && <div className="flex justify-end"><button type="button" onClick={() => { setDrafts(toItemDrafts(items)); setSaved(false) }} className="si-btn-secondary">Sửa hàng hóa</button></div>}
-    {saved && <div className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-review/25 bg-review-surface p-3 text-sm text-review"><span>Đã lưu bảng hàng hóa. Các tổng trên hóa đơn không tự thay đổi; cần chạy lại đối soát.</span><button type="button" onClick={onOpenReconciliation} className="si-btn-secondary text-xs">Mở Đối soát</button></div>}
+    {saved && needsReconciliation && <div className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-review/25 bg-review-surface p-3 text-sm text-review"><span>Đã lưu bảng hàng hóa. Các tổng trên hóa đơn không tự thay đổi; cần chạy lại đối soát.</span><button type="button" onClick={onOpenReconciliation} className="si-btn-secondary text-xs">Mở Đối soát</button></div>}
     {items.length ? items.map((item, index) => <article key={item.id ?? index} className="si-card p-4"><div className="flex gap-3"><span className="text-sm text-ink-muted">{index + 1}.</span><p className="min-w-0 break-words text-sm font-medium">{valueOrDash(item.productName)}</p></div><dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm"><div><dt className="text-xs text-ink-muted">Số lượng</dt><dd>{item.quantity == null ? '—' : new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 6 }).format(item.quantity)} {item.unit || ''}</dd></div><div><dt className="text-xs text-ink-muted">Đơn giá</dt><dd className="si-num break-words">{money(item.unitPrice)}</dd></div><div><dt className="text-xs text-ink-muted">Thuế suất</dt><dd>{rate(item.taxRate)}</dd></div><div><dt className="text-xs text-ink-muted">Tiền thuế</dt><dd className="si-num break-words">{money(item.taxAmount)}</dd></div><div><dt className="text-xs text-ink-muted">Thành tiền</dt><dd className="si-num break-words font-semibold">{money(item.amount)}</dd></div></dl></article>) : <EmptyState title="Chưa có dữ liệu hàng hóa" />}
   </div>
 

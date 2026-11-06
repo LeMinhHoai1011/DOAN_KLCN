@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 
 import com.example.invoice.dto.reconciliation.ReconciliationResponse;
 import com.example.invoice.entity.*;
+import com.example.invoice.exception.BadRequestException;
 import com.example.invoice.exception.ResourceNotFoundException;
 import com.example.invoice.repository.*;
 import java.math.BigDecimal;
@@ -136,9 +137,71 @@ class ReconciliationServiceTest {
 		when(reconciliations.findById(2L)).thenReturn(Optional.of(reconciliation));
 		when(docs.load(1L)).thenReturn(doc());
 		when(users.loadCurrent(null)).thenReturn(new User());
-		assertEquals("MATCHED", service().decide(1L, 2L, "MATCHED", "ok", null).status());
+		assertEquals("ACCEPTED", service().decide(1L, 2L, "ACCEPTED", "ok", null).status());
 		assertThrows(IllegalArgumentException.class, () -> service().decide(1L, 2L, "BAD", null, null));
-		assertThrows(ResourceNotFoundException.class, () -> service().decide(9L, 2L, "MATCHED", null, null));
+		assertThrows(ResourceNotFoundException.class, () -> service().decide(9L, 2L, "ACCEPTED", "ok", null));
+	}
+
+	Reconciliation decidable(String status, Long batchId) {
+		ReconciliationBatch batch = new ReconciliationBatch();
+		batch.setId(batchId);
+		Reconciliation reconciliation = new Reconciliation();
+		reconciliation.setId(batchId * 10);
+		reconciliation.setDocument(doc());
+		reconciliation.setReconciliationBatch(batch);
+		reconciliation.setStatus(status);
+		reconciliation.setComment("TOTAL: generated");
+		return reconciliation;
+	}
+
+	void stubDecision(Reconciliation target, Reconciliation... history) {
+		when(reconciliations.findById(target.getId())).thenReturn(Optional.of(target));
+		lenient().when(docs.lockForEdit(1L)).thenReturn(doc());
+		lenient().when(reconciliations.findByDocumentIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(history));
+		lenient().when(users.loadCurrent(null)).thenReturn(new User());
+	}
+
+	@Test void acceptingKeepsDifferenceVisibleAndRequiresReason() {
+		Reconciliation mismatch = decidable("MISMATCH", 1L);
+		stubDecision(mismatch, mismatch);
+		assertThrows(BadRequestException.class, () -> service().decide(1L, 10L, "ACCEPTED", " ", null));
+		assertEquals("MISMATCH", mismatch.getStatus());
+		assertThrows(IllegalArgumentException.class, () -> service().decide(1L, 10L, "MATCHED", "ok", null));
+		ReconciliationResponse response = service().decide(1L, 10L, "ACCEPTED", " Chênh lệch do làm tròn ", null);
+		assertEquals("ACCEPTED", response.status());
+		assertEquals("TOTAL: Chênh lệch do làm tròn", response.comment());
+		assertNotNull(mismatch.getReviewedAt());
+	}
+
+	@Test void acceptedDecisionCanBeReopenedWithoutReason() {
+		Reconciliation accepted = decidable("ACCEPTED", 1L);
+		stubDecision(accepted, accepted);
+		assertEquals("NEED_REVIEW", service().decide(1L, 10L, "NEED_REVIEW", null, null).status());
+	}
+
+	@Test void matchedChecksNeedNoDecision() {
+		Reconciliation matched = decidable("MATCHED", 1L);
+		stubDecision(matched, matched);
+		assertThrows(BadRequestException.class, () -> service().decide(1L, 10L, "ACCEPTED", "ok", null));
+	}
+
+	@Test void decisionsApplyOnlyToLatestRun() {
+		Reconciliation old = decidable("MISMATCH", 1L), latest = decidable("MISMATCH", 2L);
+		stubDecision(old, latest, old);
+		assertThrows(BadRequestException.class, () -> service().decide(1L, 10L, "ACCEPTED", "ok", null));
+		assertEquals("MISMATCH", old.getStatus());
+	}
+
+	@Test void decisionsAreRefusedOnceInvoiceChangedAfterTheRun() {
+		Reconciliation mismatch = decidable("MISMATCH", 1L);
+		mismatch.getReconciliationBatch().setCreatedAt(java.time.LocalDateTime.now());
+		stubDecision(mismatch, mismatch);
+		Document edited = doc();
+		Invoice invoice = new Invoice();
+		invoice.setUpdatedAt(java.time.LocalDateTime.now().plusMinutes(1));
+		edited.setInvoice(invoice);
+		when(docs.lockForEdit(1L)).thenReturn(edited);
+		assertThrows(BadRequestException.class, () -> service().decide(1L, 10L, "ACCEPTED", "ok", null));
 	}
 
 	@Test void rerunAppendsFreshChecksAndPreservesHistoricalResults() {

@@ -1,4 +1,4 @@
-import type { ReconciliationStatus } from '../services/reconciliationService'
+import type { Reconciliation, ReconciliationStatus } from '../services/reconciliationService'
 
 export const reconciliationMoney = (value: number | null | undefined) =>
   value == null ? '—' : Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 })
@@ -11,14 +11,33 @@ export const reconciliationStatusLabel = (status: string | null | undefined) => 
   FAIL: 'Không đạt',
   INSUFFICIENT_DATA: 'Chưa đủ dữ liệu',
   NEED_REVIEW: 'Cần kiểm tra',
+  ACCEPTED: 'Đã chấp nhận',
 } as Record<string, string>)[status?.trim().toUpperCase() ?? ''] ?? 'Chưa xác định'
 
 export const reconciliationStatusClass = (status: string | null | undefined) => {
   const normalized = status?.trim().toUpperCase()
   if (['MATCH', 'MATCHED', 'PASS'].includes(normalized ?? '')) return 'si-chip border-parsed/30 bg-parsed-surface text-parsed'
+  if (normalized === 'ACCEPTED') return 'si-chip border-brand-200 bg-brand-50 text-brand-700'
   if (['MISMATCH', 'FAIL'].includes(normalized ?? '')) return 'si-chip border-failed/30 bg-failed-surface text-failed'
   return 'si-chip border-review-surface bg-review-surface text-review'
 }
+
+/** History is kept per run, newest first; only the latest run decides the document's state. */
+export const latestReconciliationRun = (results: Reconciliation[]) => results.filter(result => result.batchId === results[0].batchId)
+
+/** A matched check needs no decision; an accepted one can only be reopened. */
+export const reconciliationDecision = (status: ReconciliationStatus) => status === 'MATCHED' ? null : status === 'ACCEPTED' ? 'REOPEN' : 'ACCEPT'
+
+/** Mirrors the backend approval gate for an early explanation; the backend remains the authority. */
+export const approvalBlockReason = (state: { reconciliation: string; reconciliationStale: boolean } | null, hasInvoice: boolean) => {
+  if (!state || !hasInvoice) return null
+  if (state.reconciliation === 'NOT_RUN') return 'Cần chạy đối soát trước khi duyệt.'
+  if (state.reconciliationStale) return 'Hóa đơn đã thay đổi sau lần đối soát gần nhất, cần chạy lại đối soát.'
+  return ['MATCHED', 'ACCEPTED'].includes(state.reconciliation) ? null : 'Còn kết quả đối soát chưa xử lý. Hãy sửa dữ liệu rồi chạy lại, hoặc chấp nhận kèm lý do.'
+}
+
+/** Server messages may start with a machine code ("RECONCILIATION_REQUIRED: ..."). */
+export const withoutErrorCode = (message: string) => message.replace(/^[A-Z][A-Z0-9_]{2,63}:\s*/, '')
 
 export const hasInsufficientReconciliationData = (statuses: ReconciliationStatus[]) =>
   statuses.includes('INSUFFICIENT_DATA')
@@ -64,7 +83,7 @@ export const reconciliationCommentLabel = (comment: string | null | undefined) =
   return comment
     .replace(rounding, 'Làm tròn đến 2 chữ số thập phân')
     .replace(/\b(?:ITEM_\d+_(?:AMOUNT|VAT)|ITEM_AMOUNT|ITEM_VAT|SUBTOTAL|VAT_TOTAL|TOTAL|ITEMS_PRESENT)\b/g, code => reconciliationRuleLabel(code))
-    .replace(/\b(?:MATCHED|MATCH|MISMATCH|PASS|FAIL|INSUFFICIENT_DATA|NEED_REVIEW)\b/g, code => reconciliationStatusLabel(code))
+    .replace(/\b(?:MATCHED|MATCH|MISMATCH|PASS|FAIL|INSUFFICIENT_DATA|NEED_REVIEW|ACCEPTED)\b/g, code => reconciliationStatusLabel(code))
     .replace(/\bManual decision\b/gi, 'Quyết định kiểm tra thủ công')
     .replace(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g, 'Nội dung đối soát bổ sung')
     .replace(/\brounding\s*=\s*[^;]+/gi, 'Thông tin làm tròn cần kiểm tra')

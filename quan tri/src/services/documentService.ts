@@ -20,7 +20,7 @@ export interface PipelineHistory {
   attempts: { jobId: number; attemptNumber: number; status: string; startedAt: string; completedAt: string | null; failure: PipelineFailure | null }[];
 }
 export interface DocumentBusinessState {
- processing: string; classification: string; reconciliation: string; review: string; payment: string | null; paymentReason: string;
+ processing: string; classification: string; reconciliation: string; reconciliationStale: boolean; review: string; payment: string | null; paymentReason: string;
  history: { id: number; status: string; action: string; actorId: number | null; at: string | null }[];
 }
 export interface DocumentAssessment {

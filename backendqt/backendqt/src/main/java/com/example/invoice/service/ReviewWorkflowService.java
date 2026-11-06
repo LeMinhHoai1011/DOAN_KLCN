@@ -7,6 +7,7 @@ import com.example.invoice.entity.ReviewStatus;
 import com.example.invoice.entity.ReviewType;
 import com.example.invoice.entity.User;
 import com.example.invoice.repository.DocumentReviewRepository;
+import com.example.invoice.repository.ReconciliationRepository;
 import com.example.invoice.exception.BadRequestException;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,6 +27,7 @@ public class ReviewWorkflowService {
 	private final DocumentService documentService;
 	private final UserService userService;
 	private final FinancialTransactionService financialTransactionService;
+	private final ReconciliationRepository reconciliationRepository;
 
 	@Transactional(readOnly = true)
 	public com.example.invoice.dto.document.DocumentResponse currentResponse(Long id) { return documentService.toResponse(documentService.load(id)); }
@@ -91,6 +93,7 @@ public class ReviewWorkflowService {
 			requireReviewer(actor);
 			require(document.getStatus() == DocumentStatus.PROCESSED || document.getStatus() == DocumentStatus.NEED_REVIEW,
 					"Chỉ có thể phê duyệt chứng từ đã xử lý");
+			requireReconciled(document);
 			document.setReviewStatus(ReviewStatus.APPROVED); document.setStatus(DocumentStatus.COMPLETED);
 			append(document, actor, ReviewStatus.APPROVED, "APPROVE", note, reviewMs);
 			// Approval is a review decision only; payment requires explicit cash confirmation.
@@ -122,6 +125,16 @@ public class ReviewWorkflowService {
 		}
 		remember(document,"WORKFLOW_"+normalizedAction,previous);
         return documentService.toResponse(document);
+	}
+
+	/** Documents without an invoice have nothing to reconcile; REJECT and REQUEST_INFO stay available to fix data. */
+	private void requireReconciled(Document document) {
+		if (document.getInvoice() == null) return;
+		var state = ReconciliationState.of(document, reconciliationRepository.findByDocumentIdOrderByCreatedAtDesc(document.getId()));
+		require(!ReconciliationState.NOT_RUN.equals(state.overall()), "RECONCILIATION_REQUIRED: Cần chạy đối soát trước khi phê duyệt");
+		require(!state.stale(), "RECONCILIATION_REQUIRED: Hóa đơn đã thay đổi sau lần đối soát gần nhất, cần chạy lại đối soát");
+		require(state.unresolved().isEmpty(), "RECONCILIATION_REQUIRED: Còn " + state.unresolved().size()
+				+ " kiểm tra đối soát chưa xử lý: " + String.join(", ", state.unresolved()));
 	}
 
 	private boolean latestActionIs(Long documentId, String action) {

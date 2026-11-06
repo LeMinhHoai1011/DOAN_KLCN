@@ -2,6 +2,7 @@ package com.example.invoice.service;
 
 import com.example.invoice.dto.reconciliation.ReconciliationResponse;
 import com.example.invoice.entity.*;
+import com.example.invoice.exception.BadRequestException;
 import com.example.invoice.exception.ResourceNotFoundException;
 import com.example.invoice.repository.*;
 import java.math.*;
@@ -27,6 +28,8 @@ public class ReconciliationService {
 	private static final String MATCHED = "MATCHED";
 	private static final String MISMATCH = "MISMATCH";
 	private static final String INSUFFICIENT_DATA = "INSUFFICIENT_DATA";
+	private static final String ACCEPTED = "ACCEPTED";
+	private static final String NEED_REVIEW = "NEED_REVIEW";
 	private final DocumentService documentService;
 	private final InvoiceRepository invoiceRepository;
 	private final ReconciliationRepository reconciliationRepository;
@@ -55,11 +58,19 @@ public class ReconciliationService {
 		if (!result.getDocument().getId().equals(documentId))
 			throw new ResourceNotFoundException("Không tìm thấy kết quả đối soát");
 		documentService.load(documentId);
-		if (!MATCHED.equals(status) && !"NEED_REVIEW".equals(status))
+		// A decision never rewrites a difference as matched; ACCEPTED keeps it visible as accepted.
+		if (!ACCEPTED.equals(status) && !NEED_REVIEW.equals(status))
 			throw new IllegalArgumentException("Quyết định đối soát không được hỗ trợ");
+		if (MATCHED.equals(result.getStatus()))
+			throw new BadRequestException("Kiểm tra đã khớp, không cần xác nhận");
+		if (ACCEPTED.equals(status) && (comment == null || comment.isBlank()))
+			throw new BadRequestException("Vui lòng nhập lý do chấp nhận kết quả đối soát");
+		var state = ReconciliationState.of(document, reconciliationRepository.findByDocumentIdOrderByCreatedAtDesc(documentId));
+		if (!state.isLatest(result)) throw new BadRequestException("Chỉ xác nhận được kết quả của lần đối soát gần nhất");
+		if (state.stale()) throw new BadRequestException("Hóa đơn đã thay đổi sau lần đối soát gần nhất, cần chạy lại đối soát");
 		String checkType = type(result);
 		result.setStatus(status);
-		result.setComment(checkType + ": " + (comment == null ? "Manual decision" : comment));
+		result.setComment(checkType + ": " + (comment == null || comment.isBlank() ? "Manual decision" : comment.trim()));
 		result.setReviewedBy(userService.loadCurrent(authentication));
 		result.setReviewedAt(java.time.LocalDateTime.now());
 		remember(document,"RECONCILIATION_DECISION",previous);return response(result);
@@ -159,7 +170,8 @@ public class ReconciliationService {
 
 	private ReconciliationResponse response(Reconciliation result) {
 		return new ReconciliationResponse(result.getId(), type(result), result.getExpectedAmount(),
-				result.getActualAmount(), result.getDifferenceAmount(), result.getStatus(), result.getComment());
+				result.getActualAmount(), result.getDifferenceAmount(), result.getStatus(), result.getComment(),
+				result.getReconciliationBatch() == null ? null : result.getReconciliationBatch().getId(), result.getReviewedAt());
 	}
 
 	private BigDecimal rate(BigDecimal value) {
