@@ -3,9 +3,6 @@ import DateInput from './ui/DateInput'
 import { formatDate } from '../utils/dateTime'
 import type { InvoiceResponse, InvoiceUpdateRequest } from '../services/invoiceService'
 import type { ReactNode } from 'react'
-import FieldVerificationBadge from './FieldVerificationBadge'
-import type { FieldVerificationView } from '../services/fieldVerificationService'
-import { worstStatus } from '../utils/fieldVerificationPresentation'
 
 export interface InvoiceFormData {
   invoiceNumber: string; invoiceSeries: string; invoiceDate: string; signDate: string
@@ -54,17 +51,12 @@ const Section = ({ title, children }: { title: string; children: ReactNode }) =>
   <h4 className="si-label mb-4 text-brand-700">{title}</h4>{children}
 </section>
 
-export default function VatInvoicePanel({ invoice, form, editable, onChange, rawText, verifications = {}, onLocate, onEdit }: {
+export default function VatInvoicePanel({ invoice, form, editable, onChange, rawText }: {
   invoice: InvoiceResponse; form: InvoiceFormData; editable: boolean
   onChange: (field: keyof InvoiceFormData, value: string) => void; rawText?: string | null
-  /** Per-field verification by key ("totalAmount", "items[2].amount"); badges are hidden when absent. */
-  verifications?: Record<string, FieldVerificationView>
-  onLocate?: (view: FieldVerificationView) => void; onEdit?: (view: FieldVerificationView) => void
 }) {
-  const badge = (key: string) => <FieldVerificationBadge view={verifications[key]} onLocate={onLocate} onEdit={onEdit} />
-  const rowView = (index: number) => worstStatus(['productName', 'quantity', 'unitPrice', 'amount', 'taxRate', 'taxAmount'].map(cell => verifications[`items[${index}].${cell}`]))
   const Input = ({ field, label, type = 'text', multiline = false, emphasis = false }: { field: keyof InvoiceFormData; label: string; type?: string; multiline?: boolean; emphasis?: boolean }) => <div className="block min-w-0">
-    <span className="si-field-label mb-1 flex flex-wrap items-center justify-between gap-2"><label htmlFor={`invoice-field-${field}`}>{label}</label>{badge(field)}</span>
+    <label htmlFor={`invoice-field-${field}`} className="si-field-label mb-1 block">{label}</label>
     {multiline ? <textarea id={`invoice-field-${field}`} value={form[field]} onChange={event => onChange(field, event.target.value)} disabled={!editable} rows={3} className="si-input disabled:bg-subtle" />
       : type === 'date' ? <DateInput id={`invoice-field-${field}`} value={form[field]} onChange={event => onChange(field,event.target.value)} disabled={!editable} className="si-input disabled:bg-subtle" /> : <input id={`invoice-field-${field}`} type={type === 'number' ? 'text' : type} inputMode={type === 'number' ? 'decimal' : undefined} value={form[field]} onChange={event => onChange(field, event.target.value)} disabled={!editable} className={`si-input disabled:bg-subtle ${emphasis ? 'border-brand-500 font-semibold text-brand-700' : ''}`} />}
     {type === 'date' && form[field] && <span className="mt-1 block text-xs text-ink-muted">{date(form[field])}</span>}
@@ -77,7 +69,7 @@ export default function VatInvoicePanel({ invoice, form, editable, onChange, raw
     <Section title="Thông tin người mua"><div className="grid gap-4 sm:grid-cols-2"><Input label="Tên người mua" field="buyerName" /><Input label="Mã số thuế" field="buyerTaxCode" /><div className="sm:col-span-2"><Input label="Địa chỉ" field="buyerAddress" /></div></div></Section>
     <Section title="Thông tin thanh toán"><div className="grid gap-4 sm:grid-cols-2"><Input label="Tổng tiền trước thuế" field="subtotal" type="number" /><Input label="Tiền thuế GTGT" field="vatAmount" type="number" /><Input label="Tổng tiền thanh toán" field="totalAmount" type="number" emphasis /><Input label="Hình thức thanh toán" field="paymentMethod" /><div className="sm:col-span-2"><Input label="Số tiền bằng chữ" field="amountInWords" multiline /></div></div></Section>
     {form.taxAuthorityCode && <Section title="Thông tin hóa đơn điện tử"><Input label="Mã cơ quan thuế" field="taxAuthorityCode" /></Section>}
-    {invoice.items.length > 0 && <Section title="Hàng hóa / dịch vụ"><div className="overflow-x-auto"><table className="si-table min-w-[850px]"><thead><tr><th>Tên hàng hóa / dịch vụ</th><th>ĐVT</th><th className="text-right">Số lượng</th><th className="text-right">Đơn giá</th><th className="text-right">Thuế suất</th><th className="text-right">Tiền thuế</th><th className="text-right">Thành tiền</th><th>Kiểm chứng</th></tr></thead><tbody>{invoice.items.map((item, index) => <tr key={item.id ?? index}><td className="text-ink-soft">{item.productName || '—'}</td><td className="text-ink-muted">{item.unit || '—'}</td><td className="si-num text-right">{invoiceQuantity(item.quantity)}</td><td className="si-num text-right">{money(item.unitPrice)}</td><td className="si-num text-right">{rate(item.taxRate)}</td><td className="si-num text-right">{money(item.taxAmount)}</td><td className="si-num text-right font-semibold">{money(item.amount)}</td><td><FieldVerificationBadge view={rowView(index)} onLocate={onLocate} onEdit={onEdit} /></td></tr>)}</tbody></table></div></Section>}
+    {invoice.items.length > 0 && <Section title="Hàng hóa / dịch vụ"><div className="overflow-x-auto"><table className="si-table min-w-[850px]"><thead><tr><th>Tên hàng hóa / dịch vụ</th><th>ĐVT</th><th className="text-right">Số lượng</th><th className="text-right">Đơn giá</th><th className="text-right">Thuế suất</th><th className="text-right">Tiền thuế</th><th className="text-right">Thành tiền</th></tr></thead><tbody>{invoice.items.map((item, index) => <tr key={item.id ?? index}><td className="text-ink-soft">{item.productName || '—'}</td><td className="text-ink-muted">{item.unit || '—'}</td><td className="si-num text-right">{invoiceQuantity(item.quantity)}</td><td className="si-num text-right">{money(item.unitPrice)}</td><td className="si-num text-right">{rate(item.taxRate)}</td><td className="si-num text-right">{money(item.taxAmount)}</td><td className="si-num text-right font-semibold">{money(item.amount)}</td></tr>)}</tbody></table></div></Section>}
     {rawText != null && <details className="rounded-card border-hairline border p-4"><summary className="cursor-pointer font-medium text-ink-soft">Văn bản OCR gốc</summary><pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-ink-soft">{rawText || 'Chưa có nội dung'}</pre></details>}
   </div>
 }

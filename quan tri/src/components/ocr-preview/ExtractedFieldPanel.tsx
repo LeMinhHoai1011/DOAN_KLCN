@@ -1,14 +1,11 @@
 import { useState } from 'react'
-import FieldVerificationBadge from '../FieldVerificationBadge'
-import type { FieldVerificationView } from '../../services/fieldVerificationService'
 import { Crosshair, MapPinOff } from 'lucide-react'
 import type { ExtractedFieldResponse } from '../../services/documentService'
 import { bestLocation, fieldGroup, fieldLabel } from './ocrPreviewUtils'
 
-export default function ExtractedFieldPanel({ fields, documentType, selectedId, hoveredId, canCorrect, onSelect, onHover, onCorrect, verifications = {}, onLocate }: {
+export default function ExtractedFieldPanel({ fields, documentType, selectedId, hoveredId, canCorrect, onSelect, onHover, onCorrect }: {
   fields: ExtractedFieldResponse[]; documentType?: string | null; selectedId?: number; hoveredId?: number
   canCorrect: boolean
-  verifications?: Record<string, FieldVerificationView>; onLocate?: (view: FieldVerificationView) => void
   onSelect: (field: ExtractedFieldResponse) => void; onHover: (field: ExtractedFieldResponse | null) => void
   onCorrect: (fieldId: number, fieldValue: string) => Promise<void>
 }) {
@@ -54,10 +51,6 @@ export default function ExtractedFieldPanel({ fields, documentType, selectedId, 
                 {location ? <Crosshair size={22} className="text-brand-700 mt-2 shrink-0" aria-label="Xem vị trí trên chứng từ" />
                   : <MapPinOff size={20} className="text-ink-muted mt-2 shrink-0" aria-label="Chưa xác định được vị trí" />}
               </button>
-              {verifications[field.fieldName] && <div className="mt-1.5">
-                <FieldVerificationBadge view={verifications[field.fieldName]} onLocate={onLocate}
-                  onEdit={fieldCanBeCorrected ? () => { setEditingFieldId(field.id); setDraftValue(field.fieldValue ?? ''); setSaveError('') } : undefined} />
-              </div>}
               {field.manuallyCorrected && <p className="text-review mt-1.5 text-2xs font-semibold">Đã chỉnh sửa thủ công</p>}
               {editing ? <div className="mt-3 space-y-2">
                 <input autoFocus value={draftValue} onChange={event => setDraftValue(event.target.value)}

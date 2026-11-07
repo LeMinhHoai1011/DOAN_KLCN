@@ -82,7 +82,9 @@ public class InvoiceService {
 		return toResponse(load(id));
 	}
 
-	@Transactional(readOnly = true)
+	// A missing invoice is expected for documents that have not been extracted yet.
+	// Export callers handle it and must still be able to commit their transaction.
+	@Transactional(readOnly = true, noRollbackFor = ResourceNotFoundException.class)
 	public InvoiceResponse findByDocumentId(Long documentId) {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		User user = userService.loadCurrent(auth);
@@ -109,9 +111,14 @@ public class InvoiceService {
 
 	@Transactional(readOnly = true)
 	public List<ExtractedFieldResponse> findExtractedFieldsByDocumentId(Long documentId) {
+		return findExtractedFieldsByDocumentId(documentId, false);
+	}
+
+	@Transactional(readOnly = true)
+	public List<ExtractedFieldResponse> findExtractedFieldsByDocumentId(Long documentId, boolean includeRetailDetails) {
 		Document document = documentService.load(documentId);
 		return extractedFieldRepository.findByDocumentId(document.getId()).stream()
-                .filter(field -> !RetailInvoiceDetailsService.FIELD.equals(field.getFieldName()))
+                .filter(field -> includeRetailDetails || !RetailInvoiceDetailsService.FIELD.equals(field.getFieldName()))
 				.map(this::toExtractedFieldResponse).toList();
 	}
 

@@ -51,6 +51,8 @@ import org.springframework.test.context.ActiveProfiles;
 class InvoiceApplicationTests {
 	@Autowired
 	private com.example.invoice.config.InternalCompanyProperties internalCompanyProperties;
+    @Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
 	private String previousInternalCompanyId;
 
 	@org.junit.jupiter.api.BeforeEach
@@ -173,7 +175,13 @@ class InvoiceApplicationTests {
             if(index==0) {
                 Invoice i=new Invoice(); i.setDocument(d); i.setInvoiceDate(java.time.LocalDate.of(2000,1,1));
                 i.setInvoiceNumber("NOT-THE-FILENAME"); invoiceRepository.saveAndFlush(i);
+                i.setSellerAddress("Seller address");
+                var item=new com.example.invoice.entity.InvoiceItem(); item.setInvoice(i); item.setProductName("Export product");
+                item.setQuantity(new BigDecimal("2")); item.setUnitPrice(new BigDecimal("12500"));
+                item.setAmount(new BigDecimal("25000")); entityManager.persist(item);
             }
+            ExtractedField field=new ExtractedField(); field.setDocument(d); field.setFieldName("custom_export_field");
+            field.setFieldValue("raw-value-"+index); field.setSource("AI"); extractedFieldRepository.saveAndFlush(field);
             entityManager.createQuery("update Document d set d.createdAt=:at where d.id=:id")
                     .setParameter("at",java.time.LocalDateTime.of(2026,2,1,12,0)).setParameter("id",d.getId()).executeUpdate();
         }
@@ -207,6 +215,15 @@ class InvoiceApplicationTests {
             assertEquals(objectMapper.readTree(list.getResponse().getContentAsString()).path("content").get(0).path("id").asText(),sheet.getRow(1).getCell(0).getStringCellValue());
             assertEquals("NOT-THE-FILENAME",sheet.getRow(12).getCell(6).getStringCellValue());
             assertNull(sheet.getRow(1).getCell(14)); // Unknown amount remains blank, not zero.
+            assertEquals("Seller address",sheet.getRow(12).getCell(27).getStringCellValue());
+            var items=workbook.getSheet("Chi tiet hang hoa"); assertEquals(1,items.getLastRowNum());
+            assertEquals(expected.get(0).toString(),items.getRow(1).getCell(0).getStringCellValue());
+            assertEquals("Export product",items.getRow(1).getCell(5).getStringCellValue());
+            assertEquals(2,items.getRow(1).getCell(6).getNumericCellValue());
+            assertNull(items.getRow(1).getCell(10));
+            var fields=workbook.getSheet("Du lieu trich xuat"); assertEquals(12,fields.getLastRowNum());
+            assertEquals("raw-value-11",fields.getRow(1).getCell(4).getStringCellValue());
+            assertEquals(0,workbook.getSheet("Vi tri trich xuat").getLastRowNum());
         }
     }
 
@@ -233,6 +250,10 @@ class InvoiceApplicationTests {
             assertEquals(1,workbook.getSheetAt(0).getLastRowNum());
             assertEquals(own.getId().toString(),workbook.getSheetAt(0).getRow(1).getCell(0).getStringCellValue());
         }
+        // The document has no invoice. Export must not poison the surrounding
+        // transaction, otherwise a real HTTP request fails at commit with 500.
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(transaction -> assertFalse(transaction.isRollbackOnly()));
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/exports/documents")
                 .header("Authorization","Bearer "+loginToken("employee","Employee@123"))).andExpect(status().isForbidden());
     }

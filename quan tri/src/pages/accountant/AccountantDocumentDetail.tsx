@@ -30,8 +30,6 @@ import ErrorState from '../../components/ui/ErrorState';
 import LoadingState from '../../components/ui/LoadingState';
 import ExtractedFieldPanel from '../../components/ocr-preview/ExtractedFieldPanel';
 import OcrDocumentPreview from '../../components/OcrDocumentPreview';
-import { fieldVerificationService, type FieldVerificationReport, type FieldVerificationView } from '../../services/fieldVerificationService';
-import { aiInputModeLabel, indexVerifications, toPreviewFocus, verificationStatusLabel, withoutItemVerifications } from '../../utils/fieldVerificationPresentation';
 import InvoiceItemsPanel from '../../components/InvoiceItemsPanel';
 import VatInvoicePanel, { documentTypeLabel, emptyInvoiceForm, toInvoiceForm, toInvoiceUpdateRequest, type InvoiceFormData } from '../../components/VatInvoicePanel';
 import { formatConfidence } from '../../utils/confidence';
@@ -103,9 +101,6 @@ const AccountantDocumentDetail = () => {
   const [workflowError, setWorkflowError] = useState('');
   const [workflowMessage, setWorkflowMessage] = useState('');
   const [focusedField, setFocusedField] = useState<ExtractedFieldResponse | null>(null);
-  const [verification, setVerification] = useState<FieldVerificationReport | null>(null);
-  const [verificationError, setVerificationError] = useState('');
-  const [isRechecking, setIsRechecking] = useState(false);
   const [archiveTab, setArchiveTab] = useState<'storage' | 'versions' | 'history'>('storage');
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const role = getEffectiveRole();
@@ -207,12 +202,6 @@ const AccountantDocumentDetail = () => {
       if (reconciliationResult.status === 'fulfilled') setReconciliations(reconciliationResult.value);
       else if (completed) setSectionErrors((current) => [...current, 'Không thể tải dữ liệu đối soát.']);
 
-      setVerification(null); setVerificationError('');
-      if (completed) {
-        try { const report = await fieldVerificationService.get(documentId); if (isMounted) setVerification(report); }
-        catch { if (isMounted) setVerificationError('Không thể tải kết quả kiểm chứng theo trường.'); }
-      }
-
       setIsLoading(false);
     };
 
@@ -253,21 +242,6 @@ const AccountantDocumentDetail = () => {
     finally { setIsWorkflowPending(false); }
   };
 
-  /** Re-checks current values after a manual edit; never changes any value. */
-  const recheckFields = async () => {
-    setIsRechecking(true); setVerificationError('');
-    try { setVerification(await fieldVerificationService.recompute(documentId)); }
-    catch { setVerificationError('Không thể kiểm chứng lại. Kết quả hiển thị có thể đã cũ.'); }
-    finally { setIsRechecking(false); }
-  };
-
-  const verifications = useMemo(() => indexVerifications(verification), [verification]);
-
-  const locateVerification = (view: FieldVerificationView) => {
-    const focus = toPreviewFocus(view, fieldLabel(view.fieldKey.replace(/^items\[\d+\]\./, '')));
-    if (focus) setFocusedField(focus);
-  };
-
   const handleSave = async () => {
     if (!document || !isEditing) return;
 
@@ -305,7 +279,6 @@ const AccountantDocumentDetail = () => {
       setBusinessState(null); setBusinessState(await documentService.getBusinessState(document.id).catch(() => null));
       setSaveMessage('Đã lưu thay đổi');
       setIsEditing(false);
-      void recheckFields();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Không thể lưu thay đổi. Vui lòng thử lại.');
     } finally {
@@ -313,17 +286,14 @@ const AccountantDocumentDetail = () => {
     }
   };
 
-  /** Header drafts stay untouched; only the stored items, derived state and index-keyed badges change. */
+  /** Header drafts stay untouched; only the stored items and derived state change. */
   const handleItemsSaved = (updated: InvoiceResponse) => {
     setInvoice(updated);
-    setVerification(withoutItemVerifications);
-    void recheckFields();
     void documentService.getBusinessState(documentId).then(setBusinessState).catch(() => setBusinessState(null));
   };
 
   const handleCorrectExtractedField = async (fieldId: number, fieldValue: string) => {
     await documentService.correctExtractedField(documentId, fieldId, fieldValue);
-    void recheckFields();
     try {
       setExtractedFields(await documentService.getDocumentExtractedFields(documentId));
     } catch {
@@ -404,18 +374,6 @@ const AccountantDocumentDetail = () => {
   const ocrConfidence = formatConfidence(assessment?.ocrConfidence.value);
   const canCorrect = hasCorrectionRole && document.reviewStatus !== 'APPROVED'
     && (document.status === 'PROCESSED' || document.status === 'NEED_REVIEW');
-  /** Opens edit mode on the field so the accountant can correct it while comparing with the highlighted image. */
-  const editVerification = (view: FieldVerificationView) => {
-    locateVerification(view);
-    if (!canCorrect) return;
-    if (view.itemIndex != null) { setActiveTab('items'); return; }
-    setIsEditing(true); setSaveMessage(''); setSaveError('');
-    const key = view.fieldKey;
-    window.setTimeout(() => {
-      const input = globalThis.document.getElementById(`invoice-field-${key}`);
-      input?.scrollIntoView({ block: 'center' }); (input as HTMLInputElement | null)?.focus();
-    }, 50);
-  };
   const canReview = hasCorrectionRole && document.reviewStatus === 'PENDING' && (document.status === 'PROCESSED' || document.status === 'NEED_REVIEW');
   const approvalBlock = canReview ? approvalBlockReason(businessState, Boolean(invoice)) : null;
   const canSubmit = isEmployeeView && document.status === 'UPLOADED' && document.reviewStatus === 'PENDING';
@@ -492,14 +450,6 @@ const AccountantDocumentDetail = () => {
                 </div>
                 <p className="mt-3 text-sm">Kiểm tra dữ liệu: {assessment?.validationStatus === 'VALID' ? 'Hợp lệ' : assessment?.validationStatus === 'NEED_REVIEW' ? 'Cần kiểm tra' : assessment?.validationStatus === 'FAILED' ? 'Xử lý thất bại' : 'Chưa xác định'}</p>
                 <p className="mt-2 text-xs text-ink-muted">Độ tin cậy do AI ước tính, không phải độ chính xác đã đo.</p>
-                {verification && verification.fields.length > 0 && <div className="mt-3 rounded-control border border-hairline p-3 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">Kiểm chứng theo trường</p>
-                    {canCorrect && <button type="button" disabled={isRechecking} onClick={() => void recheckFields()} className="si-btn-secondary !px-2 !py-1 text-xs">{isRechecking ? 'Đang kiểm chứng…' : 'Kiểm chứng lại'}</button>}</div>
-                  <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1">{(['VERIFIED', 'WARNING', 'UNVERIFIED', 'MISSING'] as const).map(status => <span key={status}>{verificationStatusLabel[status]}: <strong>{verification.counts[status] ?? 0}</strong></span>)}</p>
-                  <p className="mt-1 text-xs text-ink-muted">{aiInputModeLabel(verification.aiInputMode)} · {verification.ruleVersion}. {verification.statusNote} {verification.scoreNote}</p>
-                  {verification.stale && <p className="mt-1 text-xs text-review">Dữ liệu đã được sửa sau lần kiểm chứng gần nhất — bấm “Kiểm chứng lại”.</p>}
-                </div>}
-                {verificationError && <p className="mt-2 text-sm text-review">{verificationError}</p>}
                 {assessmentError && <p className="mt-2 text-sm text-review">{assessmentError}</p>}
                 {visibleReviewReasons.length > 0 && <div className="mt-3 text-sm"><p className="font-semibold">Lý do cần kiểm tra</p><ul className="mt-2 list-disc space-y-1 pl-5">{visibleReviewReasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul></div>}
                 {Boolean(assessment?.warnings.length) && <details className="mt-3"><summary className="cursor-pointer text-sm text-ink-muted">Chi tiết cảnh báo ({assessment?.warnings.length ?? 0})</summary><div className="mt-3 space-y-2">{assessment?.warnings.map((warning, index) => <div key={index} className={clsx('rounded-control border p-3 text-sm', warning.severity === 'CRITICAL' ? 'border-review/25 bg-review-surface text-review' : 'border-hairline')}><p className="font-medium">{warning.severity === 'CRITICAL' ? 'Cần kiểm tra' : 'Thông tin'}</p><p className="mt-1 break-words">{assessmentMessage(warning.message, warning.code)}</p>{warning.affectedField && <p className="mt-1 text-xs">Trường liên quan: {fieldLabel(warning.affectedField)}</p>}</div>)}</div></details>}
@@ -518,8 +468,8 @@ const AccountantDocumentDetail = () => {
               </section>
               <section className="grid grid-cols-3 gap-2"><div className="rounded-card bg-canvas p-3"><p className="text-xs text-ink-muted">Trước thuế</p><p className="mt-1 font-semibold">{money(invoice?.subtotal)}</p></div><div className="rounded-card bg-canvas p-3"><p className="text-xs text-ink-muted">Thuế GTGT</p><p className="mt-1 font-semibold">{money(invoice?.vatAmount)}</p></div><div className="rounded-card bg-brand-50 p-3"><p className="text-xs text-brand-600">Tổng tiền</p><p className="mt-1 font-bold text-brand-800">{money(invoice?.totalAmount)}</p></div></section>
               <section className="si-card p-4"><div className="grid grid-cols-2 gap-3 text-sm"><div><p className="text-xs text-ink-muted">Số hóa đơn</p><p className="font-medium">{valueOrDash(invoice?.invoiceNumber)}</p></div><div><p className="text-xs text-ink-muted">Ngày hóa đơn</p><p className="font-medium">{valueOrDash(invoice?.invoiceDate)}</p></div><div><p className="text-xs text-ink-muted">Người bán</p><p className="font-medium">{valueOrDash(invoice?.sellerName)}</p></div><div><p className="text-xs text-ink-muted">Người mua</p><p className="font-medium">{valueOrDash(invoice?.buyerName)}</p></div></div></section>
-              <details open={isEditing || undefined} className="si-card p-4"><summary className="cursor-pointer font-medium">Thông tin hóa đơn và chỉnh sửa</summary><div className="mt-3">{invoice ? <VatInvoicePanel invoice={invoice} form={invoiceForm} editable={isEditing} onChange={updateInvoiceForm} rawText={ocr?.rawText} verifications={verifications} onLocate={locateVerification} onEdit={editVerification} /> : <p>Chưa có dữ liệu hóa đơn.</p>}</div></details>
-              {extractedFields.length > 0 && <details className="si-card overflow-hidden"><summary className="cursor-pointer p-4 font-medium">Trường trích xuất ({extractedFields.length})</summary><ExtractedFieldPanel verifications={verifications} onLocate={locateVerification} fields={extractedFields} documentType={document.documentType} selectedId={focusedField?.id} canCorrect={canCorrect} onSelect={field => setFocusedField(current => current?.id === field.id ? null : field)} onHover={() => {}} onCorrect={handleCorrectExtractedField} /></details>}
+              <details open={isEditing || undefined} className="si-card p-4"><summary className="cursor-pointer font-medium">Thông tin hóa đơn và chỉnh sửa</summary><div className="mt-3">{invoice ? <VatInvoicePanel invoice={invoice} form={invoiceForm} editable={isEditing} onChange={updateInvoiceForm} rawText={ocr?.rawText} /> : <p>Chưa có dữ liệu hóa đơn.</p>}</div></details>
+              {extractedFields.length > 0 && <details className="si-card overflow-hidden"><summary className="cursor-pointer p-4 font-medium">Trường trích xuất ({extractedFields.length})</summary><ExtractedFieldPanel fields={extractedFields} documentType={document.documentType} selectedId={focusedField?.id} canCorrect={canCorrect} onSelect={field => setFocusedField(current => current?.id === field.id ? null : field)} onHover={() => {}} onCorrect={handleCorrectExtractedField} /></details>}
               <BusinessStateCard state={businessState} />
 
             </div>}

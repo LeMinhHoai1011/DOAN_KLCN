@@ -28,7 +28,6 @@ import java.math.RoundingMode;
 import java.text.Normalizer;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -64,32 +63,6 @@ public class DocumentAiProcessingService {
     private ProcessingProgressRegistry progress;
     private final ThreadLocal<Long> progressDocument = new ThreadLocal<>();
     private final ThreadLocal<String> progressPage = new ThreadLocal<>();
-    /** What the model actually received in this attempt (per page), for field verification. */
-    private final ThreadLocal<EnumSet<com.example.invoice.verification.FieldVerifier.AiInputMode>> aiInputModes = new ThreadLocal<>();
-    private com.example.invoice.verification.FieldVerificationService fieldVerification;
-
-    @Autowired(required = false)
-    public void setFieldVerificationService(com.example.invoice.verification.FieldVerificationService fieldVerification) {
-        this.fieldVerification = fieldVerification;
-    }
-
-    private void recordAiInput(com.example.invoice.verification.FieldVerifier.AiInputMode mode) {
-        var modes = aiInputModes.get();
-        if (modes != null) modes.add(mode);
-    }
-
-    /** Verification is advisory: a failure here must never fail document processing. */
-    private void verifyFields(Long documentId) {
-        if (fieldVerification == null) return;
-        var modes = aiInputModes.get();
-        var mode = modes == null || modes.isEmpty() ? com.example.invoice.verification.FieldVerifier.AiInputMode.UNKNOWN
-                : modes.size() == 1 ? modes.iterator().next() : com.example.invoice.verification.FieldVerifier.AiInputMode.MIXED;
-        try { fieldVerification.verifyAfterProcessing(documentId, mode); }
-        catch (RuntimeException exception) {
-            log.warn("FIELD_VERIFICATION_FAILED documentId={} exceptionClass={}", documentId, exception.getClass().getName());
-        }
-    }
-
     @Autowired
     public void setPipelineExecutionService(PipelineExecutionService executions) { this.executions = executions; }
 
@@ -157,7 +130,6 @@ public class DocumentAiProcessingService {
         document = run == null ? documentService.claimForAiProcessing(documentId, reprocess) : run.document();
         if (progress != null) progress.start(documentId);
         progressDocument.set(documentId);
-        aiInputModes.set(EnumSet.noneOf(com.example.invoice.verification.FieldVerifier.AiInputMode.class));
         boolean succeeded = false;
         enter("VALIDATION");
         progressDetail("Chuẩn bị loại chứng từ và danh mục kế toán");
@@ -231,7 +203,7 @@ public class DocumentAiProcessingService {
 			}
 			throw exception;
 		} finally {
-			stage.remove(); progressDocument.remove(); progressPage.remove(); aiInputModes.remove();
+			stage.remove(); progressDocument.remove(); progressPage.remove();
 			if (progress != null) progress.finish(documentId, succeeded);
 		}
 	}
@@ -256,7 +228,6 @@ public class DocumentAiProcessingService {
 				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
 		enter("PERSISTENCE");
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);
-		verifyFields(documentId);
 		log.info("AI_CLASSIFICATION_COMPLETED documentId={} companyId={} model={} categoryCode={} needsReview={} durationMs={}",
 				documentId, company.getId(), result.model(), result.accountingCategoryCode(), requiresReview, result.durationMs());
 		List<String> warnings = new ArrayList<>(validated.warnings());
@@ -322,7 +293,6 @@ public class DocumentAiProcessingService {
 				result.durationMs(), "AI response parsed and validated", result.provider(), result.model());
 		enter("PERSISTENCE");
 		boolean requiresReview = persistenceService.persist(documentId, validated, ocr);
-		verifyFields(documentId);
 		log.info("AI_CLASSIFICATION_COMPLETED documentId={} companyId={} model={} categoryCode={} needsReview={} durationMs={}",
 				documentId, company.getId(), result.model(), result.accountingCategoryCode(), requiresReview, result.durationMs());
 		warnings.addAll(validated.warnings());
@@ -373,20 +343,17 @@ public class DocumentAiProcessingService {
 				log.info("AI structured extraction file={} requestMode=TEXT retryAttempt=0", fileName);
 				progressDetail("Gửi văn bản OCR cho " + modelLabel());
 				AiDocumentResult textResult = aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText, textPrompt));
-				recordAiInput(com.example.invoice.verification.FieldVerifier.AiInputMode.TEXT);
 				return textResult;
 			} catch (AiProviderException firstFailure) {
 				if (!isStructuredOutputFailure(firstFailure)) throw firstFailure;
                 log.warn("AI text format invalid; one vision fallback file={}", fileName);
                 progressDetail("Kết quả chưa đúng định dạng, thử lại bằng ảnh với " + modelLabel());
-                recordAiInput(com.example.invoice.verification.FieldVerifier.AiInputMode.VISION);
                 return aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt));
 			}
 		}
 		log.info("AI vision fallback file={} reason={} imageBytes={}", fileName,
 				ocr == null ? "OCR_UNAVAILABLE" : "OCR_LOW_CONFIDENCE", bytes.length);
 		progressDetail("OCR chưa đủ tin cậy, gửi ảnh cho " + modelLabel());
-		recordAiInput(com.example.invoice.verification.FieldVerifier.AiInputMode.VISION);
 		return aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt));
 	}
 
@@ -579,7 +546,6 @@ public class DocumentAiProcessingService {
 				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
 		enter("AI_EXTRACTION");
 		progressDetail("Gửi lớp chữ PDF cho " + modelLabel());
-		recordAiInput(com.example.invoice.verification.FieldVerifier.AiInputMode.TEXT);
 		String normalizedText = normalizeOcrText(text);
 		String textPrompt = AiDocumentPromptFactory.forTextExtraction(prompt);
 		try {

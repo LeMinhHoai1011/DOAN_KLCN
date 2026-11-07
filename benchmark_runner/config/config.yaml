@@ -1,0 +1,12 @@
+api_url: http://localhost:8081
+token_env: BENCHMARK_JWT
+timeout_seconds: 900
+dataset: dataset
+ground_truth: ground_truth
+results: results
+reports: reports
+options:
+  documentTypes: [VAT_INVOICE, RETAIL_INVOICE, PAYMENT_VOUCHER, RECEIPT_VOUCHER, RECEIPT, CONTRACT]
+  categories: []
+  companyName: null
+  companyTaxCode: null
