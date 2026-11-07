@@ -52,6 +52,16 @@ lerna-debug.log*
 *~
 *.stackdump
 *.pid
+
+# Local benchmark tools and mixed audit diagrams, excluded from system release.
+/benchmark_runner/
+/luồng xử lí/
+/backendqt/backendqt/src/main/java/com/example/invoice/controller/BenchmarkController.java
+/backendqt/backendqt/src/main/java/com/example/invoice/service/BenchmarkAdapter.java
+/backendqt/backendqt/src/main/java/com/example/invoice/service/BenchmarkLogPrivacy.java
+/backendqt/backendqt/src/test/java/com/example/invoice/service/BenchmarkAdapterTest.java
+/backendqt/backendqt/src/test/java/com/example/invoice/service/BenchmarkHttpTest.java
+/backendqt/backendqt/src/test/java/com/example/invoice/service/BenchmarkLogPrivacyTest.java
 _probe_*
 
 # ---------- Editor / OS ----------
