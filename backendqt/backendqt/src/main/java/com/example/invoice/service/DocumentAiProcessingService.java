@@ -573,15 +573,25 @@ public class DocumentAiProcessingService {
 		return List.copyOf(results);
 	}
 
-	private AiDocumentResult analyzeDigitalPdfText(String fileName, String text, List<String> documentTypes,
+	AiDocumentResult analyzeDigitalPdfText(String fileName, String text, List<String> documentTypes,
 			List<AccountingCategoryOption> categoryOptions, Company company) {
 		String prompt = AiDocumentPromptFactory.createWithCategories(documentTypes, categoryOptions,
 				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
 		enter("AI_EXTRACTION");
 		progressDetail("Gửi lớp chữ PDF cho " + modelLabel());
 		recordAiInput(com.example.invoice.verification.FieldVerifier.AiInputMode.TEXT);
-		return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizeOcrText(text),
-				AiDocumentPromptFactory.forTextExtraction(prompt)));
+		String normalizedText = normalizeOcrText(text);
+		String textPrompt = AiDocumentPromptFactory.forTextExtraction(prompt);
+		try {
+			return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText, textPrompt));
+		} catch (AiProviderException firstFailure) {
+			if (!isStructuredOutputFailure(firstFailure)) throw firstFailure;
+			// The model is not deterministic: the same page can fail once and succeed on the next request.
+			log.warn("AI text format invalid; one strict retry file={} code={}", fileName, errorCode(firstFailure));
+			progressDetail("Kết quả chưa đúng định dạng, thử lại với " + modelLabel());
+			return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText,
+					AiDocumentPromptFactory.strictRetry(textPrompt)));
+		}
 	}
 
 	AiDocumentResult analyzeVisionFallback(Document document, byte[] pdfBytes, String prompt,
@@ -608,11 +618,11 @@ public class DocumentAiProcessingService {
 		return value == null ? "" : value.replaceAll("[ \\t]+", " ").replaceAll("(?m)^\\s*$\\R", "").trim();
 	}
 
-	private OcrPageResult reconstructLayout(OcrPageResult page) {
+	OcrPageResult reconstructLayout(OcrPageResult page) {
 		return ocrLayoutReconstructor == null ? page : ocrLayoutReconstructor.reconstruct(page);
 	}
 
-	private OcrDocumentResult aggregateOcr(List<OcrPageResult> pages) {
+	OcrDocumentResult aggregateOcr(List<OcrPageResult> pages) {
 		List<OcrPageResult> successful = pages.stream().filter(OcrPageResult::successful).toList();
 		String text = successful.stream().map(OcrPageResult::text).collect(Collectors.joining("\n\n"));
 		float confidence = successful.isEmpty() ? Float.NaN
@@ -624,7 +634,7 @@ public class DocumentAiProcessingService {
 				pages.stream().mapToLong(OcrPageResult::durationMs).sum(), warnings);
 	}
 
-	private AiDocumentResult aggregatePageResults(List<AiDocumentResult> pages) {
+	AiDocumentResult aggregatePageResults(List<AiDocumentResult> pages) {
 		if (pages == null || pages.isEmpty()) throw new BadRequestException("Tệp PDF không có trang nào có thể phân tích");
 		AiDocumentResult first = pages.getFirst();
 		List<BigDecimal> confidences = pages.stream().map(AiDocumentResult::classificationConfidence).filter(Objects::nonNull).toList();
@@ -717,7 +727,7 @@ public class DocumentAiProcessingService {
 		return left != null && !left.isBlank() ? left : right;
 	}
 
-	private AiDocumentResult resolveCompanyRole(AiDocumentResult result, Company company) {
+	AiDocumentResult resolveCompanyRole(AiDocumentResult result, Company company) {
 		String companyTaxCode = normalizeTaxCode(company == null ? null : company.getTaxCode());
 		AiDocumentResult.AiInvoiceExtraction invoice = result.invoice();
 		if (companyTaxCode == null || invoice == null) return result;

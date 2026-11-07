@@ -2,6 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   approvalBlockReason,
+  reconciliationRoundingNote,
+  reconciliationCalculation,
+  reconciliationDifferenceCalculation,
   hasInsufficientReconciliationData,
   latestReconciliationRun,
   reconciliationDecision,
@@ -102,4 +105,23 @@ test('distinguishes matched mismatch and insufficient data', () => {
   assert.equal(reconciliationStatusLabel('MISMATCH'), 'Sai lệch')
   assert.equal(reconciliationStatusLabel('INSUFFICIENT_DATA'), 'Chưa đủ dữ liệu')
   assert.equal(hasInsufficientReconciliationData(['MATCHED', 'INSUFFICIENT_DATA']), true)
+})
+
+test('reconciliation calculation explains the invoice from the screenshot and hides stale formulas', () => {
+  const invoice = { subtotal: 3008239, vatAmount: 240659, items: [{ quantity: 12.63, unitPrice: 238182, taxRate: 0.08, taxAmount: 240659, amount: 3008239 }] }
+  const check = (type, expectedAmount, actualAmount) => ({ type, expectedAmount, actualAmount, differenceAmount: Math.round((actualAmount - expectedAmount) * 100) / 100 })
+  const amount = check('ITEM_1_AMOUNT', 3008239, 3008239)
+  assert.equal(reconciliationCalculation(amount, invoice), '12,63 × 238.182 = 3.008.238,66 → làm tròn 3.008.239 đ')
+  assert.equal(reconciliationDifferenceCalculation(amount), '3.008.239 − 3.008.239 = 0 đ')
+  const decimals = check('ITEM_1_AMOUNT', 100.5, 101)
+  assert.match(reconciliationRoundingNote({ ...decimals, status: 'MATCHED' }), /dưới 1 đ/)
+  assert.equal(reconciliationRoundingNote({ ...decimals, status: 'MISMATCH' }), null)
+  assert.equal(reconciliationRoundingNote({ ...amount, status: 'MATCHED' }), null)
+  assert.equal(reconciliationCommentLabel('Thành tiền dòng = số lượng × đơn giá; rounding=HALF_UP scale=0'), 'Làm tròn đến đồng: phần lẻ từ 0,5 trở lên được làm tròn lên.')
+  assert.equal(reconciliationCalculation(check('ITEM_1_VAT', 240659, 240659), invoice), '3.008.239 × 8% = 240.659,12 → làm tròn 240.659 đ')
+  assert.equal(reconciliationCalculation(check('TOTAL', 3248898, 3248898), invoice), '3.008.239 + 240.659 = 3.248.898 đ')
+  assert.equal(reconciliationCalculation(check('SUBTOTAL', 3008239, 3008239), invoice), '3.008.239 = 3.008.239 đ')
+  assert.equal(reconciliationCalculation(check('ITEM_1_AMOUNT', 3008239, 999), invoice), null)
+  assert.equal(reconciliationCalculation(amount, null), null)
+  assert.equal(reconciliationCalculation(check('FUTURE_RULE', 1, 1), invoice), null)
 })

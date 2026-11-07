@@ -110,7 +110,7 @@ public class ReconciliationService {
 		result.setDifferenceAmount(difference);
 		result.setStatus(InvoiceReconciliationRules.status(check.declared(), check.calculated(), check.missing()));
 		result.setComment(check.type() + ": " + (check.missing() ? "INSUFFICIENT_DATA; " : "")
-				+ check.message() + "; rounding=HALF_UP scale=2");
+				+ check.message() + "; rounding=HALF_UP scale=0");
 		return reconciliationRepository.save(result);
 	}
 

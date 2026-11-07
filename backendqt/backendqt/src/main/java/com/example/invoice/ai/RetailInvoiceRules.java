@@ -66,7 +66,7 @@ public final class RetailInvoiceRules {
             Row row=rows.get(index); BigDecimal discount=discounts.getOrDefault(index+1,BigDecimal.ZERO);
             BigDecimal expected=row.quantity()==null || row.unitPrice()==null ? null : row.quantity().multiply(row.unitPrice());
             if (expected!=null && details.lineAmountBasis()==LineAmountBasis.AFTER_DISCOUNT) expected=expected.subtract(discount);
-            checks.add(new Check("ITEM_"+(index+1)+"_AMOUNT",row.amount(),round(expected),expected==null || row.amount()==null,
+            checks.add(new Check("ITEM_"+(index+1)+"_AMOUNT",row.amount(),expected==null ? null : InvoiceReconciliationRules.toDong(expected),expected==null || row.amount()==null,
                     "Bán lẻ: số lượng × đơn giá, trừ giảm giá dòng chỉ khi thành tiền đã gồm giảm giá"));
             if (sum!=null) sum=row.amount()==null ? null : sum.add(row.amount());
         }

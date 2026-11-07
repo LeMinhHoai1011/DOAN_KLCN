@@ -47,6 +47,9 @@ test('hints flag inconsistent rows without changing them', () => {
   assert.deepEqual(itemDraftHints(draft), [])
   assert.equal(itemDraftHints({ ...draft, amount: '90000' }).length, 2)
   assert.deepEqual(itemDraftHints({ ...draft, quantity: '' }), [])
+  assert.deepEqual(itemDraftHints({ ...draft, quantity: '12,63', unitPrice: '238.182', amount: '3.008.239', taxAmount: '240.659' }), [])
+  assert.equal(totalDiffers(100.99, 100), false)
+  assert.equal(totalDiffers(101, 100), true)
 })
 
 test('row totals stay unknown while a cell is blank and compare to the header', () => {

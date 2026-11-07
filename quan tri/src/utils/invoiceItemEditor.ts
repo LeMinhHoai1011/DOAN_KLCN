@@ -1,5 +1,5 @@
 import type { InvoiceItem } from '../services/invoiceService'
-import { invoiceNumberInput, parseInvoiceNumber } from './invoiceNumber.ts'
+import { invoiceNumberInput, parseInvoiceNumber, parseInvoiceQuantity, roundToDong } from './invoiceNumber.ts'
 
 export interface InvoiceItemDraft {
   key: number; productName: string; unit: string; quantity: string
@@ -8,8 +8,8 @@ export interface InvoiceItemDraft {
 
 export type InvoiceItemPayload = Omit<InvoiceItem, 'id'>
 
-/** Same tolerance as backend reconciliation, so a hint here means the check will not match. */
-const TOLERANCE = 0.01
+/** Same limit as backend reconciliation, so a hint here means the check will not match. */
+const ROUNDING_LIMIT = 1
 let nextKey = 1
 
 /** Stored rates may be fractions (0.1) or percentages (10); the backend reads values up to 1 as fractions. */
@@ -29,18 +29,19 @@ export const toItemDrafts = (items: InvoiceItem[]): InvoiceItemDraft[] => items.
 const comparable = (drafts: InvoiceItemDraft[]) => JSON.stringify(drafts.map(({ key: _key, ...draft }) => draft))
 export const itemDraftsChanged = (drafts: InvoiceItemDraft[], items: InvoiceItem[]) => comparable(drafts) !== comparable(toItemDrafts(items))
 
-const parsed = (raw: string) => { try { return parseInvoiceNumber(raw) } catch { return null } }
+const parsedWith = (parse: (raw: string) => number | null, raw: string) => { try { return parse(raw) } catch { return null } }
+const parsed = (raw: string) => parsedWith(parseInvoiceNumber, raw)
 
 /** Throws a message naming the row and field; negative money is kept for discount rows. */
 export const toItemPayloads = (drafts: InvoiceItemDraft[]): InvoiceItemPayload[] => drafts.map((draft, index) => {
   const row = `Dòng ${index + 1}`
-  const number = (raw: string, label: string) => {
-    try { return parseInvoiceNumber(raw) }
+  const number = (raw: string, label: string, parse = parseInvoiceNumber) => {
+    try { return parse(raw) }
     catch (error) { throw new Error(`${row} - ${label}: ${(error as Error).message}`) }
   }
   const productName = draft.productName.trim()
   if (!productName) throw new Error(`${row}: Tên hàng hóa không được để trống.`)
-  const quantity = number(draft.quantity, 'Số lượng')
+  const quantity = number(draft.quantity, 'Số lượng', parseInvoiceQuantity)
   if (quantity != null && quantity < 0) throw new Error(`${row} - Số lượng: Không được nhỏ hơn 0.`)
   const percent = number(draft.taxRate, 'Thuế suất')
   if (percent != null && (percent < 0 || percent > 100 || !Number.isInteger(percent)))
@@ -56,11 +57,11 @@ export const toItemPayloads = (drafts: InvoiceItemDraft[]): InvoiceItemPayload[]
 /** Hints only: values are never recalculated for the accountant. */
 export const itemDraftHints = (draft: InvoiceItemDraft) => {
   const hints: string[] = []
-  const quantity = parsed(draft.quantity), unitPrice = parsed(draft.unitPrice), amount = parsed(draft.amount)
+  const quantity = parsedWith(parseInvoiceQuantity, draft.quantity), unitPrice = parsed(draft.unitPrice), amount = parsed(draft.amount)
   const percent = parsed(draft.taxRate), taxAmount = parsed(draft.taxAmount)
-  if (quantity != null && unitPrice != null && amount != null && Math.abs(quantity * unitPrice - amount) > TOLERANCE)
+  if (quantity != null && unitPrice != null && amount != null && Math.abs(roundToDong(quantity * unitPrice) - amount) >= ROUNDING_LIMIT)
     hints.push('Thành tiền khác số lượng × đơn giá.')
-  if (amount != null && percent != null && taxAmount != null && Math.abs(amount * percent / 100 - taxAmount) > TOLERANCE)
+  if (amount != null && percent != null && taxAmount != null && Math.abs(roundToDong(amount * percent / 100) - taxAmount) >= ROUNDING_LIMIT)
     hints.push('Tiền thuế khác thành tiền × thuế suất.')
   return hints
 }
@@ -75,4 +76,4 @@ export const itemDraftTotals = (drafts: InvoiceItemDraft[]) => {
 }
 
 export const totalDiffers = (sum: number | null, header: number | null) =>
-  sum != null && header != null && Math.abs(sum - header) > TOLERANCE
+  sum != null && header != null && Math.abs(sum - header) >= ROUNDING_LIMIT

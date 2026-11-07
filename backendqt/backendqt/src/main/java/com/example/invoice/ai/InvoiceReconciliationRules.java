@@ -9,7 +9,8 @@ import java.util.Objects;
 /** Pure VAT invoice checks, shared by document reconciliation and the offline evaluation. */
 public final class InvoiceReconciliationRules {
     private InvoiceReconciliationRules() {}
-    private static final BigDecimal TOLERANCE = new BigDecimal("0.01");
+    /** Invoices print whole dong, so a recalculated value may differ by less than one dong from rounding alone. */
+    public static final BigDecimal ROUNDING_LIMIT = BigDecimal.ONE;
     public static final String MATCHED = "MATCHED";
     public static final String MISMATCH = "MISMATCH";
     public static final String INSUFFICIENT_DATA = "INSUFFICIENT_DATA";
@@ -27,8 +28,7 @@ public final class InvoiceReconciliationRules {
             result.add(new Check("ITEM_" + (index + 1) + "_AMOUNT", row.amount(), multiply(row.quantity(), row.unitPrice()),
                     row.quantity() == null || row.unitPrice() == null || row.amount() == null,
                     "Thành tiền dòng = số lượng × đơn giá; cần quantity, unitPrice và amount"));
-            BigDecimal rate = rate(row.taxRate());
-            BigDecimal vat = row.amount() == null || rate == null ? null : round(row.amount().multiply(rate));
+            BigDecimal vat = lineTax(row.amount(), row.taxRate());
             result.add(new Check("ITEM_" + (index + 1) + "_VAT", row.taxAmount(), vat,
                     row.amount() == null || row.taxRate() == null || row.taxAmount() == null,
                     "VAT dòng theo thuế suất; cần amount, taxRate và taxAmount"));
@@ -47,11 +47,22 @@ public final class InvoiceReconciliationRules {
 
     public static String status(BigDecimal declared, BigDecimal calculated, boolean missing) {
         if (missing || declared == null || calculated == null) return INSUFFICIENT_DATA;
-        return difference(declared, calculated).abs().compareTo(TOLERANCE) <= 0 ? MATCHED : MISMATCH;
+        return difference(declared, calculated).abs().compareTo(ROUNDING_LIMIT) < 0 ? MATCHED : MISMATCH;
     }
 
     public static BigDecimal difference(BigDecimal declared, BigDecimal calculated) {
         return round(calculated.subtract(declared));
+    }
+
+    /** Line calculations follow the invoice: whole dong, with a fraction from 0.5 rounded up. */
+    public static BigDecimal toDong(BigDecimal value) {
+        return value.setScale(0, RoundingMode.HALF_UP).setScale(2);
+    }
+
+    /** A row's tax is its amount times its rate, never a share of the invoice total. */
+    public static BigDecimal lineTax(BigDecimal amount, BigDecimal taxRate) {
+        BigDecimal rate = rate(taxRate);
+        return amount == null || rate == null ? null : toDong(amount.multiply(rate));
     }
 
     /** Values up to 1 are fractions, larger values are percentages. */
@@ -60,7 +71,7 @@ public final class InvoiceReconciliationRules {
     }
 
     private static BigDecimal multiply(BigDecimal left, BigDecimal right) {
-        return left == null || right == null ? null : round(left.multiply(right));
+        return left == null || right == null ? null : toDong(left.multiply(right));
     }
 
     private static BigDecimal completeSum(List<BigDecimal> values) {

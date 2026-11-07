@@ -47,6 +47,30 @@ class DocumentVisionFallbackPageSelectionTest {
 	}
 
 	@Test
+	void digitalPdfTextGetsOneStrictRetryAfterInvalidOutput() {
+		Fixture fixture = fixture(1);
+		AiDocumentResult retried = result();
+		when(fixture.ai.analyzeTextDocument(any()))
+				.thenThrow(new AiProviderException("OLLAMA_INVALID_JSON: invalid")).thenReturn(retried);
+		assertEquals(retried, fixture.service.analyzeDigitalPdfText("invoice.pdf#page-1", "text", List.of("INVOICE"), List.of(), null));
+		verify(fixture.ai, times(2)).analyzeTextDocument(any());
+		verify(fixture.ai).analyzeTextDocument(org.mockito.ArgumentMatchers.argThat(request -> request.prompt().contains("RETRY REQUIREMENT")));
+	}
+
+	@Test
+	void digitalPdfTextStopsAfterTheStrictRetryAndOnInfrastructureFailures() {
+		Fixture fixture = fixture(1);
+		when(fixture.ai.analyzeTextDocument(any())).thenThrow(new AiProviderException("OLLAMA_INVALID_JSON: invalid"));
+		assertThrows(AiProviderException.class, () -> fixture.service.analyzeDigitalPdfText("invoice.pdf#page-1", "text", List.of("INVOICE"), List.of(), null));
+		verify(fixture.ai, times(2)).analyzeTextDocument(any());
+
+		Fixture offline = fixture(1);
+		when(offline.ai.analyzeTextDocument(any())).thenThrow(new AiProviderException("AI_CONNECTION_ERROR: refused"));
+		assertThrows(AiProviderException.class, () -> offline.service.analyzeDigitalPdfText("invoice.pdf#page-1", "text", List.of("INVOICE"), List.of(), null));
+		verify(offline.ai, times(1)).analyzeTextDocument(any());
+	}
+
+	@Test
 	void connectionFailureIsNotRetriedAndDoesNotFallBackToVision() {
 		Fixture fixture = fixture(1);
 		when(fixture.ai.analyzeTextDocument(any())).thenThrow(new AiProviderException("AI_CONNECTION_ERROR: refused"));

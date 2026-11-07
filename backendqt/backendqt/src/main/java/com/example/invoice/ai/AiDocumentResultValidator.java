@@ -18,7 +18,6 @@ public class AiDocumentResultValidator {
 	private static final Logger log = LoggerFactory.getLogger(AiDocumentResultValidator.class);
 	private static final Pattern TAX_CODE = Pattern.compile("\\d{10}(?:-\\d{3})?");
 	private static final Pattern EXTRA_FIELD_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9]*");
-	private static final BigDecimal MONEY_TOLERANCE = new BigDecimal("0.01");
 	public static final int MAX_INVOICE_NUMBER_LENGTH = 255;
 	public static final int MAX_INVOICE_SERIES_LENGTH = 255;
 	public static final int MAX_TAX_CODE_LENGTH = 255;
@@ -65,7 +64,7 @@ public class AiDocumentResultValidator {
                             : new RetailInvoiceRules.Row(item.quantity(),item.unitPrice(),item.amount())).toList();
             for (var check : RetailInvoiceRules.evaluate(invoice.retailDetails(),rows,invoice.totalAmount(),invoice.vatAmount(),false)) {
                 if (check.missing()) warnings.add("RETAIL_DATA_INSUFFICIENT: "+check.message());
-                else if (check.declared().subtract(check.calculated()).abs().compareTo(MONEY_TOLERANCE)>0)
+                else if (check.declared().subtract(check.calculated()).abs().compareTo(InvoiceReconciliationRules.ROUNDING_LIMIT)>=0)
                     warnings.add("RETAIL_AMOUNT_MISMATCH: "+check.type()+"; "+check.message());
             }
         }
@@ -143,8 +142,9 @@ public class AiDocumentResultValidator {
         if (!retail && invoice.subtotal() == null) warnings.add("MISSING_SUBTOTAL: Thiếu tổng trước thuế");
         if (!retail && invoice.vatAmount() == null) warnings.add("MISSING_VAT_AMOUNT: Thiếu tiền thuế");
         if (invoice.items() != null) {
+			boolean rowTaxDerived = InvoiceItemTax.rowTaxUnreliable(invoice);
 			for (int index = 0; index < invoice.items().size(); index++)
-				validateInvoiceItem(invoice.items().get(index), index + 1, warnings, retail);
+				validateInvoiceItem(invoice.items().get(index), index + 1, warnings, retail, rowTaxDerived);
 		}
 		if (invoice.sellerTaxCode() != null && !TAX_CODE.matcher(invoice.sellerTaxCode().trim()).matches()) {
 			warnings.add("INVALID_SELLER_TAX_CODE: mã số thuế người bán không hợp lệ");
@@ -167,7 +167,7 @@ public class AiDocumentResultValidator {
 			}
 		}
 		if (!retail && invoice.subtotal() != null && invoice.vatAmount() != null && invoice.totalAmount() != null
-				&& invoice.subtotal().add(invoice.vatAmount()).subtract(invoice.totalAmount()).abs().compareTo(MONEY_TOLERANCE) > 0) {
+				&& invoice.subtotal().add(invoice.vatAmount()).subtract(invoice.totalAmount()).abs().compareTo(InvoiceReconciliationRules.ROUNDING_LIMIT) >= 0) {
 			warnings.add("TOTAL_MISMATCH: tổng tiền trước thuế cộng VAT không khớp với tổng thanh toán");
 		}
 		warnNegative(invoice.subtotal(), "NEGATIVE_SUBTOTAL", warnings);
@@ -176,7 +176,7 @@ public class AiDocumentResultValidator {
 	}
 
 	private void validateInvoiceItem(AiDocumentResult.AiInvoiceItemExtraction item, int row,
-			List<String> warnings, boolean retail) {
+			List<String> warnings, boolean retail, boolean rowTaxDerived) {
 		if (item == null) {
 			warnings.add("INVALID_INVOICE_ITEM: row=" + row + ", item is null");
 			return;
@@ -195,12 +195,12 @@ public class AiDocumentResultValidator {
 				|| item.taxRate().compareTo(BigDecimal.ONE) > 0))
 			warnings.add("INVALID_ITEM_TAX_RATE: row=" + row + ", expected decimal fraction from 0 to 1");
 		if (!retail && item.quantity() != null && item.unitPrice() != null && item.amount() != null
-				&& item.quantity().multiply(item.unitPrice()).subtract(item.amount()).abs()
-						.compareTo(MONEY_TOLERANCE) > 0)
+				&& InvoiceReconciliationRules.toDong(item.quantity().multiply(item.unitPrice())).subtract(item.amount()).abs()
+						.compareTo(InvoiceReconciliationRules.ROUNDING_LIMIT) >= 0)
 			warnings.add("ITEM_AMOUNT_MISMATCH: row=" + row + ", quantity * unitPrice does not match amount");
-		if (!retail && item.amount() != null && item.taxRate() != null && item.taxAmount() != null
-				&& item.amount().multiply(item.taxRate()).subtract(item.taxAmount()).abs()
-						.compareTo(MONEY_TOLERANCE) > 0)
+		if (!retail && !rowTaxDerived && item.amount() != null && item.taxRate() != null && item.taxAmount() != null
+				&& InvoiceReconciliationRules.toDong(item.amount().multiply(item.taxRate())).subtract(item.taxAmount()).abs()
+						.compareTo(InvoiceReconciliationRules.ROUNDING_LIMIT) >= 0)
 			warnings.add("ITEM_TAX_MISMATCH: row=" + row + ", amount * taxRate does not match taxAmount");
 	}
 

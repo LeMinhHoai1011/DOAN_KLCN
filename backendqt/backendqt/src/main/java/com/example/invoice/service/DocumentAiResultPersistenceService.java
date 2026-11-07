@@ -1,5 +1,8 @@
 package com.example.invoice.service;
 
+import com.example.invoice.ai.InvoiceItemScale;
+import com.example.invoice.ai.InvoiceItemTax;
+import com.example.invoice.ai.InvoiceItemUnit;
 import com.example.invoice.ai.AiDocumentResultValidator.ValidatedAiDocumentResult;
 import com.example.invoice.ai.AiDocumentResultValidator;
 import com.example.invoice.dto.ai.AiDocumentResult;
@@ -330,15 +333,19 @@ public class DocumentAiResultPersistenceService {
 		boolean preserveExistingItems = validItems.isEmpty() && !invoice.getItems().isEmpty();
 		if (!preserveExistingItems) {
 			invoice.getItems().clear();
+			boolean rowTaxUnreliable = InvoiceItemTax.rowTaxUnreliable(extraction);
 			for (AiDocumentResult.AiInvoiceItemExtraction item : validItems) {
 				InvoiceItem entity = new InvoiceItem();
 				entity.setInvoice(invoice);
-				entity.setProductName(item.productName());
-				entity.setQuantity(item.quantity());
-				entity.setUnit(item.unit());
-				entity.setUnitPrice(item.unitPrice());
-				entity.setTaxRate(item.taxRate());
-				entity.setTaxAmount(item.taxAmount());
+				InvoiceItemUnit.NameAndUnit nameAndUnit = InvoiceItemUnit.repair(item.productName(), item.unit());
+				entity.setProductName(nameAndUnit.productName());
+				InvoiceItemScale.QuantityAndPrice scale = InvoiceItemScale.repair(item.quantity(), item.unitPrice(), item.amount());
+				entity.setQuantity(scale.quantity());
+				entity.setUnit(nameAndUnit.unit());
+				entity.setUnitPrice(scale.unitPrice());
+				BigDecimal rowRate = InvoiceItemTax.rowRate(extraction, item, rowTaxUnreliable);
+				entity.setTaxRate(rowRate);
+				entity.setTaxAmount(InvoiceItemTax.rowTax(item, rowRate, rowTaxUnreliable));
 				entity.setAmount(item.amount());
 				invoice.getItems().add(entity);
 			}

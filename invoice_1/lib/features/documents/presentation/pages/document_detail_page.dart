@@ -11,6 +11,14 @@ import '../../data/models/document_model.dart';
 import '../providers/document_provider.dart';
 import '../../../workspace/presentation/accountant_review_page.dart';
 
+// Money groups thousands with a dot; quantities only use a decimal comma.
+String _itemQuantity(Object? value) => value is num
+    ? NumberFormat('0.######', 'vi').format(value)
+    : value?.toString() ?? '—';
+String _itemMoney(Object? value) => value is num
+    ? '${NumberFormat.decimalPattern('vi').format(value)} đ'
+    : value?.toString() ?? '—';
+
 class DocumentDetailPage extends ConsumerStatefulWidget {
   final int documentId;
   const DocumentDetailPage({super.key, required this.documentId});
@@ -347,7 +355,7 @@ class _DocumentDetailPageState extends ConsumerState<DocumentDetailPage> {
                         if (item is Map)
                           _row(
                             item['productName']?.toString() ?? 'Dòng hàng',
-                            '${item['quantity'] ?? '—'} ${item['unit'] ?? ''} • ${item['amount'] ?? '—'}',
+                            '${_itemQuantity(item['quantity'])} ${item['unit'] ?? ''} • ${_itemMoney(item['amount'])}',
                           ),
                     ]),
                     _section('Lịch sử xử lý', 'Lần gửi, phản hồi và cập nhật', [
