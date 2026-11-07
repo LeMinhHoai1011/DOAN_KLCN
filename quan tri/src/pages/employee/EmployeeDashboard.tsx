@@ -89,19 +89,18 @@ const EmployeeDashboard = () => {
                 <th>Mã &amp; tệp</th>
                 <th>Loại</th>
                 <th>Ngày</th>
-                <th>Khớp AI</th>
                 <th>Trạng thái</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={5} className="py-10 text-center text-ink-muted">Đang tải chứng từ...</td>
+                  <td colSpan={4} className="py-10 text-center text-ink-muted">Đang tải chứng từ...</td>
                 </tr>
               )}
               {!isLoading && !error && recentDocuments.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-10 text-center text-ink-muted">Chưa có chứng từ nào</td>
+                  <td colSpan={4} className="py-10 text-center text-ink-muted">Chưa có chứng từ nào</td>
                 </tr>
               )}
               {!isLoading && !error && recentDocuments.map((doc) => (
@@ -114,7 +113,6 @@ const EmployeeDashboard = () => {
                   </td>
                   <td className="text-ink-soft">{doc.documentTypeName}</td>
                   <td className="si-num text-[17px] text-ink-soft">{doc.date}</td>
-                  <td className="si-num text-[17px] text-ink-soft">{doc.aiConfidence == null ? '—' : `${doc.aiConfidence}%`}</td>
                   <td>
                     <StatusBadge status={doc.status} reviewStatus={doc.reviewStatus} />
                   </td>

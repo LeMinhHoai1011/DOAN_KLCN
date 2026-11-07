@@ -23,6 +23,18 @@ class InvoiceIdentityTest {
         assertEquals(expected, InvoiceIdentity.restoreNumber(extracted, source));
     }
 
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', nullValues = "NULL", value = {
+            "NULL    | HÓA ĐƠN Ký hiệu: 1C25TAP Số: 00001011 | 1C25TAP",
+            "NULL    | Ký hiệu (Serial): 1C26TPL Số (No).:00000036 | 1C26TPL",
+            "1C25TVE | Ký hiệu: 1C25TAP | 1C25TVE",
+            "NULL    | Không có nhãn 1C25TAP | NULL",
+            "NULL    | Ký hiệu: không rõ | NULL",
+    })
+    void fillsABlankSeriesFromThePrintedLabel(String extracted, String source, String expected) {
+        assertEquals(expected, InvoiceIdentity.restoreSeries(extracted, source));
+    }
+
     @Test
     void comparesInvoicesWithoutLeadingZeros() {
         assertTrue(InvoiceIdentity.sameInvoice("00036", "1C26TPL", "00000036", "1c26tpl"));

@@ -36,7 +36,18 @@ export interface ReviewEffortReport {
   touchlessApproved: number; touchlessRate: number | null; averageEditsPerApprovedDocument: number | null
   byDocumentType: Record<string, TypeEffort>; notes: string[]
 }
+export type AiChangeKind = 'WRONG' | 'MISSING' | 'EXTRA'
+export interface AiChange { field: string; row: number | null; kind: AiChangeKind; aiValue: string | null; finalValue: string | null }
+export interface DocumentAiChanges { documentId: number; fileName: string | null; hasAiResult: boolean; approved: boolean; compared: number; correct: number; changes: AiChange[] }
+export interface AiFieldScore { field: string; changes: number; wrong: number; missing: number; extra: number }
+export interface AiAccuracyReport {
+  from: string | null; to: string | null; approvedDocuments: number; comparedDocuments: number; skippedDocuments: number; unchangedDocuments: number
+  compared: number; correct: number; wrong: number; missing: number; extra: number; accuracy: number | null
+  byField: AiFieldScore[]; recentChanges: DocumentAiChanges[]
+}
 export const evaluationService = {
+  aiAccuracy: async (params: { from?: string; to?: string }) => (await api.get<AiAccuracyReport>('/api/v1/evaluation/ai-accuracy', { params })).data,
+  documentAiChanges: async (documentId: number) => (await api.get<DocumentAiChanges>(`/api/v1/documents/${documentId}/ai-changes`)).data,
   reviewEffort: async (params: { from?: string; to?: string }) => (await api.get<ReviewEffortReport>('/api/v1/evaluation/review-effort', { params })).data,
   report: async (params: EvaluationFilter) => (await api.get<EvaluationReport>('/api/v1/evaluation/statistics', { params })).data,
   export: async (params: EvaluationFilter) => (await api.get<Blob>('/api/v1/evaluation/export', { params, responseType: 'blob' })).data,

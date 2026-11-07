@@ -19,7 +19,6 @@ import classificationService from '../../services/classificationService';
 import accountingCategoryService, { type AccountingCategory } from '../../services/accountingCategoryService';
 import documentService, { mapDocument } from '../../services/documentService';
 import invoiceService from '../../services/invoiceService';
-import { liveEvaluationService } from '../../services/liveEvaluationService';
 import reconciliationService, { type Reconciliation } from '../../services/reconciliationService';
 import type { ClassificationResponse } from '../../services/classificationService';
 import type { DocumentResponse, DocumentType, ExtractedFieldResponse, OCRResultResponse, WorkflowAction } from '../../services/documentService';
@@ -32,7 +31,8 @@ import ExtractedFieldPanel from '../../components/ocr-preview/ExtractedFieldPane
 import OcrDocumentPreview from '../../components/OcrDocumentPreview';
 import InvoiceItemsPanel from '../../components/InvoiceItemsPanel';
 import VatInvoicePanel, { documentTypeLabel, emptyInvoiceForm, toInvoiceForm, toInvoiceUpdateRequest, type InvoiceFormData } from '../../components/VatInvoicePanel';
-import { formatConfidence } from '../../utils/confidence';
+import { textSourceLabel } from '../../utils/confidence';
+import AiChangesCard from '../../components/AiChangesCard';
 import { listReadOutcome } from '../../services/readState';
 import { approvalBlockReason, hasInsufficientReconciliationData, withoutErrorCode } from '../../utils/reconciliationPresentation';
 import ReconciliationResultCard from '../../components/ReconciliationResultCard';
@@ -331,12 +331,6 @@ const AccountantDocumentDetail = () => {
     finally { setIsReconciling(false); }
   };
 
-  const addToEvaluation = async () => {
-    setWorkflowError(''); setWorkflowMessage('');
-    try { await liveEvaluationService.select(documentId); navigate(`/${role === 'ADMIN' ? 'admin' : 'accountant'}/evaluation-labels/${documentId}`); }
-    catch (failure) { setWorkflowError(withoutErrorCode(getErrorMessage(failure, 'Không thể đưa chứng từ vào bộ đánh giá.'))); }
-  };
-
   const decideReconciliation = async (id: number, status: 'ACCEPTED' | 'NEED_REVIEW', comment?: string) => {
     const updated = await reconciliationService.decide(documentId, id, status, comment);
     setReconciliations(current => current.map(item => item.id === id ? updated : item));
@@ -370,8 +364,8 @@ const AccountantDocumentDetail = () => {
 
   const documentView = mapDocument(document);
   const visibleReviewReasons = reviewMessages(assessment?.reviewReasons ?? []);
-  const classificationConfidence = formatConfidence(assessment?.classificationConfidence.value);
-  const ocrConfidence = formatConfidence(assessment?.ocrConfidence.value);
+  const textSource = textSourceLabel(ocr?.sourceType, assessment?.ocrConfidence.value);
+  const changeKey = JSON.stringify([invoice, classification]);
   const canCorrect = hasCorrectionRole && document.reviewStatus !== 'APPROVED'
     && (document.status === 'PROCESSED' || document.status === 'NEED_REVIEW');
   const canReview = hasCorrectionRole && document.reviewStatus === 'PENDING' && (document.status === 'PROCESSED' || document.status === 'NEED_REVIEW');
@@ -423,7 +417,6 @@ const AccountantDocumentDetail = () => {
       {workflowError && <div className="rounded-control bg-failed-surface border border-failed/25 px-4 py-3 text-sm text-failed">{workflowError}</div>}
       {displaySectionErrors.length > 0 && <div className="rounded-control border border-review/25 bg-review-surface px-4 py-3 text-sm text-review">{displaySectionErrors.join(' ')}</div>}
 
-      {hasCorrectionRole && invoice && <div className="flex justify-end"><button type="button" onClick={() => void addToEvaluation()} className="si-btn-secondary !px-2 !py-1 text-xs">Đưa vào bộ đánh giá</button></div>}
       {(canReview || canSubmit || canResubmit) && <div className="si-card p-4"><div className="flex flex-wrap items-center gap-2"><span className="si-label mr-2">Kiểm duyệt</span>{canSubmit && <button disabled={isWorkflowPending} onClick={() => void runWorkflow('SUBMIT')} className="si-btn-primary">Gửi xử lý</button>}{canResubmit && <button disabled={isWorkflowPending} onClick={() => void runWorkflow('RESUBMIT')} className="si-btn-primary">Gửi lại</button>}{canReview && <><button disabled={isWorkflowPending} onClick={() => void runWorkflow('START_REVIEW')} hidden={businessState?.review === 'IN_REVIEW'} className="si-btn-secondary border-brand-200 text-brand-700">Bắt đầu kiểm duyệt</button><button disabled={isWorkflowPending || Boolean(approvalBlock)} title={approvalBlock ?? undefined} onClick={() => void runWorkflow('APPROVE')} className="si-btn-secondary border-parsed/30 text-parsed">Duyệt</button><button disabled={isWorkflowPending} onClick={() => setWorkflowAction('REJECT')} className="si-btn-secondary border-failed/30 text-failed">Từ chối</button><button disabled={isWorkflowPending} onClick={() => setWorkflowAction('REQUEST_INFO')} className="si-btn-secondary border-review/30 text-review">Yêu cầu bổ sung</button></>}</div>{approvalBlock && <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-review"><span>{approvalBlock}</span><button type="button" onClick={() => setActiveTab('reconciliation')} className="si-btn-secondary !px-2 !py-1 text-xs">Mở Đối soát</button></p>}{workflowAction && <div className="mt-3 flex flex-wrap gap-2"><input value={workflowNote} onChange={(event) => setWorkflowNote(event.target.value)} placeholder="Nhập lý do" className="si-input min-w-64 flex-1" /><button disabled={isWorkflowPending} onClick={() => void runWorkflow(workflowAction)} className="si-btn-primary">{isWorkflowPending ? 'Đang gửi...' : 'Xác nhận'}</button><button disabled={isWorkflowPending} onClick={() => { setWorkflowAction(null); setWorkflowNote(''); }} className="rounded-control px-3 py-2 text-sm text-ink-soft">Hủy</button></div>}</div>}
 
       {hasUnsavedChanges && <div className="rounded-control border border-review/30 bg-review-surface px-3 py-2 text-sm text-review">Có thay đổi chưa lưu. Dữ liệu vẫn được giữ khi đổi tab.</div>}
@@ -442,18 +435,16 @@ const AccountantDocumentDetail = () => {
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {activeTab === 'overview' && <div className="space-y-4">
               <section className="si-card p-4">
-                <h3 className="si-section-title mb-3">Đánh giá OCR/AI</h3>
+                <h3 className="si-section-title mb-3">Kiểm tra dữ liệu</h3>
                 <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-                  <div><p className="text-xs text-ink-muted">Độ tin cậy OCR</p><p>{ocrConfidence}</p></div>
-
-                  <div><p className="text-xs text-ink-muted">Độ tin cậy phân loại</p><p>{classificationConfidence}</p></div>
+                  <div><p className="text-xs text-ink-muted">Độ tin cậy OCR</p><p>{textSource}</p></div>
                 </div>
                 <p className="mt-3 text-sm">Kiểm tra dữ liệu: {assessment?.validationStatus === 'VALID' ? 'Hợp lệ' : assessment?.validationStatus === 'NEED_REVIEW' ? 'Cần kiểm tra' : assessment?.validationStatus === 'FAILED' ? 'Xử lý thất bại' : 'Chưa xác định'}</p>
-                <p className="mt-2 text-xs text-ink-muted">Độ tin cậy do AI ước tính, không phải độ chính xác đã đo.</p>
                 {assessmentError && <p className="mt-2 text-sm text-review">{assessmentError}</p>}
                 {visibleReviewReasons.length > 0 && <div className="mt-3 text-sm"><p className="font-semibold">Lý do cần kiểm tra</p><ul className="mt-2 list-disc space-y-1 pl-5">{visibleReviewReasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul></div>}
                 {Boolean(assessment?.warnings.length) && <details className="mt-3"><summary className="cursor-pointer text-sm text-ink-muted">Chi tiết cảnh báo ({assessment?.warnings.length ?? 0})</summary><div className="mt-3 space-y-2">{assessment?.warnings.map((warning, index) => <div key={index} className={clsx('rounded-control border p-3 text-sm', warning.severity === 'CRITICAL' ? 'border-review/25 bg-review-surface text-review' : 'border-hairline')}><p className="font-medium">{warning.severity === 'CRITICAL' ? 'Cần kiểm tra' : 'Thông tin'}</p><p className="mt-1 break-words">{assessmentMessage(warning.message, warning.code)}</p>{warning.affectedField && <p className="mt-1 text-xs">Trường liên quan: {fieldLabel(warning.affectedField)}</p>}</div>)}</div></details>}
               </section>
+              <AiChangesCard documentId={documentId} refreshKey={changeKey} />
               <section className="si-card border-tax-vat/25 bg-tax-vat-surface p-4"><div className="flex items-start justify-between gap-4"><div><p className="si-label text-tax-vat">Loại chứng từ</p><p className="mt-1 font-sans text-[20px] font-bold tracking-tight text-ink">{document.documentType ? documentTypeLabel(document.documentType) : 'Chưa xác định'}</p><p className="mt-1 text-xs text-ink-muted">{classification?.aiGenerated === false ? 'Đã được kế toán chỉnh sửa' : document.documentType ? 'AI đề xuất từ chứng từ' : 'AI chưa xác định được loại chứng từ'}</p></div></div>{isEditing && <label className="mt-4 block text-xs font-medium text-ink-soft">Loại chứng từ<select value={documentTypeId} onChange={event => setDocumentTypeId(event.target.value)} className="mt-1 w-full rounded-control border border-hairline-strong bg-surface px-3 py-2 text-sm"><option value="" disabled>Chưa xác định</option>{documentTypes.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>}</section>
               <section className="rounded-card border border-brand-200 bg-brand-50/60 p-4">
                 <div><p className="si-label text-brand-700">Nhóm nghiệp vụ kế toán</p><p className="mt-1 font-sans text-[20px] font-bold tracking-tight text-ink">{classification?.accountingCategoryName || classification?.category || 'Chưa phân loại'}</p><p className="mt-1 text-xs text-ink-muted">{classification?.accountingAccount ? `${classification.aiGenerated ? 'Tài khoản gợi ý' : 'Tài khoản kế toán'} · ${classification.accountingAccount}` : 'Độc lập với loại chứng từ'}</p></div>

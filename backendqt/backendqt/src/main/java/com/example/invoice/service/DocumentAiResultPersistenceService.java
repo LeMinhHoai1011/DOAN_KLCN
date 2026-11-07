@@ -151,9 +151,8 @@ public class DocumentAiResultPersistenceService {
 		persistIntelligence(document, result);
 
 		persistOcrWhenPresent(document, tessOcr);
-		BigDecimal reviewThreshold = aiProperties.getDocument().getReviewThreshold();
-		boolean requiresReview = validated.requiresReview(reviewThreshold);
-		List<String> classificationReasons = java.util.stream.Stream.concat(validated.warnings().stream(), validated.reviewReasons(reviewThreshold).stream()).distinct().toList();
+		boolean requiresReview = validated.requiresReview();
+		List<String> classificationReasons = java.util.stream.Stream.concat(validated.warnings().stream(), validated.reviewReasons().stream()).distinct().toList();
 		persistClassification(document, result, validated.confidence(), classificationReasons, requiresReview);
 		processingLogService.append(documentId, "CLASSIFICATION", "CLASSIFY", "SUCCESS", validated.confidence(),
 				result.durationMs(), "documentType=" + result.documentType(), result.provider(), result.model());
@@ -183,7 +182,7 @@ public class DocumentAiResultPersistenceService {
                         measuredOcr ? "TESSERACT" : "TEXT_LAYER_OR_UNAVAILABLE", "MEAN_WORD_CONFIDENCE_THEN_PAGE_MEAN"),
                 new com.example.invoice.dto.document.DocumentAssessment.Confidence(null, result.provider() + "/" + result.model(), "NOT_PROVIDED_BY_MODEL"),
                 score, requiresReview ? "NEED_REVIEW" : "VALID",
-                classificationReasons.stream().map(com.example.invoice.ai.AssessmentWarnings::normalize).toList(), validated.reviewReasons(reviewThreshold)));
+                classificationReasons.stream().map(com.example.invoice.ai.AssessmentWarnings::normalize).toList(), validated.reviewReasons()));
         document.setStatus(requiresReview ? DocumentStatus.NEED_REVIEW : DocumentStatus.PROCESSED);
 		// Review decisions belong exclusively to the review workflow.
 		processingLogService.append(documentId, "PERSISTENCE", "PERSIST", "SUCCESS", validated.confidence(),
@@ -307,9 +306,10 @@ public class DocumentAiResultPersistenceService {
 	private java.util.Optional<String> duplicateInvoiceWarning(Document document, AiDocumentResult.AiInvoiceExtraction extraction, String sourceText) {
 		if (extraction == null || document.getCompany() == null || extraction.sellerTaxCode() == null) return java.util.Optional.empty();
 		String number = InvoiceIdentity.restoreNumber(extraction.invoiceNumber(), sourceText);
+		String series = InvoiceIdentity.restoreSeries(extraction.invoiceSeries(), sourceText);
 		List<Long> matches = invoiceRepository.findAllByDocumentCompanyIdAndSellerTaxCode(document.getCompany().getId(), extraction.sellerTaxCode()).stream()
 				.filter(other -> !document.getId().equals(other.getDocument().getId()))
-				.filter(other -> InvoiceIdentity.sameInvoice(number, extraction.invoiceSeries(), other.getInvoiceNumber(), other.getInvoiceSeries()))
+				.filter(other -> InvoiceIdentity.sameInvoice(number, series, other.getInvoiceNumber(), other.getInvoiceSeries()))
 				.map(other -> other.getDocument().getId()).sorted().limit(5).toList();
 		if (matches.isEmpty()) return java.util.Optional.empty();
 		return java.util.Optional.of("DUPLICATE_INVOICE: trùng người bán và số hóa đơn; field=invoiceNumber; documents="
@@ -328,7 +328,7 @@ public class DocumentAiResultPersistenceService {
 		}
 		invoice.setDocument(document);
 		invoice.setInvoiceNumber(boundedIdentifier(InvoiceIdentity.restoreNumber(extraction.invoiceNumber(), sourceText), AiDocumentResultValidator.MAX_INVOICE_NUMBER_LENGTH));
-		invoice.setInvoiceSeries(boundedIdentifier(extraction.invoiceSeries(), AiDocumentResultValidator.MAX_INVOICE_SERIES_LENGTH));
+		invoice.setInvoiceSeries(boundedIdentifier(InvoiceIdentity.restoreSeries(extraction.invoiceSeries(), sourceText), AiDocumentResultValidator.MAX_INVOICE_SERIES_LENGTH));
 		invoice.setInvoiceDate(parseDate(extraction.invoiceDate()));
 		invoice.setSellerName(preferExistingText(invoice.getSellerName(), extraction.sellerName()));
 		invoice.setSellerTaxCode(boundedIdentifier(extraction.sellerTaxCode(), AiDocumentResultValidator.MAX_TAX_CODE_LENGTH));

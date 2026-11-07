@@ -45,6 +45,8 @@ public class AiDocumentResultValidator {
 		}
 		BigDecimal confidence = normalizeConfidence(result.classificationConfidence(), warnings);
 		result = DocumentTypeValidationPolicy.validate(result, warnings);
+		// No rule can check an unrecognized document, so a person has to look at it.
+		if ("OTHER".equals(result.documentType())) warnings.add("UNCLASSIFIED_DOCUMENT: chứng từ chưa thuộc loại nào có quy tắc kiểm tra");
 		if (isInvoiceType(result.documentType()) && result.invoice() == null) {
 			warnings.add("MISSING_INVOICE_EXTRACTION: Thiếu dữ liệu hóa đơn có cấu trúc");
 		}
@@ -234,19 +236,14 @@ public class AiDocumentResultValidator {
 	}
 
 	public record ValidatedAiDocumentResult(AiDocumentResult result, BigDecimal confidence, List<String> warnings) {
-		public boolean requiresReview(BigDecimal threshold) {
-			return confidence == null || confidence.compareTo(threshold) < 0 || warnings.stream().anyMatch(this::isCritical);
+		/** Only checks the model cannot grade itself on decide this; its reported confidence is kept but never trusted. */
+		public boolean requiresReview() {
+			return warnings.stream().anyMatch(this::isCritical);
 		}
 
-		public List<String> reviewReasons(BigDecimal threshold) {
-			List<String> reasons = new ArrayList<>();
-			if (confidence == null)
-				reasons.add("MISSING_CLASSIFICATION_CONFIDENCE: AI không cung cấp độ tin cậy");
-			else if (confidence.compareTo(threshold) < 0)
-				reasons.add("LOW_CLASSIFICATION_CONFIDENCE: confidence=" + confidence + ", threshold=" + threshold);
-			warnings.stream().filter(warning -> isCritical(warning)
-					|| AiDocumentResultValidator.hasDocumentTypeEvidence(warning)).forEach(reasons::add);
-			return List.copyOf(reasons);
+		public List<String> reviewReasons() {
+			return warnings.stream().filter(warning -> isCritical(warning)
+					|| AiDocumentResultValidator.hasDocumentTypeEvidence(warning)).toList();
 		}
 
 		private boolean isCritical(String warning) {

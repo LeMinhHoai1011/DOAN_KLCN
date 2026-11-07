@@ -164,14 +164,13 @@ const AdminDashboard = () => {
                 <th>Người tải lên</th>
                 <th>Loại chứng từ</th>
                 <th>Ngày tải</th>
-                <th>Độ tin cậy AI</th>
                 <th>Trạng thái</th>
                 <th className="text-center">Thao tác</th>
               </tr>
             </thead>
             <tbody>
               {!error && recentDocuments.length === 0 && (
-                <tr><td colSpan={7} className="py-10 text-center text-ink-muted">Chưa có chứng từ nào</td></tr>
+                <tr><td colSpan={6} className="py-10 text-center text-ink-muted">Chưa có chứng từ nào</td></tr>
               )}
               {recentDocuments.map(doc => (
                 <tr key={doc.id} onClick={() => navigate(`/admin/documents/${doc.id}`)} className="cursor-pointer">
@@ -184,7 +183,6 @@ const AdminDashboard = () => {
                   <td className="text-ink-soft">{uploaderName(doc.uploadedById)}</td>
                   <td className="text-ink-soft">{doc.documentTypeName}</td>
                   <td className="si-num text-[17px] text-ink-soft">{doc.date}</td>
-                  <td className="si-num text-[17px] text-ink-soft">{doc.aiConfidence == null ? '—' : `${doc.aiConfidence}%`}</td>
                   <td><StatusBadge status={doc.status} reviewStatus={doc.reviewStatus} /></td>
                   <td className="text-center">
                     <button

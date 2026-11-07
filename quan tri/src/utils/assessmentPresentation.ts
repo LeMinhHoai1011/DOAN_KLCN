@@ -18,6 +18,7 @@ export const assessmentTerms: Record<string, string> = {
   NEGATIVE_ITEM_QUANTITY: 'Số lượng hàng hóa âm.', NEGATIVE_ITEM_UNIT_PRICE: 'Đơn giá hàng hóa âm.',
   NEGATIVE_ITEM_TAX_AMOUNT: 'Tiền thuế hàng hóa âm.', NEGATIVE_ITEM_AMOUNT: 'Thành tiền hàng hóa âm.',
   INVALID_ITEM_TAX_RATE: 'Thuế suất hàng hóa chưa hợp lệ.',
+  UNCLASSIFIED_DOCUMENT: 'Chứng từ chưa thuộc loại nào có quy tắc kiểm tra.',
   DUPLICATE_INVOICE: 'Trùng người bán và số hóa đơn với chứng từ đã có',
   INVALID_ACCOUNTING_CATEGORY: 'Nhóm nghiệp vụ AI đề xuất chưa phù hợp danh mục công ty.',
   RETAIL_DATA_INSUFFICIENT: 'Chưa đủ dữ liệu đối soát hóa đơn bán lẻ.', RETAIL_AMOUNT_MISMATCH: 'Số tiền hóa đơn bán lẻ chưa khớp.',

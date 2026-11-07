@@ -145,6 +145,8 @@ public class ReviewEffortService {
         return node;
     }
 
+    static boolean isApproval(DocumentReview review) { return "APPROVE".equals(action(review)); }
+
     private static String action(DocumentReview review) {
         String note = review.getReviewNote();
         if (note == null) return null;

@@ -224,9 +224,6 @@ const AccountantUpload = () => {
                               {uploadResult.documentTypeName && (
                                 <span className="text-2xs text-ink-muted">Loại chứng từ AI đề xuất: {uploadResult.documentTypeName}</span>
                               )}
-                              <span className="si-num text-2xs text-ink-muted">
-                                Độ tin cậy phân loại: {uploadResult.documentTypeConfidence == null ? '—' : new Intl.NumberFormat('vi-VN', { style: 'percent', maximumFractionDigits: 1 }).format(uploadResult.documentTypeConfidence)}
-                              </span>
                             </>
                           )}
                           {uploadResult?.message && !isBusy && <span className="text-2xs text-ink-muted">{uploadResult.message}</span>}

@@ -548,6 +548,32 @@ public class DocumentAiProcessingService {
 		progressDetail("Gửi lớp chữ PDF cho " + modelLabel());
 		String normalizedText = normalizeOcrText(text);
 		String textPrompt = AiDocumentPromptFactory.forTextExtraction(prompt);
+		AiDocumentResult first = analyzeWithStrictRetry(fileName, normalizedText, textPrompt);
+		if (!rowsMissSubtotal(first)) return first;
+		log.warn("AI rows do not add up to the subtotal; one row retry file={}", fileName);
+		progressDetail("Dòng hàng chưa khớp tổng tiền, đọc lại với " + modelLabel());
+		try {
+			AiDocumentResult retried = aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText,
+					AiDocumentPromptFactory.rowRetry(textPrompt)));
+			return rowsMissSubtotal(retried) ? first : retried;
+		} catch (AiProviderException retryFailure) {
+			return first;
+		}
+	}
+
+	/** A page without a printed subtotal cannot be judged, and each row may round by up to half a dong. */
+	private boolean rowsMissSubtotal(AiDocumentResult result) {
+		var invoice = result.invoice();
+		if (invoice == null || invoice.subtotal() == null || invoice.items() == null || invoice.items().isEmpty()) return false;
+		BigDecimal sum = BigDecimal.ZERO;
+		for (var item : invoice.items()) {
+			if (item == null || item.amount() == null) return false;
+			sum = sum.add(item.amount());
+		}
+		return sum.subtract(invoice.subtotal()).abs().compareTo(BigDecimal.valueOf(invoice.items().size())) >= 0;
+	}
+
+	private AiDocumentResult analyzeWithStrictRetry(String fileName, String normalizedText, String textPrompt) {
 		try {
 			return aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText, textPrompt));
 		} catch (AiProviderException firstFailure) {

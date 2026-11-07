@@ -18,7 +18,7 @@ class AiDocumentResultValidatorTest {
 	@Test
 	void confidence084WithValidExtractionIsProcessed() {
 		var validated = validator.validate(result("0.84", validInvoice(), List.of()), Set.of("VAT_INVOICE"));
-		assertFalse(validated.requiresReview(new BigDecimal("0.75")));
+		assertFalse(validated.requiresReview());
 	}
 
 	@Test
@@ -28,8 +28,8 @@ class AiDocumentResultValidatorTest {
 
 		var validated = validator.validate(result, Set.of("RECEIPT"));
 
-		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
-		assertTrue(validated.reviewReasons(new BigDecimal("0.75")).stream()
+		assertTrue(validated.requiresReview());
+		assertTrue(validated.reviewReasons().stream()
 				.anyMatch(reason -> reason.startsWith("MISSING_DOCUMENT_TYPE_EVIDENCE:")));
 	}
 
@@ -41,7 +41,7 @@ class AiDocumentResultValidatorTest {
 
 		var validated = validator.validate(result, Set.of("RECEIPT"));
 
-		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
+		assertTrue(validated.requiresReview());
 		assertTrue(validated.warnings().contains("DOCUMENT_TYPE_REASON: Có nội dung xác nhận đã thu tiền"));
 	}
 
@@ -49,15 +49,14 @@ class AiDocumentResultValidatorTest {
 	void mildVietnameseDiacriticWarningDoesNotForceReview() {
 		var validated = validator.validate(result("0.84", validInvoice(),
 				List.of("NON_CRITICAL: địa chỉ có thể thiếu dấu tiếng Việt")), Set.of("VAT_INVOICE"));
-		assertFalse(validated.requiresReview(new BigDecimal("0.75")));
+		assertFalse(validated.requiresReview());
 	}
 
 	@Test
-	void confidenceBelowReviewThresholdRequiresReviewWithReason() {
-		var validated = validator.validate(result("0.70", validInvoice(), List.of()), Set.of("VAT_INVOICE"));
-		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
-		assertTrue(validated.reviewReasons(new BigDecimal("0.75")).getFirst()
-				.startsWith("LOW_CLASSIFICATION_CONFIDENCE:"));
+	void theModelsOwnConfidenceNeverDecidesReview() {
+		assertFalse(validator.validate(result("0.10", validInvoice(), List.of()), Set.of("VAT_INVOICE")).requiresReview());
+		var missingFields = result("1.00", validInvoice(), List.of("MISSING_TOTAL_AMOUNT: thiếu tổng thanh toán"));
+		assertTrue(validator.validate(missingFields, Set.of("VAT_INVOICE")).requiresReview());
 	}
 
 	@Test
@@ -66,8 +65,8 @@ class AiDocumentResultValidatorTest {
 				"Người bán", "0123456789", "Địa chỉ", null, null, null,
 				new BigDecimal("100"), new BigDecimal("10"), new BigDecimal("120"), List.of());
 		var validated = validator.validate(result("0.96", invoice, List.of()), Set.of("VAT_INVOICE"));
-		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
-		assertTrue(validated.reviewReasons(new BigDecimal("0.75")).stream()
+		assertTrue(validated.requiresReview());
+		assertTrue(validated.reviewReasons().stream()
 				.anyMatch(reason -> reason.startsWith("TOTAL_MISMATCH:")));
 	}
 
@@ -77,8 +76,8 @@ class AiDocumentResultValidatorTest {
 				"Người bán", "ABC", "Địa chỉ", null, null, null,
 				new BigDecimal("100"), new BigDecimal("10"), new BigDecimal("110"), List.of());
 		var validated = validator.validate(result("0.95", invoice, List.of()), Set.of("VAT_INVOICE"));
-		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
-		assertTrue(validated.reviewReasons(new BigDecimal("0.75")).stream()
+		assertTrue(validated.requiresReview());
+		assertTrue(validated.reviewReasons().stream()
 				.anyMatch(reason -> reason.startsWith("INVALID_SELLER_TAX_CODE:")));
 	}
 
@@ -92,7 +91,7 @@ class AiDocumentResultValidatorTest {
 
 		var validated = validator.validate(result, Set.of("INVOICE"));
 		assertEquals(0, validated.confidence().compareTo(new BigDecimal("0.70")));
-		assertEquals(true, validated.requiresReview(new BigDecimal("0.75")));
+		assertEquals(true, validated.requiresReview());
 	}
 
 	@Test
@@ -102,7 +101,7 @@ class AiDocumentResultValidatorTest {
 
 		var validated = validator.validate(result("0.99", invoice, List.of()), Set.of("VAT_INVOICE"));
 
-		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
+		assertTrue(validated.requiresReview());
 		assertTrue(validated.warnings().stream().anyMatch(w -> w.startsWith("MISSING_INVOICE_DATE:")));
 		assertTrue(validated.warnings().stream().anyMatch(w -> w.startsWith("MISSING_SELLER_NAME:")));
 		assertTrue(validated.warnings().stream().anyMatch(w -> w.startsWith("MISSING_SELLER_TAX_CODE:")));
@@ -119,7 +118,7 @@ class AiDocumentResultValidatorTest {
 
 		var validated = validator.validate(result("0.99", invoice, List.of()), Set.of("VAT_INVOICE"));
 
-		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
+		assertTrue(validated.requiresReview());
 		assertTrue(validated.warnings().stream().anyMatch(w -> w.startsWith("ITEM_AMOUNT_MISMATCH:")));
 		assertTrue(validated.warnings().stream().anyMatch(w -> w.startsWith("ITEM_TAX_MISMATCH:")));
 		assertEquals(item, validated.result().invoice().items().getFirst());
@@ -162,7 +161,7 @@ class AiDocumentResultValidatorTest {
 	void uncertainOtherRequiresReview() {
 		AiDocumentResult result = new AiDocumentResult("ollama", "qwen3-vl", "OTHER", new BigDecimal("0.40"),
 				null, null, List.of(), List.of("DOCUMENT_TYPE_REASON: không đủ bằng chứng"), "raw", 1L);
-		assertTrue(validator.validate(result, Set.of("OTHER")).requiresReview(new BigDecimal("0.75")));
+		assertTrue(validator.validate(result, Set.of("OTHER")).requiresReview());
 	}
 
 	@Test
@@ -177,7 +176,7 @@ class AiDocumentResultValidatorTest {
 		AiDocumentResult result = new AiDocumentResult("ollama", "text", "INVOICE", BigDecimal.ONE,
 				"invoice text", null, List.of(), List.of(), "raw", 1L);
 		var validated = validator.validate(result, Set.of("INVOICE"));
-		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
+		assertTrue(validated.requiresReview());
 		assertTrue(validated.warnings().contains(
 				"MISSING_INVOICE_EXTRACTION: Thiếu dữ liệu hóa đơn có cấu trúc"));
 	}
@@ -194,7 +193,7 @@ class AiDocumentResultValidatorTest {
 
 		var validated = validator.validate(result, Set.of("INVOICE"));
 
-		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
+		assertTrue(validated.requiresReview());
 		assertTrue(validated.warnings().stream().anyMatch(w -> w.startsWith("INVOICE_NUMBER_INVALID_LENGTH:")));
 		assertTrue(validated.warnings().stream().anyMatch(w -> w.startsWith("SELLER_TAX_CODE_INVALID_LENGTH:")));
 		assertEquals(invoiceNumber, validated.result().invoice().invoiceNumber());
@@ -234,7 +233,7 @@ class AiDocumentResultValidatorTest {
 				null, null, null, null, List.of(), List.of("DOCUMENT_TYPE_REASON: Không đủ căn cứ"), "raw", 1L);
 		var validated = validator.validate(result, Set.of("OTHER"));
 		assertEquals(null, validated.confidence());
-		assertTrue(validated.requiresReview(new BigDecimal("0.75")));
+		assertTrue(validated.requiresReview());
 	}
 
 
@@ -244,12 +243,12 @@ class AiDocumentResultValidatorTest {
                 base.sellerName(), base.sellerTaxCode(), base.sellerAddress(), base.buyerName(), base.buyerTaxCode(), base.buyerAddress(),
                 base.subtotal(), base.vatAmount(), base.totalAmount(), List.of());
         var validated = validator.validate(result("0.99", invoice, List.of()), Set.of("VAT_INVOICE"));
-        assertTrue(validated.requiresReview(new BigDecimal("0.75")));
-        assertTrue(validated.reviewReasons(new BigDecimal("0.75")).stream().anyMatch(reason -> reason.startsWith("INVOICE_ITEMS_MISSING")));
+        assertTrue(validated.requiresReview());
+        assertTrue(validated.reviewReasons().stream().anyMatch(reason -> reason.startsWith("INVOICE_ITEMS_MISSING")));
     }
     @Test void ninetyFivePercentValidInvoiceIsProcessed() {
         var validated = validator.validate(result("0.95", validInvoice(), List.of()), Set.of("VAT_INVOICE"));
-        assertFalse(validated.requiresReview(new BigDecimal("0.75")));
+        assertFalse(validated.requiresReview());
     }
 
     @org.junit.jupiter.params.ParameterizedTest
@@ -258,8 +257,8 @@ class AiDocumentResultValidatorTest {
         var result = new AiDocumentResult("ollama", "qwen", type, BigDecimal.ONE, null, null, List.of(),
                 List.of("DOCUMENT_TYPE_REASON: Bằng chứng loại chứng từ"), "raw", 1L);
         var validated = validator.validate(result, Set.of(type));
-        assertTrue(validated.requiresReview(new BigDecimal("0.75")));
-        assertTrue(validated.reviewReasons(new BigDecimal("0.75")).stream().anyMatch(r -> r.startsWith("MISSING_REQUIRED_FIELD")));
+        assertTrue(validated.requiresReview());
+        assertTrue(validated.reviewReasons().stream().anyMatch(r -> r.startsWith("MISSING_REQUIRED_FIELD")));
         assertTrue(validated.warnings().stream().noneMatch(r -> r.startsWith("MISSING_INVOICE_")));
     }
 

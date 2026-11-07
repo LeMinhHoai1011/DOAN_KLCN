@@ -340,7 +340,7 @@ class DocumentAiResultPersistenceServiceTest {
 	}
 
 	@Test
-	void confidence084WithOnlyMildTextWarningIsProcessed() {
+	void unclassifiedDocumentGoesToReviewWhateverTheConfidence() {
 		Document document = new Document(); document.setId(19L);
 		DocumentType type = new DocumentType(); type.setCode("OTHER");
 		AiDocumentResult result = new AiDocumentResult("ollama", "text", "OTHER", new BigDecimal("0.84"),
@@ -353,7 +353,7 @@ class DocumentAiResultPersistenceServiceTest {
 
 		service().persist(19L, new AiDocumentResultValidator().validate(result, Set.of("OTHER")));
 
-		assertEquals(DocumentStatus.PROCESSED, document.getStatus());
+		assertEquals(DocumentStatus.NEED_REVIEW, document.getStatus());
 		ArgumentCaptor<Classification> classification = ArgumentCaptor.forClass(Classification.class);
 		verify(classificationRepository).save(classification.capture());
 		assertTrue(classification.getValue().getReason()

@@ -23,7 +23,7 @@ class RetailInvoiceRulesTest {
         var result=new AiDocumentResult("unit","unit","RETAIL_INVOICE",n("0.99"),"Bill",invoice,List.of(),
                 List.of("DOCUMENT_TYPE_REASON: Bill cửa hàng có bảng hàng và tổng tiền"),"{}",1);
         var validated=new AiDocumentResultValidator().validate(result,Set.of("RETAIL_INVOICE"));
-        assertFalse(validated.requiresReview(n("0.8")),validated.warnings().toString());
+        assertFalse(validated.requiresReview(),validated.warnings().toString());
         assertNull(validated.result().invoice().vatAmount()); assertNull(validated.result().invoice().buyerTaxCode());
         assertThrows(AiDocumentResultValidator.UnresolvedDocumentTypeException.class,
                 () -> new AiDocumentResultValidator().validate(result,Set.of("VAT_INVOICE","RECEIPT")));

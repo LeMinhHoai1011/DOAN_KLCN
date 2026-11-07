@@ -12,6 +12,7 @@ public final class InvoiceIdentity {
     private InvoiceIdentity() {}
 
     private static final Pattern DIGITS = Pattern.compile("\\d+");
+    private static final Pattern SERIES = Pattern.compile("(?iu:ký\\s*hiệu)[^:\\r\\n]{0,24}:\\s*([0-9]?[A-Z][0-9A-Z]{3,9})(?![0-9A-Za-z])");
 
     /** Only adds leading zeros that follow a "Số"/"No" label; any other printed number is left alone. */
     public static String restoreNumber(String extracted, String sourceText) {
@@ -24,6 +25,13 @@ public final class InvoiceIdentity {
         return restored;
     }
 
+    /** The model often files the series under an extra field, so a blank one is read from the printed label. */
+    public static String restoreSeries(String extracted, String sourceText) {
+        if (extracted != null && !extracted.isBlank() || sourceText == null) return extracted;
+        Matcher match = SERIES.matcher(Normalizer.normalize(sourceText, Normalizer.Form.NFC));
+        return match.find() ? match.group(1) : extracted;
+    }
+
     public static boolean sameInvoice(String number, String series, String otherNumber, String otherSeries) {
         if (number == null || otherNumber == null || number.isBlank() || otherNumber.isBlank()) return false;
         if (!withoutLeadingZeros(number).equalsIgnoreCase(withoutLeadingZeros(otherNumber))) return false;
@@ -33,7 +41,6 @@ public final class InvoiceIdentity {
     }
 
     private static String withoutLeadingZeros(String number) {
-        String trimmed = number.trim().replaceFirst("^0+(?=.)", "");
-        return trimmed;
+        return number.trim().replaceFirst("^0+(?=.)", "");
     }
 }

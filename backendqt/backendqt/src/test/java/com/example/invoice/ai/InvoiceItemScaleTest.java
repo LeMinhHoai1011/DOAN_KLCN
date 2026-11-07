@@ -19,6 +19,7 @@ class InvoiceItemScaleTest {
             "50000, 700, 35000, 50, 700",
             "3, 80000000, 240000, 3, 80000",
             "12, 45000000, 540000, 12, 45000",
+            "3000, 444444.44, 1293333, 3, 444444.44",
     })
     void aThousandfoldFactorIsScaledDownToMatchThePrintedAmount(String quantity, String price, String amount, String q, String p) {
         assertRepair(quantity, price, amount, q, p);

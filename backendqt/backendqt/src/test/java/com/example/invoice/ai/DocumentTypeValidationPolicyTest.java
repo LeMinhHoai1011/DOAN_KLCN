@@ -13,7 +13,7 @@ class DocumentTypeValidationPolicyTest {
     @ValueSource(strings = {"RECEIPT", "PAYMENT_VOUCHER", "RECEIPT_VOUCHER", "CONTRACT"})
     void validTypeSpecificDataCanBeProcessedWithoutInvoiceFields(String type) {
         var validated = validate(type, validFields(type));
-        assertFalse(validated.requiresReview(new BigDecimal("0.75")), validated.warnings().toString());
+        assertFalse(validated.requiresReview(), validated.warnings().toString());
         assertNull(validated.result().invoice());
         assertTrue(validated.warnings().stream().noneMatch(w -> w.startsWith("MISSING_INVOICE")));
     }
@@ -22,12 +22,12 @@ class DocumentTypeValidationPolicyTest {
     void missingRequiredFieldNeedsReviewNotTechnicalFailure(String type) {
         var fields = validFields(type); fields.remove(type.equals("CONTRACT") ? "partyAName" : "payerName");
         var validated = validate(type, fields);
-        assertTrue(validated.requiresReview(new BigDecimal("0.75")));
-        assertTrue(validated.reviewReasons(new BigDecimal("0.75")).stream().anyMatch(w -> w.startsWith("MISSING_REQUIRED_FIELD")));
+        assertTrue(validated.requiresReview());
+        assertTrue(validated.reviewReasons().stream().anyMatch(w -> w.startsWith("MISSING_REQUIRED_FIELD")));
     }
     @Test void contractAllowsTitleInsteadOfNumberAndNoMoney() {
         var fields = validFields("CONTRACT"); fields.remove("contractNumber"); fields.put("contractTitle", "Hợp đồng dịch vụ");
-        assertFalse(validate("CONTRACT", fields).requiresReview(new BigDecimal("0.75")));
+        assertFalse(validate("CONTRACT", fields).requiresReview());
         fields.remove("contractTitle");
         assertTrue(validate("CONTRACT", fields).warnings().stream().anyMatch(w -> w.startsWith("CONTRACT_IDENTITY_MISSING")));
     }
@@ -35,7 +35,7 @@ class DocumentTypeValidationPolicyTest {
         var fields = validFields("RECEIPT"); fields.put("receiptKind", "NON_FINANCIAL");
         fields.remove("totalAmount"); fields.remove("currency"); fields.remove("payerName");
         fields.put("recipientName", "Bên nhận"); fields.put("subject", "Nhận hồ sơ");
-        assertFalse(validate("RECEIPT", fields).requiresReview(new BigDecimal("0.75")));
+        assertFalse(validate("RECEIPT", fields).requiresReview());
         fields.remove("receiptKind");
         assertTrue(validate("RECEIPT", fields).warnings().stream().anyMatch(w -> w.startsWith("RECEIPT_KIND_UNDETERMINED")));
     }

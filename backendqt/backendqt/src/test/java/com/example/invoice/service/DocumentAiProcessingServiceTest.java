@@ -206,7 +206,7 @@ class DocumentAiProcessingServiceTest {
 		when(persistenceService.persist(org.mockito.ArgumentMatchers.eq(8L), any(), any()))
 				.thenAnswer(invocation -> {
 					var validated = (AiDocumentResultValidator.ValidatedAiDocumentResult) invocation.getArgument(1);
-					return validated.requiresReview(properties.getDocument().getReviewThreshold());
+					return validated.requiresReview();
 				});
 		DocumentAiProcessingService service = new DocumentAiProcessingService(documentService,
 				documentTypeRepository, categoryRepository, aiProcessingService, new AiDocumentResultValidator(),
@@ -251,7 +251,7 @@ class DocumentAiProcessingServiceTest {
 		var validated = new AiDocumentResultValidator().validate(flagged, Set.of("VAT_INVOICE"));
 
 		assertTrue(validated.warnings().stream().anyMatch(warning -> warning.startsWith("INVOICE_ITEMS_MISSING:")));
-		assertTrue(validated.requiresReview(new AiProperties().getDocument().getReviewThreshold()));
+		assertTrue(validated.requiresReview());
 	}
 
 	private DocumentType documentType(String code) {

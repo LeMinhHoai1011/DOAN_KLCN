@@ -191,14 +191,13 @@ const AccountantDocuments = () => {
                     <th>Loại CT</th>
                     <th>Ngày nhận</th>
                     <th className="text-right">Tổng tiền (VNĐ)</th>
-                    <th>Khớp AI</th>
                     <th>Trạng thái</th>
                     <th className="text-center">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
                   {documents.length === 0 ? (
-                    <tr><td colSpan={7}><EmptyState title="Chưa có chứng từ" description="Thay đổi điều kiện lọc hoặc tải lên chứng từ mới." /></td></tr>
+                    <tr><td colSpan={6}><EmptyState title="Chưa có chứng từ" description="Thay đổi điều kiện lọc hoặc tải lên chứng từ mới." /></td></tr>
                   ) : documents.map((doc) => (
                     <tr key={doc.id} onClick={() => navigate(`${basePath}/documents/${doc.id}`)} className="cursor-pointer">
                       <td>
@@ -215,7 +214,6 @@ const AccountantDocuments = () => {
                       </td>
                       <td className="si-num text-[17px] text-ink-soft">{doc.date}</td>
                       <td className="si-num text-right text-[17px] font-medium">{doc.amount == null ? '—' : `${Number(doc.amount).toLocaleString('vi-VN')} ₫`}</td>
-                      <td className="si-num text-[17px] text-ink-soft">{doc.aiConfidence == null ? '—' : `${doc.aiConfidence}%`}</td>
                       <td><StatusBadge status={doc.status} reviewStatus={doc.reviewStatus} />
                         {doc.status === 'FAILED' && <p className="mt-2 max-w-60 text-xs text-review">{processingHistory[doc.id]?.attempts[0]?.failure?.userMessage || 'Chưa tải được nguyên nhân lỗi; mở chi tiết để kiểm tra.'}</p>}
                       </td>

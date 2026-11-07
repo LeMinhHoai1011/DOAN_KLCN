@@ -17,12 +17,10 @@ import documentService, { type DocumentListItem } from '../../services/documentS
 import exportService from '../../services/exportService'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend)
-const confidenceTone = (value: number | undefined) => (value === undefined ? 'bg-draft' : value >= 90 ? 'bg-parsed' : value >= 75 ? 'bg-review' : 'bg-failed')
 /** Nội dung cột "Vấn đề cần xác nhận" của Stitch, suy ra từ trạng thái xử lý và độ tin cậy AI. */
 const issueLabel = (doc: DocumentListItem) => {
   if (doc.status === 'FAILED') return 'Lỗi xử lý AI, cần chạy lại'
   if (doc.status === 'PROCESSING' || doc.status === 'UPLOADED') return 'Đang bóc tách OCR'
-  if (doc.aiConfidence != null && doc.aiConfidence < 85) return `Độ khớp AI ${doc.aiConfidence}% — cần xác minh`
   if (doc.reviewStatus === 'PENDING') return 'Chờ duyệt hạch toán'
   return 'Cần kế toán xác nhận'
 }
@@ -178,7 +176,6 @@ const AccountantDashboard = () => {
                   <td className="si-num text-right text-[17px] font-medium">{doc.amount == null ? '—' : `${Number(doc.amount).toLocaleString('vi-VN')} ₫`}</td>
                   <td>
                     <span className="inline-flex items-center gap-1.5 text-[17px] text-ink-soft">
-                      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${confidenceTone(doc.aiConfidence)}`} />
                       {issueLabel(doc)}
                     </span>
                   </td>

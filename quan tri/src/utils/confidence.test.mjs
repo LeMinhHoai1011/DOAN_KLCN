@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { formatConfidence } from './confidence.ts'
+import { formatConfidence, textSourceLabel } from './confidence.ts'
 
 test('formats canonical 0-1 confidence as a percentage', () => {
   assert.equal(formatConfidence(0.84), '84%')
@@ -13,4 +13,10 @@ test('shows unknown for missing or out-of-scale values', () => {
   assert.equal(formatConfidence(null), 'Chưa xác định')
   assert.equal(formatConfidence(undefined), 'Chưa xác định')
   assert.equal(formatConfidence(84), 'Chưa xác định')
+})
+
+test('digital PDFs say why there is no OCR score', () => {
+  assert.equal(textSourceLabel('DIGITAL_PDF_TEXT', null), 'Đọc lớp chữ PDF, không cần OCR')
+  assert.equal(textSourceLabel('TESS4J_WORD_LAYOUT', 0.85), '85%')
+  assert.equal(textSourceLabel(null, null), 'Chưa xác định')
 })

@@ -63,6 +63,32 @@ class DocumentVisionFallbackPageSelectionTest {
 		assertEquals(direction, resolved.documentDirection());
 	}
 
+	private AiDocumentResult withRows(String... amounts) {
+		var items = java.util.Arrays.stream(amounts).map(amount -> new AiDocumentResult.AiInvoiceItemExtraction("Ván", BigDecimal.ONE, "Tấm",
+				new BigDecimal(amount), null, null, new BigDecimal(amount))).toList();
+		var invoice = new AiDocumentResult.AiInvoiceExtraction("1", "A", "2026-01-01", "Bán", "1", "HN", "Mua", "2", "HN",
+				new BigDecimal("4204707"), new BigDecimal("336377"), new BigDecimal("4541084"), items);
+		return new AiDocumentResult("ollama", "vision", "VAT_INVOICE", BigDecimal.ONE, null, null, null, invoice, List.of(), List.of(), "{}", 1L);
+	}
+
+	@Test
+	void rowsMissingTheSubtotalAreReadOnceMore() {
+		Fixture fixture = fixture(1);
+		AiDocumentResult copiedRow = withRows("1440439", "330957", "992872", "992872");
+		AiDocumentResult correct = withRows("1440439", "330957", "1440439", "992872");
+		when(fixture.ai.analyzeTextDocument(any())).thenReturn(copiedRow).thenReturn(correct);
+		assertEquals(correct, fixture.service.analyzeDigitalPdfText("invoice.pdf#page-1", "text", List.of("INVOICE"), List.of(), null));
+		verify(fixture.ai, times(2)).analyzeTextDocument(any());
+	}
+
+	@Test
+	void theFirstRowsAreKeptWhenTheRetryDoesNotHelp() {
+		Fixture fixture = fixture(1);
+		AiDocumentResult copiedRow = withRows("1440439", "330957", "992872", "992872");
+		when(fixture.ai.analyzeTextDocument(any())).thenReturn(copiedRow).thenReturn(withRows("1", "2"));
+		assertEquals(copiedRow, fixture.service.analyzeDigitalPdfText("invoice.pdf#page-1", "text", List.of("INVOICE"), List.of(), null));
+	}
+
 	@Test
 	void digitalPdfTextGetsOneStrictRetryAfterInvalidOutput() {
 		Fixture fixture = fixture(1);
