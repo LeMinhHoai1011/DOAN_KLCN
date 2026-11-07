@@ -46,6 +46,23 @@ class DocumentVisionFallbackPageSelectionTest {
 		verify(fixture.ai, times(1)).analyzeDocument(any());
 	}
 
+	@org.junit.jupiter.params.ParameterizedTest
+	@org.junit.jupiter.params.provider.CsvSource({"0318334251, 0101234567, SELLER, OUTGOING", "0101234567, 0318334251, BUYER, INCOMING"})
+	void directionFollowsTheCompanyRoleInsteadOfTheModelGuess(String sellerTaxCode, String buyerTaxCode,
+			AiDocumentResult.CompanyRole role, AiDocumentResult.DocumentDirection direction) {
+		var company = new com.example.invoice.entity.Company();
+		company.setTaxCode("0318334251");
+		var invoice = new AiDocumentResult.AiInvoiceExtraction("1", "A", "2026-01-01", "Bán", sellerTaxCode, "HN", "Mua",
+				buyerTaxCode, "HN", BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ONE, List.of());
+		var modelGuess = direction == AiDocumentResult.DocumentDirection.OUTGOING
+				? AiDocumentResult.DocumentDirection.INCOMING : AiDocumentResult.DocumentDirection.OUTGOING;
+		AiDocumentResult result = new AiDocumentResult("ollama", "vision", "VAT_INVOICE", BigDecimal.ONE, null, null, null, invoice,
+				List.of(), List.of(), "{}", 1L, modelGuess, null, List.of(), null);
+		AiDocumentResult resolved = fixture(1).service.resolveCompanyRole(result, company);
+		assertEquals(role, resolved.companyRole().role());
+		assertEquals(direction, resolved.documentDirection());
+	}
+
 	@Test
 	void digitalPdfTextGetsOneStrictRetryAfterInvalidOutput() {
 		Fixture fixture = fixture(1);

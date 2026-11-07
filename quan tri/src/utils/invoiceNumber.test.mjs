@@ -40,4 +40,5 @@ test('review list excludes classification evidence and translates row mismatches
   assert.equal(result[1], 'Ngày ký chưa hợp lệ.')
   assert.doesNotMatch(result.join(' '), /ITEM_AMOUNT_MISMATCH|yyyy|visible/)
   assert.equal(assessmentMessage('secret technical text'), 'Có thông tin cần đối chiếu với chứng từ gốc.')
+  assert.equal(assessmentMessage('DUPLICATE_INVOICE: x; documents=277,299'), 'Trùng người bán và số hóa đơn với chứng từ đã có: #277, #299.')
 })

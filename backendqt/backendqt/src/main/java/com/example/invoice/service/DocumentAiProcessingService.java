@@ -700,13 +700,19 @@ public class DocumentAiProcessingService {
 		boolean seller = companyTaxCode.equals(normalizeTaxCode(invoice.sellerTaxCode()));
 		boolean buyer = companyTaxCode.equals(normalizeTaxCode(invoice.buyerTaxCode()));
 		AiDocumentResult.AiCompanyRole role = null;
+		AiDocumentResult.DocumentDirection direction = result.documentDirection();
 		if (seller && buyer) role = new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.UNKNOWN, BigDecimal.ONE,
 				"Mã số thuế của công ty hiện tại trùng với cả người bán và người mua");
-		else if (seller) role = new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.SELLER, BigDecimal.ONE,
-				"Mã số thuế của công ty hiện tại trùng chính xác với mã số thuế người bán");
-		else if (buyer) role = new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.BUYER, BigDecimal.ONE,
-				"Mã số thuế của công ty hiện tại trùng chính xác với mã số thuế người mua");
-		return role == null ? result : result.withCompanyRoleAndDirection(role, result.documentDirection());
+		else if (seller) {
+			role = new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.SELLER, BigDecimal.ONE,
+					"Mã số thuế của công ty hiện tại trùng chính xác với mã số thuế người bán");
+			direction = AiDocumentResult.DocumentDirection.OUTGOING;
+		} else if (buyer) {
+			role = new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.BUYER, BigDecimal.ONE,
+					"Mã số thuế của công ty hiện tại trùng chính xác với mã số thuế người mua");
+			direction = AiDocumentResult.DocumentDirection.INCOMING;
+		}
+		return role == null ? result : result.withCompanyRoleAndDirection(role, direction);
 	}
 
 	private void logOcr(Long documentId, OcrPageResult ocr) {

@@ -18,6 +18,7 @@ export const assessmentTerms: Record<string, string> = {
   NEGATIVE_ITEM_QUANTITY: 'Số lượng hàng hóa âm.', NEGATIVE_ITEM_UNIT_PRICE: 'Đơn giá hàng hóa âm.',
   NEGATIVE_ITEM_TAX_AMOUNT: 'Tiền thuế hàng hóa âm.', NEGATIVE_ITEM_AMOUNT: 'Thành tiền hàng hóa âm.',
   INVALID_ITEM_TAX_RATE: 'Thuế suất hàng hóa chưa hợp lệ.',
+  DUPLICATE_INVOICE: 'Trùng người bán và số hóa đơn với chứng từ đã có',
   INVALID_ACCOUNTING_CATEGORY: 'Nhóm nghiệp vụ AI đề xuất chưa phù hợp danh mục công ty.',
   RETAIL_DATA_INSUFFICIENT: 'Chưa đủ dữ liệu đối soát hóa đơn bán lẻ.', RETAIL_AMOUNT_MISMATCH: 'Số tiền hóa đơn bán lẻ chưa khớp.',
 }
@@ -26,6 +27,8 @@ export const assessmentMessage = (text: string, explicitCode?: string) => {
   const code = explicitCode || assessmentCode(text)
   const row = text.match(/(?:row|line)\s*=\s*(\d+)/i)?.[1]
   const label = assessmentTerms[code] ?? (code.startsWith('EXTRACTION_FAILED_') ? 'Không đọc rõ một trường trên chứng từ; cần đối chiếu ảnh gốc.' : 'Có thông tin cần đối chiếu với chứng từ gốc.')
+  const documents = text.match(/documents=([\d,]+)/)?.[1]
+  if (code === 'DUPLICATE_INVOICE' && documents) return `${label}: ${documents.split(',').map(id => `#${id}`).join(', ')}.`
   return row ? `Dòng ${row}: ${label}` : label
 }
 export const reviewMessages = (reasons: string[]) => [...new Set(reasons

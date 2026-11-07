@@ -19,6 +19,7 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long>, org.spr
 	long countByDocumentCompanyId(Long companyId);
 	long countByDocumentUploadedById(Long uploadedById);
 	Optional<Invoice> findByDocumentId(Long documentId);
+	List<Invoice> findAllByDocumentCompanyIdAndSellerTaxCode(Long companyId, String sellerTaxCode);
 	@Modifying(flushAutomatically = true)
 	@Query("delete from Invoice invoice where invoice.document.id = :documentId and invoice.aiGenerated = true")
 	int deleteAiGeneratedByDocumentId(@Param("documentId") Long documentId);

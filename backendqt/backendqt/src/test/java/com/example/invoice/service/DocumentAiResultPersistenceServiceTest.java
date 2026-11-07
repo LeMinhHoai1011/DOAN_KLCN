@@ -523,6 +523,35 @@ class DocumentAiResultPersistenceServiceTest {
 		verify(extractedFieldRepository, never()).save(any(ExtractedField.class));
 	}
 
+	@Test
+	void repeatedInvoiceIsFlaggedForReviewAndKeepsThePrintedNumber() {
+		var company = new com.example.invoice.entity.Company(); company.setId(13L);
+		Document document = new Document(); document.setId(40L); document.setCompany(company);
+		Document earlier = new Document(); earlier.setId(39L);
+		Invoice existing = new Invoice(); existing.setDocument(earlier); existing.setInvoiceNumber("000475"); existing.setInvoiceSeries("1C25TAN");
+		DocumentType type = new DocumentType(); type.setCode("VAT_INVOICE");
+		AiDocumentResult.AiInvoiceItemExtraction item = new AiDocumentResult.AiInvoiceItemExtraction("Ván", BigDecimal.ONE, "Tấm",
+				BigDecimal.TEN, new BigDecimal("0.08"), BigDecimal.ONE, BigDecimal.TEN);
+		AiDocumentResult.AiInvoiceExtraction extraction = new AiDocumentResult.AiInvoiceExtraction("000475", "1C25TAN", "2026-10-04",
+				"Công ty Bán", "0106772609", "HN", "Công ty Mua", "0318334251", "HN", BigDecimal.TEN, BigDecimal.ONE, new BigDecimal("11"), List.of(item));
+		AiDocumentResult result = new AiDocumentResult("ollama", "qwen3-vl", "VAT_INVOICE", BigDecimal.ONE, null, null, null, extraction,
+				List.of(), List.of(), "raw", 5L);
+		when(documentService.load(40L)).thenReturn(document);
+		when(documentTypeRepository.findByCode("VAT_INVOICE")).thenReturn(Optional.of(type));
+		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(40L)).thenReturn(Optional.empty());
+		when(invoiceRepository.findByDocumentId(40L)).thenReturn(Optional.empty());
+		when(invoiceRepository.findAllByDocumentCompanyIdAndSellerTaxCode(13L, "0106772609")).thenReturn(List.of(existing));
+		when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		OcrDocumentResult text = new OcrDocumentResult("Ký hiệu: 1C25TAN Số: 00000475", 95f, List.of(), 1L, List.of());
+
+		boolean review = service().persist(40L, new AiDocumentResultValidator().validate(result, Set.of("VAT_INVOICE")), text);
+
+		assertTrue(review);
+		ArgumentCaptor<Invoice> saved = ArgumentCaptor.forClass(Invoice.class);
+		verify(invoiceRepository).save(saved.capture());
+		assertEquals("00000475", saved.getValue().getInvoiceNumber());
+	}
+
 	private DocumentAiResultPersistenceService service() {
 		return new DocumentAiResultPersistenceService(documentService, documentTypeRepository, ocrResultRepository,
 				classificationRepository, invoiceRepository, extractedFieldRepository, processingLogService, new AiProperties());

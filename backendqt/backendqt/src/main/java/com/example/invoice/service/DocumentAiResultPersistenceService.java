@@ -1,5 +1,6 @@
 package com.example.invoice.service;
 
+import com.example.invoice.ai.InvoiceIdentity;
 import com.example.invoice.ai.InvoiceItemScale;
 import com.example.invoice.ai.InvoiceItemTax;
 import com.example.invoice.ai.InvoiceItemUnit;
@@ -117,6 +118,8 @@ public class DocumentAiResultPersistenceService {
                         .compareTo(aiProperties.getOcr().getGoodConfidence()) < 0)
                 combinedWarnings.add("LOW_OCR_CONFIDENCE: OCR dưới ngưỡng chất lượng cấu hình");
         }
+        String sourceText = tessOcr != null && tessOcr.rawText() != null ? tessOcr.rawText() : result.rawText();
+        duplicateInvoiceWarning(document, result.invoice(), sourceText).ifPresent(combinedWarnings::add);
         if (result.invoice() != null && validItems(result.invoice().items()).isEmpty()) {
             var prior = invoiceRepository.findByDocumentId(documentId).orElse(null);
             if (prior != null && prior.isAiGenerated() && !prior.getItems().isEmpty())
@@ -156,7 +159,7 @@ public class DocumentAiResultPersistenceService {
 				result.durationMs(), "documentType=" + result.documentType(), result.provider(), result.model());
 		Invoice invoice = null;
 		if (isInvoiceType(type.getCode()) && result.invoice() != null) {
-			invoice = persistInvoice(document, result.invoice());
+			invoice = persistInvoice(document, result.invoice(), sourceText);
 		} else if (!isInvoiceType(type.getCode())) {
 			// Bulk-delete AI fields first so none still reference the obsolete invoice.
 			extractedFieldRepository.deleteByDocumentIdAndSource(document.getId(), "AI");
@@ -300,7 +303,20 @@ public class DocumentAiResultPersistenceService {
 		classificationRepository.save(classification);
 	}
 
-	private Invoice persistInvoice(Document document, AiDocumentResult.AiInvoiceExtraction extraction) {
+	/** Warns instead of rejecting: an accountant decides whether a repeated invoice is a mistake. */
+	private java.util.Optional<String> duplicateInvoiceWarning(Document document, AiDocumentResult.AiInvoiceExtraction extraction, String sourceText) {
+		if (extraction == null || document.getCompany() == null || extraction.sellerTaxCode() == null) return java.util.Optional.empty();
+		String number = InvoiceIdentity.restoreNumber(extraction.invoiceNumber(), sourceText);
+		List<Long> matches = invoiceRepository.findAllByDocumentCompanyIdAndSellerTaxCode(document.getCompany().getId(), extraction.sellerTaxCode()).stream()
+				.filter(other -> !document.getId().equals(other.getDocument().getId()))
+				.filter(other -> InvoiceIdentity.sameInvoice(number, extraction.invoiceSeries(), other.getInvoiceNumber(), other.getInvoiceSeries()))
+				.map(other -> other.getDocument().getId()).sorted().limit(5).toList();
+		if (matches.isEmpty()) return java.util.Optional.empty();
+		return java.util.Optional.of("DUPLICATE_INVOICE: trùng người bán và số hóa đơn; field=invoiceNumber; documents="
+				+ matches.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(",")));
+	}
+
+	private Invoice persistInvoice(Document document, AiDocumentResult.AiInvoiceExtraction extraction, String sourceText) {
 		log.debug("INVOICE_FIELD_LENGTHS invoiceNumber={} invoiceSeries={} sellerName={} sellerAddress={} buyerName={} buyerAddress={} sellerTaxCode={} buyerTaxCode={}",
 				length(extraction.invoiceNumber()), length(extraction.invoiceSeries()), length(extraction.sellerName()),
 				length(extraction.sellerAddress()), length(extraction.buyerName()), length(extraction.buyerAddress()),
@@ -311,7 +327,7 @@ public class DocumentAiResultPersistenceService {
 			return invoice;
 		}
 		invoice.setDocument(document);
-		invoice.setInvoiceNumber(boundedIdentifier(extraction.invoiceNumber(), AiDocumentResultValidator.MAX_INVOICE_NUMBER_LENGTH));
+		invoice.setInvoiceNumber(boundedIdentifier(InvoiceIdentity.restoreNumber(extraction.invoiceNumber(), sourceText), AiDocumentResultValidator.MAX_INVOICE_NUMBER_LENGTH));
 		invoice.setInvoiceSeries(boundedIdentifier(extraction.invoiceSeries(), AiDocumentResultValidator.MAX_INVOICE_SERIES_LENGTH));
 		invoice.setInvoiceDate(parseDate(extraction.invoiceDate()));
 		invoice.setSellerName(preferExistingText(invoice.getSellerName(), extraction.sellerName()));
