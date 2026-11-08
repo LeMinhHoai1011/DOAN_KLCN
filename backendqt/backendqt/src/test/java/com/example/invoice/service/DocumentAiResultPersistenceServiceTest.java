@@ -541,6 +541,7 @@ class DocumentAiResultPersistenceServiceTest {
 		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(40L)).thenReturn(Optional.empty());
 		when(invoiceRepository.findByDocumentId(40L)).thenReturn(Optional.empty());
 		when(invoiceRepository.findAllByDocumentCompanyIdAndSellerTaxCode(13L, "0106772609")).thenReturn(List.of(existing));
+		when(invoiceRepository.findSameInvoices(any(), any(), any(), any(), any())).thenCallRealMethod();
 		when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
 		OcrDocumentResult text = new OcrDocumentResult("Ký hiệu: 1C25TAN Số: 00000475", 95f, List.of(), 1L, List.of());
 

@@ -20,6 +20,16 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long>, org.spr
 	long countByDocumentUploadedById(Long uploadedById);
 	Optional<Invoice> findByDocumentId(Long documentId);
 	List<Invoice> findAllByDocumentCompanyIdAndSellerTaxCode(Long companyId, String sellerTaxCode);
+
+	/** Other documents holding this invoice; a rejected copy no longer counts as the invoice. */
+	default List<Invoice> findSameInvoices(Long companyId, Long documentId, String sellerTaxCode, String number, String series) {
+		if (companyId == null || sellerTaxCode == null || number == null) return List.of();
+		return findAllByDocumentCompanyIdAndSellerTaxCode(companyId, sellerTaxCode).stream()
+				.filter(other -> !other.getDocument().getId().equals(documentId))
+				.filter(other -> other.getDocument().getReviewStatus() != com.example.invoice.entity.ReviewStatus.REJECTED)
+				.filter(other -> com.example.invoice.ai.InvoiceIdentity.sameInvoice(number, series, other.getInvoiceNumber(), other.getInvoiceSeries()))
+				.toList();
+	}
 	@Modifying(flushAutomatically = true)
 	@Query("delete from Invoice invoice where invoice.document.id = :documentId and invoice.aiGenerated = true")
 	int deleteAiGeneratedByDocumentId(@Param("documentId") Long documentId);

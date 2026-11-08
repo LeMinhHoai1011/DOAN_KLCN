@@ -304,12 +304,10 @@ public class DocumentAiResultPersistenceService {
 
 	/** Warns instead of rejecting: an accountant decides whether a repeated invoice is a mistake. */
 	private java.util.Optional<String> duplicateInvoiceWarning(Document document, AiDocumentResult.AiInvoiceExtraction extraction, String sourceText) {
-		if (extraction == null || document.getCompany() == null || extraction.sellerTaxCode() == null) return java.util.Optional.empty();
+		if (extraction == null || document.getCompany() == null) return java.util.Optional.empty();
 		String number = InvoiceIdentity.restoreNumber(extraction.invoiceNumber(), sourceText);
 		String series = InvoiceIdentity.restoreSeries(extraction.invoiceSeries(), sourceText);
-		List<Long> matches = invoiceRepository.findAllByDocumentCompanyIdAndSellerTaxCode(document.getCompany().getId(), extraction.sellerTaxCode()).stream()
-				.filter(other -> !document.getId().equals(other.getDocument().getId()))
-				.filter(other -> InvoiceIdentity.sameInvoice(number, series, other.getInvoiceNumber(), other.getInvoiceSeries()))
+		List<Long> matches = invoiceRepository.findSameInvoices(document.getCompany().getId(), document.getId(), extraction.sellerTaxCode(), number, series).stream()
 				.map(other -> other.getDocument().getId()).sorted().limit(5).toList();
 		if (matches.isEmpty()) return java.util.Optional.empty();
 		return java.util.Optional.of("DUPLICATE_INVOICE: trùng người bán và số hóa đơn; field=invoiceNumber; documents="

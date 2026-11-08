@@ -52,7 +52,14 @@ public class PaymentLinkService {
    return fields.findByDocumentId(document).stream().filter(f->name.equals(f.getFieldName())).sorted(Comparator.comparing(ExtractedField::getId,Comparator.nullsLast(Comparator.reverseOrder())))
      .map(f->corrections.findFirstByFieldIdOrderByCreatedAtDescIdDesc(f.getId()).map(FieldCorrection::getNewValue).orElse(f.getFieldValue())).filter(Objects::nonNull).findFirst().orElse(null);
  }
- public List<FinancialTransaction> linked(Long company,Link link){return link.document()==null?List.of():transactions.linked(company,link.document().getId(),link.invoice()==null?null:link.invoice().getId());}
+ /** Copies of one invoice share its payments, so uploading it twice cannot pay it twice. */
+ public List<FinancialTransaction> linked(Long company,Link link){
+   if(link.document()==null)return List.of();
+   var rows=new ArrayList<>(transactions.linked(company,link.document().getId(),link.invoice()==null?null:link.invoice().getId()));
+   if(link.invoice()!=null)for(Invoice other:invoices.findSameInvoices(company,link.document().getId(),link.invoice().getSellerTaxCode(),link.invoice().getInvoiceNumber(),link.invoice().getInvoiceSeries()))
+     rows.addAll(transactions.linked(company,other.getDocument().getId(),other.getId()));
+   return List.copyOf(rows);
+ }
  public PaymentSummary calculate(Long company,Link link,Long exclude) {
    var rows=linked(company,link);BigDecimal paid=rows.stream().filter(t->"CONFIRMED".equals(t.getPaymentConfirmation())&&!Objects.equals(t.getId(),exclude)).map(FinancialTransaction::getAmount).reduce(BigDecimal.ZERO,BigDecimal::add);
    long unknown=rows.stream().filter(t->t.getPaymentConfirmation()==null).count();BigDecimal total=link.total();

@@ -28,6 +28,7 @@ public class ReviewWorkflowService {
 	private final UserService userService;
 	private final FinancialTransactionService financialTransactionService;
 	private final ReconciliationRepository reconciliationRepository;
+	private final com.example.invoice.repository.InvoiceRepository invoiceRepository;
 
 	@Transactional(readOnly = true)
 	public com.example.invoice.dto.document.DocumentResponse currentResponse(Long id) { return documentService.toResponse(documentService.load(id)); }
@@ -93,6 +94,7 @@ public class ReviewWorkflowService {
 			requireReviewer(actor);
 			require(document.getStatus() == DocumentStatus.PROCESSED || document.getStatus() == DocumentStatus.NEED_REVIEW,
 					"Chỉ có thể phê duyệt chứng từ đã xử lý");
+			requireDuplicateReason(document, note);
 			requireReconciled(document);
 			document.setReviewStatus(ReviewStatus.APPROVED); document.setStatus(DocumentStatus.COMPLETED);
 			append(document, actor, ReviewStatus.APPROVED, "APPROVE", note, reviewMs);
@@ -115,7 +117,11 @@ public class ReviewWorkflowService {
 			append(document, actor, ReviewStatus.CORRECTED, "REQUEST_INFO", note, reviewMs);
 		}
 		case "RESUBMIT" -> {
-			requireEmployee(actor);
+			// An accountant may upload documents too, so a returned one must not wait for an employee.
+			if (!hasRole(actor, "EMPLOYEE") && !hasRole(actor, "USER")) {
+				requireReviewer(actor);
+				requireNote(note, "Vui lòng nhập lý do gửi lại");
+			}
 			require(document.getStatus() == DocumentStatus.NEED_REVIEW && (document.getReviewStatus() == ReviewStatus.REJECTED || document.getReviewStatus() == ReviewStatus.CORRECTED),
 					"Chỉ có thể gửi lại chứng từ đã bị từ chối hoặc được yêu cầu bổ sung thông tin");
 			document.setReviewStatus(ReviewStatus.PENDING); document.setStatus(DocumentStatus.UPLOADED);
@@ -135,6 +141,18 @@ public class ReviewWorkflowService {
 		require(!state.stale(), "RECONCILIATION_REQUIRED: Hóa đơn đã thay đổi sau lần đối soát gần nhất, cần chạy lại đối soát");
 		require(state.unresolved().isEmpty(), "RECONCILIATION_REQUIRED: Còn " + state.unresolved().size()
 				+ " kiểm tra đối soát chưa xử lý: " + String.join(", ", state.unresolved()));
+	}
+
+	/** A second approved copy of an invoice is a deliberate decision, so it has to say why. */
+	private void requireDuplicateReason(Document document, String note) {
+		var invoice = document.getInvoice();
+		if (invoice == null || document.getCompany() == null || (note != null && !note.isBlank())) return;
+		var approved = invoiceRepository.findSameInvoices(document.getCompany().getId(), document.getId(), invoice.getSellerTaxCode(),
+				invoice.getInvoiceNumber(), invoice.getInvoiceSeries()).stream()
+				.filter(other -> other.getDocument().getReviewStatus() == ReviewStatus.APPROVED)
+				.map(other -> "#" + other.getDocument().getId()).toList();
+		require(approved.isEmpty(), "DUPLICATE_INVOICE_REASON_REQUIRED: Hóa đơn này trùng với chứng từ đã duyệt "
+				+ String.join(", ", approved) + ". Nhập lý do nếu vẫn muốn duyệt.");
 	}
 
 	private boolean latestActionIs(Long documentId, String action) {

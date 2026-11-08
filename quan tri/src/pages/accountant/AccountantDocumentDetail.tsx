@@ -230,7 +230,8 @@ const AccountantDocumentDetail = () => {
 
   const runWorkflow = async (action: WorkflowAction) => {
     if (!document) return;
-    if ((action === 'REJECT' || action === 'REQUEST_INFO') && !workflowNote.trim()) { setWorkflowError('Nhập lý do trước khi thực hiện.'); return; }
+    const needsReason = action === 'REJECT' || action === 'REQUEST_INFO' || (action === 'RESUBMIT' && !isEmployeeView) || (action === 'APPROVE' && workflowAction === 'APPROVE');
+    if (needsReason && !workflowNote.trim()) { setWorkflowError('Nhập lý do trước khi thực hiện.'); return; }
     setIsWorkflowPending(true); setWorkflowError(''); setWorkflowMessage('');
     try {
       const activeReviewMs = isReviewDecision(action) ? reviewTimer.current.elapsed(Date.now()) : undefined;
@@ -238,7 +239,11 @@ const AccountantDocumentDetail = () => {
       if (activeReviewMs !== undefined) reviewTimer.current.reset(Date.now(), globalThis.document.visibilityState !== 'hidden');
       const refreshed = await documentService.getDocumentById(document.id);
       setDocument(refreshed); setBusinessState(null); setBusinessState(await documentService.getBusinessState(document.id).catch(() => null)); setWorkflowNote(''); setWorkflowAction(null); setWorkflowMessage('Đã cập nhật workflow.'); setReloadVersion(value => value + 1);
-    } catch (failure) { setWorkflowError(withoutErrorCode(getErrorMessage(failure, 'Không thể cập nhật workflow. Vui lòng thử lại.'))); }
+    } catch (failure) {
+      const message = getErrorMessage(failure, 'Không thể cập nhật workflow. Vui lòng thử lại.');
+      if (message.startsWith('DUPLICATE_INVOICE_REASON_REQUIRED')) setWorkflowAction('APPROVE');
+      setWorkflowError(withoutErrorCode(message));
+    }
     finally { setIsWorkflowPending(false); }
   };
 
@@ -371,7 +376,7 @@ const AccountantDocumentDetail = () => {
   const canReview = hasCorrectionRole && document.reviewStatus === 'PENDING' && (document.status === 'PROCESSED' || document.status === 'NEED_REVIEW');
   const approvalBlock = canReview ? approvalBlockReason(businessState, Boolean(invoice)) : null;
   const canSubmit = isEmployeeView && document.status === 'UPLOADED' && document.reviewStatus === 'PENDING';
-  const canResubmit = isEmployeeView && document.status === 'NEED_REVIEW' && (document.reviewStatus === 'REJECTED' || document.reviewStatus === 'CORRECTED');
+  const canResubmit = (isEmployeeView || hasCorrectionRole) && document.status === 'NEED_REVIEW' && (document.reviewStatus === 'REJECTED' || document.reviewStatus === 'CORRECTED');
 
   const displaySectionErrors = sectionErrors.filter(message => {
     const normalized = message.toLocaleLowerCase('vi');
@@ -417,7 +422,7 @@ const AccountantDocumentDetail = () => {
       {workflowError && <div className="rounded-control bg-failed-surface border border-failed/25 px-4 py-3 text-sm text-failed">{workflowError}</div>}
       {displaySectionErrors.length > 0 && <div className="rounded-control border border-review/25 bg-review-surface px-4 py-3 text-sm text-review">{displaySectionErrors.join(' ')}</div>}
 
-      {(canReview || canSubmit || canResubmit) && <div className="si-card p-4"><div className="flex flex-wrap items-center gap-2"><span className="si-label mr-2">Kiểm duyệt</span>{canSubmit && <button disabled={isWorkflowPending} onClick={() => void runWorkflow('SUBMIT')} className="si-btn-primary">Gửi xử lý</button>}{canResubmit && <button disabled={isWorkflowPending} onClick={() => void runWorkflow('RESUBMIT')} className="si-btn-primary">Gửi lại</button>}{canReview && <><button disabled={isWorkflowPending} onClick={() => void runWorkflow('START_REVIEW')} hidden={businessState?.review === 'IN_REVIEW'} className="si-btn-secondary border-brand-200 text-brand-700">Bắt đầu kiểm duyệt</button><button disabled={isWorkflowPending || Boolean(approvalBlock)} title={approvalBlock ?? undefined} onClick={() => void runWorkflow('APPROVE')} className="si-btn-secondary border-parsed/30 text-parsed">Duyệt</button><button disabled={isWorkflowPending} onClick={() => setWorkflowAction('REJECT')} className="si-btn-secondary border-failed/30 text-failed">Từ chối</button><button disabled={isWorkflowPending} onClick={() => setWorkflowAction('REQUEST_INFO')} className="si-btn-secondary border-review/30 text-review">Yêu cầu bổ sung</button></>}</div>{approvalBlock && <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-review"><span>{approvalBlock}</span><button type="button" onClick={() => setActiveTab('reconciliation')} className="si-btn-secondary !px-2 !py-1 text-xs">Mở Đối soát</button></p>}{workflowAction && <div className="mt-3 flex flex-wrap gap-2"><input value={workflowNote} onChange={(event) => setWorkflowNote(event.target.value)} placeholder="Nhập lý do" className="si-input min-w-64 flex-1" /><button disabled={isWorkflowPending} onClick={() => void runWorkflow(workflowAction)} className="si-btn-primary">{isWorkflowPending ? 'Đang gửi...' : 'Xác nhận'}</button><button disabled={isWorkflowPending} onClick={() => { setWorkflowAction(null); setWorkflowNote(''); }} className="rounded-control px-3 py-2 text-sm text-ink-soft">Hủy</button></div>}</div>}
+      {(canReview || canSubmit || canResubmit) && <div className="si-card p-4"><div className="flex flex-wrap items-center gap-2"><span className="si-label mr-2">Kiểm duyệt</span>{canSubmit && <button disabled={isWorkflowPending} onClick={() => void runWorkflow('SUBMIT')} className="si-btn-primary">Gửi xử lý</button>}{canResubmit && <button disabled={isWorkflowPending} onClick={() => { if (isEmployeeView) void runWorkflow('RESUBMIT'); else setWorkflowAction('RESUBMIT'); }} className="si-btn-primary">Gửi lại</button>}{canReview && <><button disabled={isWorkflowPending} onClick={() => void runWorkflow('START_REVIEW')} hidden={businessState?.review === 'IN_REVIEW'} className="si-btn-secondary border-brand-200 text-brand-700">Bắt đầu kiểm duyệt</button><button disabled={isWorkflowPending || Boolean(approvalBlock)} title={approvalBlock ?? undefined} onClick={() => void runWorkflow('APPROVE')} className="si-btn-secondary border-parsed/30 text-parsed">Duyệt</button><button disabled={isWorkflowPending} onClick={() => setWorkflowAction('REJECT')} className="si-btn-secondary border-failed/30 text-failed">Từ chối</button><button disabled={isWorkflowPending} onClick={() => setWorkflowAction('REQUEST_INFO')} className="si-btn-secondary border-review/30 text-review">Yêu cầu bổ sung</button></>}</div>{approvalBlock && <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-review"><span>{approvalBlock}</span><button type="button" onClick={() => setActiveTab('reconciliation')} className="si-btn-secondary !px-2 !py-1 text-xs">Mở Đối soát</button></p>}{workflowAction && <div className="mt-3 flex flex-wrap gap-2"><input value={workflowNote} onChange={(event) => setWorkflowNote(event.target.value)} placeholder="Nhập lý do" className="si-input min-w-64 flex-1" /><button disabled={isWorkflowPending} onClick={() => void runWorkflow(workflowAction)} className="si-btn-primary">{isWorkflowPending ? 'Đang gửi...' : 'Xác nhận'}</button><button disabled={isWorkflowPending} onClick={() => { setWorkflowAction(null); setWorkflowNote(''); }} className="rounded-control px-3 py-2 text-sm text-ink-soft">Hủy</button></div>}</div>}
 
       {hasUnsavedChanges && <div className="rounded-control border border-review/30 bg-review-surface px-3 py-2 text-sm text-review">Có thay đổi chưa lưu. Dữ liệu vẫn được giữ khi đổi tab.</div>}
 
