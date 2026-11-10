@@ -1,9 +1,6 @@
 package com.example.invoice.service;
 
 import com.example.invoice.ai.InvoiceIdentity;
-import com.example.invoice.ai.InvoiceItemScale;
-import com.example.invoice.ai.InvoiceItemTax;
-import com.example.invoice.ai.InvoiceItemUnit;
 import com.example.invoice.ai.AiDocumentResultValidator.ValidatedAiDocumentResult;
 import com.example.invoice.ai.AiDocumentResultValidator;
 import com.example.invoice.dto.ai.AiDocumentResult;
@@ -165,6 +162,9 @@ public class DocumentAiResultPersistenceService {
 			removeStaleInvoice(document);
 		}
 		replaceAiExtractedFields(document, invoice, result.invoice(), result.fields(), result.extraFields());
+		// An invoice an accountant edited is never overwritten; the report then shows the AI reading for comparison only.
+		boolean applied = invoice == null || invoice.isAiGenerated();
+		storeFieldValidation(document, com.example.invoice.ai.FieldValidationReport.build(result, validated.warnings(), applied));
         if (invoice!=null && RetailInvoiceDetailsService.isRetail(document) && retailDetails!=null) {
             // Row-indexed discounts cannot be trusted when persistence dropped invalid rows.
             boolean completeRows = parsedItems != null && !parsedItems.isEmpty() && invalidItemCount == 0;
@@ -347,19 +347,16 @@ public class DocumentAiResultPersistenceService {
 		boolean preserveExistingItems = validItems.isEmpty() && !invoice.getItems().isEmpty();
 		if (!preserveExistingItems) {
 			invoice.getItems().clear();
-			boolean rowTaxUnreliable = InvoiceItemTax.rowTaxUnreliable(extraction);
+			// Rows arrive already repaired once by the validator (InvoiceItemRepairs); they are stored as they are.
 			for (AiDocumentResult.AiInvoiceItemExtraction item : validItems) {
 				InvoiceItem entity = new InvoiceItem();
 				entity.setInvoice(invoice);
-				InvoiceItemUnit.NameAndUnit nameAndUnit = InvoiceItemUnit.repair(item.productName(), item.unit());
-				entity.setProductName(nameAndUnit.productName());
-				InvoiceItemScale.QuantityAndPrice scale = InvoiceItemScale.repair(item.quantity(), item.unitPrice(), item.amount());
-				entity.setQuantity(scale.quantity());
-				entity.setUnit(nameAndUnit.unit());
-				entity.setUnitPrice(scale.unitPrice());
-				BigDecimal rowRate = InvoiceItemTax.rowRate(extraction, item, rowTaxUnreliable);
-				entity.setTaxRate(rowRate);
-				entity.setTaxAmount(InvoiceItemTax.rowTax(item, rowRate, rowTaxUnreliable));
+				entity.setProductName(item.productName());
+				entity.setQuantity(item.quantity());
+				entity.setUnit(item.unit());
+				entity.setUnitPrice(item.unitPrice());
+				entity.setTaxRate(item.taxRate());
+				entity.setTaxAmount(item.taxAmount());
 				entity.setAmount(item.amount());
 				invoice.getItems().add(entity);
 			}
@@ -423,51 +420,69 @@ public class DocumentAiResultPersistenceService {
 				AiDocumentResultValidator.MAX_PAYMENT_METHOD_LENGTH, persistedNames);
 		persistRejectedIdentifier(document, invoice, "taxAuthorityCode", extraction == null ? null : extraction.taxAuthorityCode(),
 				AiDocumentResultValidator.MAX_TAX_AUTHORITY_CODE_LENGTH, persistedNames);
+		// Values written in this run, by key: a second field with the same key but another value gets a suffix.
+		Map<String, String> persistedValues = new LinkedHashMap<>();
 		for (AiDocumentResult.AiExtractedField field : fields == null
 				? List.<AiDocumentResult.AiExtractedField>of() : fields) {
 			if (field.fieldName() == null || field.fieldName().isBlank()) continue;
 			String name = normalizeExtraFieldName(field.fieldName());
 			if (name == null || IGNORED_NON_BUSINESS_FIELD_NAMES.contains(name)
-					|| persistedNames.contains(name) || isPersistedInvoiceCoreField(invoice, name)) continue;
-			persistedNames.add(name);
+					|| isPersistedInvoiceCoreField(invoice, name)) continue;
+			name = availableName(name, field.fieldValue(), persistedNames, persistedValues);
+			if (name == null) continue;
+			persistedNames.add(name); persistedValues.put(name, trimmed(field.fieldValue()));
 			persistExtractedField(document, invoice, name, field.fieldValue(), field.confidence());
 		}
-		for (NormalizedExtraField field : normalizeExtraFields(extraFields).values()) {
+		for (NormalizedExtraField field : normalizeExtraFields(extraFields)) {
 			if (IGNORED_NON_BUSINESS_FIELD_NAMES.contains(field.name())
-					|| isPersistedInvoiceCoreField(invoice, field.name()) || persistedNames.contains(field.name())) continue;
-			persistExtractedField(document, invoice, field.name(), field.value(), field.confidence());
-			persistedNames.add(field.name());
+					|| isPersistedInvoiceCoreField(invoice, field.name())) continue;
+			String name = availableName(field.name(), field.value(), persistedNames, persistedValues);
+			if (name == null) continue;
+			persistExtractedField(document, invoice, name, field.value(), field.confidence());
+			persistedNames.add(name); persistedValues.put(name, trimmed(field.value()));
 		}
 	}
 
-	private Map<String, NormalizedExtraField> normalizeExtraFields(List<AiDocumentResult.AiExtraField> fields) {
+	/**
+	 * Key under which to store a field, or null to skip it. Same key and same value is the same field (skipped);
+	 * same key with a different value keeps both (key2, key3, ...) so no extracted value is lost. Invoice-column
+	 * keys and rows kept from earlier runs (manual values, corrected fields) are never duplicated.
+	 */
+	static String availableName(String name, String value, Set<String> persistedNames, Map<String, String> persistedValues) {
+		if (!persistedNames.contains(name)) return name;
+		if (FieldNameCatalog.isInvoiceField(name) || !persistedValues.containsKey(name)) return null;
+		String current = trimmed(value);
+		for (int index = 1; index <= 9; index++) {
+			String candidate = index == 1 ? name : name + index;
+			if (!persistedNames.contains(candidate)) return candidate.length() > MAX_EXTRACTED_FIELD_NAME_LENGTH ? null : candidate;
+			if (java.util.Objects.equals(persistedValues.get(candidate), current)) return null;
+		}
+		return null;
+	}
+
+	private static String trimmed(String value) {
+		return value == null ? null : value.trim();
+	}
+
+	/** One entry per (key, value); repeated key+value keeps the highest confidence, different values are all kept. */
+	private List<NormalizedExtraField> normalizeExtraFields(List<AiDocumentResult.AiExtraField> fields) {
 		Map<String, NormalizedExtraField> normalized = new LinkedHashMap<>();
-		if (fields == null) return normalized;
+		if (fields == null) return List.of();
 		for (AiDocumentResult.AiExtraField field : fields) {
 			if (field == null || field.value() == null || field.value().isBlank()) continue;
-			String name = normalizeExtraFieldName(field.name());
+			String name = normalizeExtraFieldName(field.name() == null || field.name().isBlank() ? field.label() : field.name());
 			if (name == null || name.length() > MAX_EXTRACTED_FIELD_NAME_LENGTH || !isValidConfidence(field.confidence())) continue;
 			NormalizedExtraField candidate = new NormalizedExtraField(name, field.value().trim(), field.confidence());
-			NormalizedExtraField current = normalized.get(name);
-			if (current == null || isHigherConfidence(candidate.confidence(), current.confidence())) normalized.put(name, candidate);
+			String identity = name + "\u0000" + candidate.value();
+			NormalizedExtraField current = normalized.get(identity);
+			if (current == null || isHigherConfidence(candidate.confidence(), current.confidence())) normalized.put(identity, candidate);
 		}
-		return normalized;
+		return List.copyOf(normalized.values());
 	}
 
+	/** Stable key: Vietnamese folded to ASCII, unambiguous invoice labels mapped to the invoice column key. */
 	private String normalizeExtraFieldName(String value) {
-		if (value == null || value.isBlank()) return null;
-		String trimmed = value.trim();
-		if (trimmed.matches("[A-Za-z][A-Za-z0-9]*"))
-			return Character.toLowerCase(trimmed.charAt(0)) + trimmed.substring(1);
-		String[] parts = trimmed.replaceAll("[^A-Za-z0-9]+", " ").trim().split("\\s+");
-		StringBuilder normalized = new StringBuilder();
-		for (String part : parts) {
-			if (part.isBlank()) continue;
-			String lower = part.toLowerCase(java.util.Locale.ROOT);
-			if (normalized.isEmpty()) normalized.append(lower);
-			else normalized.append(Character.toUpperCase(lower.charAt(0))).append(lower.substring(1));
-		}
-		return normalized.isEmpty() || !Character.isLetter(normalized.charAt(0)) ? null : normalized.toString();
+		return FieldNameCatalog.storageKey(value);
 	}
 
 	private boolean isValidConfidence(BigDecimal confidence) {
@@ -479,8 +494,27 @@ public class DocumentAiResultPersistenceService {
 		return current == null || candidate.compareTo(current) > 0;
 	}
 
+	/**
+	 * Replaces the per-field report of the previous run. One row per document, source AI_VALIDATION, so it is never
+	 * offered for correction and never mixed with extracted values.
+	 */
+	private void storeFieldValidation(Document document, com.example.invoice.ai.FieldValidationReport report) {
+		List<ExtractedField> existing = extractedFieldRepository.findByDocumentId(document.getId()).stream()
+				.filter(field -> com.example.invoice.ai.FieldValidationReport.FIELD.equals(field.getFieldName())).toList();
+		ExtractedField field = existing.isEmpty() ? new ExtractedField() : existing.getFirst();
+		field.setDocument(document);
+		field.setInvoice(null);
+		field.setFieldName(com.example.invoice.ai.FieldValidationReport.FIELD);
+		field.setSource(com.example.invoice.ai.FieldValidationReport.SOURCE);
+		field.setConfidence(null);
+		try { field.setFieldValue(objectMapper.writeValueAsString(report)); }
+		catch (JsonProcessingException exception) { throw new IllegalStateException("Không thể lưu báo cáo kiểm tra trường", exception); }
+		extractedFieldRepository.save(field);
+	}
+
 	private void persistExtractedField(Document document, Invoice invoice, String name, String value, BigDecimal confidence) {
         if (RetailInvoiceDetailsService.FIELD.equals(name)) return; // Reserved typed metadata, never arbitrary extraFields.
+        if (com.example.invoice.ai.FieldValidationReport.FIELD.equals(name)) return; // Reserved for the field report.
 		Objects.requireNonNull(document, "document is required for an extracted field");
 		if (name == null || name.isBlank()) throw new IllegalArgumentException("fieldName is required for an extracted field");
 		ExtractedField entity = new ExtractedField();

@@ -62,6 +62,7 @@ lerna-debug.log*
 /backendqt/backendqt/src/test/java/com/example/invoice/service/BenchmarkAdapterTest.java
 /backendqt/backendqt/src/test/java/com/example/invoice/service/BenchmarkHttpTest.java
 /backendqt/backendqt/src/test/java/com/example/invoice/service/BenchmarkLogPrivacyTest.java
+/backendqt/backendqt/src/test/java/com/example/invoice/service/BenchmarkReplayTest.java
 _probe_*
 
 # ---------- Editor / OS ----------
@@ -76,3 +77,7 @@ Thumbs.db
 Desktop.ini
 *.suo
 *.sw?
+
+# Claude Code skills/config local và báo cáo audit (không đưa vào bản phát hành).
+/.claude/
+/audit-reports/

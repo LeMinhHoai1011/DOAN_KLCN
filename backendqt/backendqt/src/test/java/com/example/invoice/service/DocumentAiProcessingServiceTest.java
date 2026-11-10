@@ -87,6 +87,34 @@ class DocumentAiProcessingServiceTest {
         AiDocumentResult mean = org.springframework.test.util.ReflectionTestUtils.invokeMethod(service, "aggregatePageResults", List.of(zero, one));
         assertEquals(0, new BigDecimal("0.5").compareTo(mean.classificationConfidence()));
 	}
+	@Test void pdfAggregationKeepsIdenticalRowsButSkipsARepeatedCopyPage() {
+		var service = serviceWithLayoutReconstructor();
+		var row = new AiDocumentResult.AiInvoiceItemExtraction("Nước suối", new BigDecimal("2"), "Chai",
+				new BigDecimal("5000"), null, null, new BigDecimal("10000"));
+		var other = new AiDocumentResult.AiInvoiceItemExtraction("Bánh mì", BigDecimal.ONE, "Cái",
+				new BigDecimal("15000"), null, null, new BigDecimal("15000"));
+		var pageOne = invoicePage(List.of(row, row));
+		var pageTwo = invoicePage(List.of(row, other));
+		AiDocumentResult merged = org.springframework.test.util.ReflectionTestUtils.invokeMethod(service, "aggregatePageResults", List.of(pageOne, pageTwo));
+		assertEquals(4, merged.invoice().items().size());
+		AiDocumentResult copy = org.springframework.test.util.ReflectionTestUtils.invokeMethod(service, "aggregatePageResults", List.of(pageOne, pageOne));
+		assertEquals(2, copy.invoice().items().size());
+		org.junit.jupiter.api.Assertions.assertTrue(copy.warnings().stream().anyMatch(w -> w.startsWith("ITEM_PAGE_REPEATED")));
+	}
+
+	@Test void truncatedPromptTextAddsAReviewWarning() {
+		var result = new AiDocumentResult("ollama", "qwen", "VAT_INVOICE", BigDecimal.ONE, null, null, List.of(), List.of(), "raw", 1L);
+		var flagged = DocumentAiProcessingService.withTruncationWarning(result, new OcrTextNormalizer.Result("x", true, 7));
+		org.junit.jupiter.api.Assertions.assertTrue(flagged.warnings().stream().anyMatch(w -> w.startsWith("OCR_TEXT_TRUNCATED") && w.contains("7")));
+		org.junit.jupiter.api.Assertions.assertSame(result, DocumentAiProcessingService.withTruncationWarning(result, new OcrTextNormalizer.Result("x", false, 0)));
+	}
+
+	private static AiDocumentResult invoicePage(List<AiDocumentResult.AiInvoiceItemExtraction> rows) {
+		var invoice = new AiDocumentResult.AiInvoiceExtraction("1", "C25T", "2025-01-01", "Bán", "0101234567", null, null,
+				null, null, null, null, null, rows);
+		return new AiDocumentResult("ollama", "qwen", "RETAIL_INVOICE", BigDecimal.ONE, null, invoice, List.of(), List.of(), "raw", 1L);
+	}
+
 	@Test
 	void restoresStoredOcrLayoutWithRealDimensionsAndReadingOrder() {
 		DocumentAiProcessingService service = serviceWithLayoutReconstructor();

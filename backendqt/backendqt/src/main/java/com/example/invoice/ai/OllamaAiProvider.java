@@ -89,7 +89,8 @@ public class OllamaAiProvider implements AiProvider {
 				false,
 				"json",
 				properties.getOllama().isThink(),
-				new OllamaOptions(properties.getOllama().getNumPredict(), properties.getOllama().getNumContext())));
+				new OllamaOptions(properties.getOllama().getNumPredict(), properties.getOllama().getNumContext(),
+						properties.getOllama().getTemperature(), properties.getOllama().getSeed())));
 		OkHttpClient client = configuredClient();
 		String requestMode = images.isEmpty() ? "TEXT" : "VISION";
 		log.info("AI_REQUEST_STARTED provider={} endpoint={} model={} requestMode={} stream=false format=json numContext={} numPredict={} reservedOutputTokens={} inputBudget={} estimatedInputTokens={} imageBytes={} imageCount={} payloadLength={} promptLength={} timeout={}",
@@ -307,5 +308,7 @@ public class OllamaAiProvider implements AiProvider {
 			Boolean think,
 			OllamaOptions options) {
 	}
-	private record OllamaOptions(int num_predict, int num_ctx) {}
+	/** temperature/seed are omitted when null, which keeps the model's defaults. */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	private record OllamaOptions(int num_predict, int num_ctx, Double temperature, Integer seed) {}
 }

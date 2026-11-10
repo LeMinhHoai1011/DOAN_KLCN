@@ -23,7 +23,50 @@ public record AiDocumentResult(
 		DocumentDirection documentDirection,
 		AiTransactionAssessment transactionAssessment,
 		List<AiExtraField> extraFields,
-		AiCompanyRole companyRole) {
+		AiCompanyRole companyRole,
+		List<AiFieldNote> fieldNotes) {
+
+	/** Constructor used before field notes existed; the result carries no notes. */
+	public AiDocumentResult(String provider, String model, String documentType, BigDecimal classificationConfidence,
+			String accountingCategoryCode, String accountingAccount, String rawText, AiInvoiceExtraction invoice,
+			List<AiExtractedField> fields, List<String> warnings, String rawResponse, long durationMs,
+			DocumentDirection documentDirection, AiTransactionAssessment transactionAssessment,
+			List<AiExtraField> extraFields, AiCompanyRole companyRole) {
+		this(provider, model, documentType, classificationConfidence, accountingCategoryCode, accountingAccount, rawText,
+				invoice, fields, warnings, rawResponse, durationMs, documentDirection, transactionAssessment, extraFields,
+				companyRole, List.of());
+	}
+
+	/**
+	 * What normalization did to one value: the printed/model text, the value kept, and why. {@code row} is the
+	 * one-based goods row, null for header fields. Never filled by the model; the parser and validators write it.
+	 */
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	public record AiFieldNote(String field, Integer row, String rawValue, String normalizedValue, String status, String reason) {}
+
+	public List<AiFieldNote> notes() { return fieldNotes == null ? List.of() : fieldNotes; }
+
+	/** Same result with other warnings, invoice, extra fields and notes; everything else is kept. */
+	public AiDocumentResult with(List<String> newWarnings, AiInvoiceExtraction newInvoice, List<AiExtractedField> newFields,
+			List<AiExtraField> newExtraFields, List<AiFieldNote> newNotes) {
+		return new AiDocumentResult(provider, model, documentType, classificationConfidence, accountingCategoryCode,
+				accountingAccount, rawText, newInvoice, newFields, newWarnings, rawResponse, durationMs, documentDirection,
+				transactionAssessment, newExtraFields, companyRole, newNotes == null ? List.of() : List.copyOf(newNotes));
+	}
+
+	public AiDocumentResult withWarnings(List<String> newWarnings) {
+		return with(newWarnings, invoice, fields, extraFields, notes());
+	}
+
+	public AiDocumentResult withInvoice(AiInvoiceExtraction newInvoice, List<AiFieldNote> newNotes) {
+		return with(warnings, newInvoice, fields, extraFields, newNotes);
+	}
+
+	public AiDocumentResult withoutAccountingCategory() {
+		return new AiDocumentResult(provider, model, documentType, classificationConfidence, null, accountingAccount, rawText,
+				invoice, fields, warnings, rawResponse, durationMs, documentDirection, transactionAssessment, extraFields,
+				companyRole, notes());
+	}
 
 	/**
 	 * Compatibility constructor for providers and tests that only return the original
@@ -51,7 +94,7 @@ public record AiDocumentResult(
 				response, duration, documentDirection == null ? DocumentDirection.UNKNOWN : documentDirection,
 				transactionAssessment == null ? new AiTransactionAssessment(TransactionAssessmentType.UNKNOWN, null, null) : transactionAssessment,
 				extraFields == null ? List.of() : List.copyOf(extraFields),
-				companyRole == null ? new AiCompanyRole(CompanyRole.UNKNOWN, null, null) : companyRole);
+				companyRole == null ? new AiCompanyRole(CompanyRole.UNKNOWN, null, null) : companyRole, notes());
 	}
 
 	public AiDocumentResult withCompanyRoleAndDirection(AiCompanyRole role, DocumentDirection direction) {
@@ -60,7 +103,7 @@ public record AiDocumentResult(
 				warnings == null ? List.of() : List.copyOf(warnings), rawResponse, durationMs,
 				direction == null ? DocumentDirection.UNKNOWN : direction, transactionAssessment,
 				extraFields == null ? List.of() : List.copyOf(extraFields),
-				role == null ? new AiCompanyRole(CompanyRole.UNKNOWN, null, null) : role);
+				role == null ? new AiCompanyRole(CompanyRole.UNKNOWN, null, null) : role, notes());
 	}
 
 	public AiDocumentResult withTransactionAssessment(AiTransactionAssessment assessment) {
@@ -68,7 +111,7 @@ public record AiDocumentResult(
 				accountingAccount, rawText, invoice, fields == null ? List.of() : List.copyOf(fields),
 				warnings == null ? List.of() : List.copyOf(warnings), rawResponse, durationMs, documentDirection,
 				assessment == null ? new AiTransactionAssessment(TransactionAssessmentType.UNKNOWN, null, null) : assessment,
-				extraFields == null ? List.of() : List.copyOf(extraFields), companyRole);
+				extraFields == null ? List.of() : List.copyOf(extraFields), companyRole, notes());
 	}
 
 	public enum DocumentDirection {

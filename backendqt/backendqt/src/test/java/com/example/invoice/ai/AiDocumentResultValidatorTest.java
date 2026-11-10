@@ -165,10 +165,13 @@ class AiDocumentResultValidatorTest {
 	}
 
 	@Test
-	void rejectsConfidenceOutsideNormalizedRange() {
+	void dropsConfidenceOutsideNormalizedRangeAndRequiresReviewInsteadOfFailing() {
 		AiDocumentResult result = new AiDocumentResult("ollama", "vision", "INVOICE", new BigDecimal("1.01"),
 				null, null, List.of(), List.of(), "raw", 1L);
-		assertThrows(AiProviderException.class, () -> validator.validate(result, Set.of("INVOICE")));
+		var validated = validator.validate(result, Set.of("INVOICE"));
+		org.junit.jupiter.api.Assertions.assertNull(validated.confidence());
+		assertTrue(validated.warnings().stream().anyMatch(w -> w.startsWith("INVALID_CONFIDENCE")));
+		assertTrue(validated.requiresReview());
 	}
 
 	@Test

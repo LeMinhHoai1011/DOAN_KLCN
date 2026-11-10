@@ -120,6 +120,15 @@ public class AiProperties {
 		private boolean think = false;
 		private int numPredict = 3072;
 		private int numContext = 8192;
+		/** 0 makes extraction repeatable; null leaves the model's own default. */
+		private Double temperature = 0.0;
+		/** Fixed seed so the same document gives the same answer; null leaves it random. */
+		private Integer seed = 42;
+
+		public Double getTemperature() { return temperature; }
+		public void setTemperature(Double temperature) { this.temperature = temperature; }
+		public Integer getSeed() { return seed; }
+		public void setSeed(Integer seed) { this.seed = seed; }
 
 		public String getBaseUrl() { return baseUrl; }
 		public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }

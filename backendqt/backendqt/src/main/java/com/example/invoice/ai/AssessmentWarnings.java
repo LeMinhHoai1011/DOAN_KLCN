@@ -17,6 +17,10 @@ public final class AssessmentWarnings {
         String severity = "CRITICAL";
         if (!message.startsWith("CRITICAL")) {
             if (code.equals("DOCUMENT_TYPE_REASON")) severity = "INFO";
+            // Automatic goods-row repairs are shown to the accountant but do not block the document by themselves.
+            else if (InvoiceItemRepairs.CODES.contains(code)) severity = "WARNING";
+            // Informational: the stored value is still usable and the raw value is kept in the field report.
+            else if (code.equals("PRECISION_LOSS") || code.equals("TAX_CODE_CHECKSUM_MISMATCH")) severity = "WARNING";
             else if (code.equals("NON_CRITICAL") || (code.equals("AI_VALIDATION_WARNING") && (lower.contains("thiếu dấu") || lower.contains("mất dấu")
                     || lower.contains("diacritic") || lower.contains("hoa/thường") || lower.contains("khoảng trắng")
                     || lower.contains("whitespace") || lower.contains("định dạng địa chỉ")

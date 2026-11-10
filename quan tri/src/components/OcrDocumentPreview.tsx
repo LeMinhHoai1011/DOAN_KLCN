@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist'
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
@@ -7,6 +8,8 @@ import { PreviewLoadError } from '../services/previewBlob'
 import ExtractedFieldPanel from './ocr-preview/ExtractedFieldPanel'
 import OcrOverlayLayer, { type OverlayBox } from './ocr-preview/OcrOverlayLayer'
 import OcrPreviewToolbar from './ocr-preview/OcrPreviewToolbar'
+import RegionSelectLayer from './ocr-preview/RegionSelectLayer'
+import { joinWordsByLine, wordsInRect, type PageRect } from './ocr-preview/regionSelect'
 import { bestLocation, pageHeightOf, pageNumberOf, pageWidthOf, parseOcrLayout, type OverlayMode } from './ocr-preview/ocrPreviewUtils'
 
 GlobalWorkerOptions.workerSrc = workerUrl
@@ -78,11 +81,28 @@ export function PdfSurface({ url, pageNumber, width, onMetadata, onError }: {
   return <canvas ref={canvasRef} className="block bg-white shadow-elev2" />
 }
 
-export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, documentType, canCorrectFields, onCorrectField, showFieldPanel = true, focusedField }: {
+/** Field being filled by dragging a rectangle on the preview. */
+export type RegionTarget = { key: string; label: string }
+
+export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, documentType, canCorrectFields, onCorrectField, showFieldPanel = true, focusedField,
+  regionTarget, regionSelection, regionPanel, onRegionSelected, onRegionCancel, focusedRegion, onPageCount }: {
   documentId: number; fileType: string; ocr: OCRResultResponse | null
   fields: ExtractedFieldResponse[]; documentType?: string | null
   showFieldPanel?: boolean; focusedField?: ExtractedFieldResponse | null
   canCorrectFields: boolean; onCorrectField: (fieldId: number, fieldValue: string) => Promise<void>
+  /** Region mode is on while this is set. */
+  regionTarget?: RegionTarget | null
+  /** Last selected rectangle (original page pixels), kept visible while the accountant reviews it. */
+  regionSelection?: PageRect | null
+  /** Review/apply UI shown above the page while in region mode. */
+  regionPanel?: ReactNode
+  /** Rectangle in original page pixels plus the text of the OCR words inside it (local preview). */
+  onRegionSelected?: (rect: PageRect, localText: string) => void
+  onRegionCancel?: () => void
+  /** Rectangle just drawn for the focused field: highlighted instead of the stored location until it is saved. */
+  focusedRegion?: PageRect | null
+  /** Number of pages of the rendered document, so callers can reject locations on missing pages. */
+  onPageCount?: (count: number) => void
 }) {
   const [url, setUrl] = useState('')
 	const [previewContentType, setPreviewContentType] = useState('')
@@ -159,29 +179,47 @@ export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, 
   const renderedWidth = Math.max(1, sourceSize.width * baseScale * zoom)
   const renderedHeight = Math.max(1, sourceSize.height * baseScale * zoom)
 
+  useEffect(() => { onPageCount?.(pageCount) }, [onPageCount, pageCount])
   const focusField = focusedField ?? selected ?? hovered
-  const fieldLocation = bestLocation(focusField)
+  // A freshly drawn rectangle (not yet saved) wins; otherwise the best valid stored location.
+  const drawnPage = focusedRegion ? pages.find(page => pageNumberOf(page) === focusedRegion.page) : undefined
+  const fieldLocation = useMemo(() => {
+    if (focusField && focusedRegion && drawnPage) return { ...focusedRegion, pageWidth: pageWidthOf(drawnPage),
+      pageHeight: pageHeightOf(drawnPage), matchConfidence: 1, source: 'MANUAL_REGION' }
+    return bestLocation(focusField, pageCount)
+  }, [drawnPage, focusField, focusedRegion, pageCount])
+  const fieldLocationKey = fieldLocation ? `${fieldLocation.page}:${fieldLocation.x}:${fieldLocation.y}` : ''
   useEffect(() => {
     if ((focusedField || selected) && fieldLocation) setActivePage(fieldLocation.page)
-  }, [fieldLocation, selected, focusedField])
+  }, [fieldLocationKey, selected, focusedField]) // eslint-disable-line react-hooks/exhaustive-deps -- follow location changes only
 
+  const focusKey = focusField && fieldLocation ? `field-${focusField.id}-${fieldLocationKey}` : undefined
   const boxes = useMemo<OverlayBox[]>(() => {
-	if (!overlayVisible) return []
-    if (overlayMode === 'field') {
-      if (!focusField || !fieldLocation || fieldLocation.page !== activePage) return []
-      return [{ key: `field-${focusField.id}-${fieldLocation.page}`, text: `${focusField.fieldName}: ${focusField.fieldValue ?? ''}`,
-        confidence: fieldLocation.matchConfidence, ...fieldLocation, active: Boolean(focusedField || selected) }]
-    }
-	if (!layoutPage) return []
-	const pageWidth = pageWidthOf(layoutPage), pageHeight = pageHeightOf(layoutPage)
+    // The selected field is always highlighted, whatever overlay mode or visibility is chosen for OCR boxes.
+    const focusBox: OverlayBox[] = focusField && fieldLocation && fieldLocation.page === activePage && focusKey
+      ? [{ key: focusKey, text: `${focusField.displayName ?? focusField.fieldName}: ${focusField.fieldValue ?? ''}`,
+        confidence: fieldLocation.matchConfidence, ...fieldLocation, active: Boolean(focusedField || selected) }] : []
+    if (!overlayVisible || overlayMode === 'field' || !layoutPage) return focusBox
+    const pageWidth = pageWidthOf(layoutPage), pageHeight = pageHeightOf(layoutPage)
     const elements = overlayMode === 'word' ? layoutPage.words : overlayMode === 'line' ? layoutPage.lines : layoutPage.blocks
-    return (elements ?? []).map((element, index) => ({ key: element.id ?? `${overlayMode}-${index}`, text: element.text,
+    return [...(elements ?? []).map((element, index) => ({ key: element.id ?? `${overlayMode}-${index}`, text: element.text,
       confidence: element.confidence, x: element.x, y: element.y, width: element.width, height: element.height,
-      pageWidth, pageHeight, active: false }))
-  }, [activePage, fieldLocation, focusField, layoutPage, overlayMode, overlayVisible, selected, focusedField])
+      pageWidth, pageHeight, active: false })), ...focusBox]
+  }, [activePage, fieldLocation, focusField, focusKey, layoutPage, overlayMode, overlayVisible, selected, focusedField])
+
+  const regionMode = Boolean(regionTarget && onRegionSelected)
+  const cancelRegion = useCallback(() => onRegionCancel?.(), [onRegionCancel])
+  const selectRegion = useCallback((rect: PageRect) => {
+    if (!layoutPage || !onRegionSelected) return
+    const inside = wordsInRect(layoutPage.words, rect, pageWidthOf(layoutPage), pageHeightOf(layoutPage))
+    onRegionSelected(rect, joinWordsByLine(inside).text)
+  }, [layoutPage, onRegionSelected])
+  useEffect(() => {
+    if (regionSelection && regionSelection.page !== activePage && regionTarget) setActivePage(regionSelection.page)
+  }, [regionSelection]) // eslint-disable-line react-hooks/exhaustive-deps -- follow a new selection only
 
   const selectField = useCallback((field: ExtractedFieldResponse) => {
-    setSelected(current => current?.id === field.id ? null : field)
+    setSelected(field)
     const location = bestLocation(field)
     if (location) setActivePage(location.page)
   }, [])
@@ -193,6 +231,14 @@ export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, 
     <OcrPreviewToolbar page={activePage} pageCount={pageCount} zoom={zoom} onPage={setActivePage}
       onZoom={value => setZoom(clampZoom(value))} onFitWidth={() => { setFitMode('width'); setZoom(1) }}
       onFitPage={() => { setFitMode('page'); setZoom(1) }} onReset={resetView} />
+    {regionMode && <div className="border-brand-200 bg-brand-50/70 space-y-3 border-b px-5 py-3" role="region" aria-label="Chọn vùng trên chứng từ">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-ink"><span className="font-semibold">Chọn vùng cho “{regionTarget?.label}”.</span>{' '}
+          {layoutPage ? 'Kéo khung quanh giá trị trên chứng từ. Nhấn Esc để hủy.' : 'Trang này chưa có bố cục OCR, hãy chuyển trang hoặc nhập tay.'}</p>
+        <button type="button" onClick={cancelRegion} className="si-btn-secondary text-xs">Hủy chọn vùng</button>
+      </div>
+      {regionPanel}
+    </div>}
     <div className={`grid min-h-0 flex-1 grid-cols-1 ${showFieldPanel ? 'lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]' : ''}`}>
       <div ref={viewportRef} className="border-hairline bg-subtle relative min-h-[420px] overflow-auto border-r p-5"
         onWheel={event => { if (!event.ctrlKey) return; event.preventDefault(); setZoom(value => clampZoom(value + (event.deltaY < 0 ? .1 : -.1))) }}>
@@ -206,13 +252,16 @@ export default function OcrDocumentPreview({ documentId, fileType, ocr, fields, 
 			  : previewContentType === 'application/pdf' ? <PdfSurface url={url} pageNumber={activePage} width={renderedWidth}
                 onMetadata={updatePdfMetadata} onError={markLoadError} />
                 : <iframe title="Bản xem trước chứng từ" src={url} className="h-full w-full bg-white" />}
-            {overlayVisible && <OcrOverlayLayer boxes={boxes} renderedWidth={renderedWidth} renderedHeight={renderedHeight}
-              focusKey={focusField && fieldLocation ? `field-${focusField.id}-${fieldLocation.page}` : undefined} />}
+            <OcrOverlayLayer boxes={boxes} renderedWidth={renderedWidth} renderedHeight={renderedHeight} focusKey={focusKey} />
+            {regionMode && layoutPage && <RegionSelectLayer page={activePage} pageWidth={pageWidthOf(layoutPage)} pageHeight={pageHeightOf(layoutPage)}
+              renderedWidth={renderedWidth} renderedHeight={renderedHeight} selected={regionSelection}
+              onSelect={selectRegion} onCancel={cancelRegion} />}
           </div>
         </div>}
       </div>
       {showFieldPanel && <ExtractedFieldPanel fields={fields} documentType={documentType} selectedId={selected?.id} hoveredId={hovered?.id}
-        canCorrect={canCorrectFields} onSelect={selectField} onHover={setHovered} onCorrect={onCorrectField} />}
+        canCorrect={canCorrectFields} onSelect={selectField} onHover={setHovered} onCorrect={onCorrectField}
+        pageCount={pageCount} onClose={() => setSelected(null)} />}
     </div>
     <footer className="flex flex-wrap items-center justify-between gap-4 border-hairline border-t bg-surface px-5 py-3">
       {(fields.some(field => (field.locations?.length ?? 0) > 0) || pages.some(page => (page.words?.length ?? 0) + (page.lines?.length ?? 0) + (page.blocks?.length ?? 0) > 0)) && <><label className="flex cursor-pointer items-center gap-2.5 text-sm font-semibold text-ink-soft">

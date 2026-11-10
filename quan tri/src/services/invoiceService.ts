@@ -9,6 +9,8 @@ export interface InvoiceItem {
   taxRate: number | null
   taxAmount: number | null
   amount: number | null
+  /** Printed row discount from the latest AI reading; read-only, not sent back when saving. */
+  discountAmount?: number | null
 }
 
 export interface InvoiceResponse {

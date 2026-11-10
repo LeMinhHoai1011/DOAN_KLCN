@@ -317,8 +317,9 @@ public class DocumentAiProcessingService {
 	AiDocumentResult analyzeSingleImage(String fileName, String contentType, byte[] bytes,
 			List<String> documentTypes, List<String> categoryCodes, List<AccountingCategoryOption> categoryOptions,
 			Company company, OcrPageResult ocr) {
-		String normalizedText = normalizeOcrText(ocr == null ? null
+		OcrTextNormalizer.Result normalized = normalizeOcr(ocr == null ? null
 				: ocrLayoutReconstructor == null ? ocr.text() : ocrLayoutReconstructor.structuredContext(ocr));
+		String normalizedText = normalized.text();
 		String prompt = AiDocumentPromptFactory.createWithCategories(documentTypes, categoryOptions,
 				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
 		enter("AI_EXTRACTION");
@@ -343,7 +344,7 @@ public class DocumentAiProcessingService {
 				log.info("AI structured extraction file={} requestMode=TEXT retryAttempt=0", fileName);
 				progressDetail("Gửi văn bản OCR cho " + modelLabel());
 				AiDocumentResult textResult = aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText, textPrompt));
-				return textResult;
+				return withTruncationWarning(textResult, normalized);
 			} catch (AiProviderException firstFailure) {
 				if (!isStructuredOutputFailure(firstFailure)) throw firstFailure;
                 log.warn("AI text format invalid; one vision fallback file={}", fileName);
@@ -546,16 +547,17 @@ public class DocumentAiProcessingService {
 				company == null ? null : company.getCompanyName(), company == null ? null : company.getTaxCode(), null);
 		enter("AI_EXTRACTION");
 		progressDetail("Gửi lớp chữ PDF cho " + modelLabel());
-		String normalizedText = normalizeOcrText(text);
+		OcrTextNormalizer.Result normalized = normalizeOcr(text);
+		String normalizedText = normalized.text();
 		String textPrompt = AiDocumentPromptFactory.forTextExtraction(prompt);
-		AiDocumentResult first = analyzeWithStrictRetry(fileName, normalizedText, textPrompt);
+		AiDocumentResult first = withTruncationWarning(analyzeWithStrictRetry(fileName, normalizedText, textPrompt), normalized);
 		if (!rowsMissSubtotal(first)) return first;
 		log.warn("AI rows do not add up to the subtotal; one row retry file={}", fileName);
 		progressDetail("Dòng hàng chưa khớp tổng tiền, đọc lại với " + modelLabel());
 		try {
 			AiDocumentResult retried = aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText,
 					AiDocumentPromptFactory.rowRetry(textPrompt)));
-			return rowsMissSubtotal(retried) ? first : retried;
+			return rowsMissSubtotal(retried) ? first : withTruncationWarning(retried, normalized);
 		} catch (AiProviderException retryFailure) {
 			return first;
 		}
@@ -606,8 +608,22 @@ public class DocumentAiProcessingService {
 	}
 
 	String normalizeOcrText(String value) {
-		if (ocrTextNormalizer != null) return ocrTextNormalizer.normalizeAndCompact(value);
-		return value == null ? "" : value.replaceAll("[ \\t]+", " ").replaceAll("(?m)^\\s*$\\R", "").trim();
+		return normalizeOcr(value).text();
+	}
+
+	OcrTextNormalizer.Result normalizeOcr(String value) {
+		if (ocrTextNormalizer != null) return ocrTextNormalizer.normalize(value);
+		return new OcrTextNormalizer.Result(value == null ? ""
+				: value.replaceAll("[ \\t]+", " ").replaceAll("(?m)^\\s*$\\R", "").trim(), false, 0);
+	}
+
+	/** Lines left out of the prompt may hold goods rows, so the result must be reviewed against the document. */
+	static AiDocumentResult withTruncationWarning(AiDocumentResult result, OcrTextNormalizer.Result normalized) {
+		if (result == null || normalized == null || !normalized.truncated()) return result;
+		List<String> warnings = new ArrayList<>(result.warnings() == null ? List.of() : result.warnings());
+		warnings.add("OCR_TEXT_TRUNCATED: Văn bản OCR vượt giới hạn gửi AI, đã bỏ " + normalized.droppedLines()
+				+ " dòng ít quan trọng; cần đối chiếu đủ dòng hàng với chứng từ gốc");
+		return result.withWarnings(List.copyOf(warnings));
 	}
 
 	OcrPageResult reconstructLayout(OcrPageResult page) {
@@ -634,12 +650,36 @@ public class DocumentAiProcessingService {
 				.divide(BigDecimal.valueOf(confidences.size()), 4, RoundingMode.HALF_UP);
 		String rawText = pages.stream().map(AiDocumentResult::rawText).filter(value -> value != null && !value.isBlank())
 				.collect(Collectors.joining("\n\n"));
-		List<AiDocumentResult.AiInvoiceItemExtraction> items = pages.stream()
-				.filter(page -> page.invoice() != null && page.invoice().items() != null)
-				.flatMap(page -> page.invoice().items().stream()).distinct().toList();
 		List<String> warnings = pages.stream()
 				.flatMap(page -> page.warnings() == null ? java.util.stream.Stream.empty() : page.warnings().stream())
 				.collect(Collectors.toCollection(ArrayList::new));
+		// Identical rows are kept: a bill can print the same goods row twice and both are charged. Only a page whose
+		// whole row list repeats an earlier page (a second copy, "liên 2") is left out, and that is reported.
+		List<List<AiDocumentResult.AiInvoiceItemExtraction>> seenPages = new ArrayList<>();
+		List<AiDocumentResult.AiInvoiceItemExtraction> collected = new ArrayList<>();
+		// Field notes follow their rows: a row note of page 2 moves past the rows of page 1.
+		List<AiDocumentResult.AiFieldNote> notes = new ArrayList<>();
+		for (int index = 0; index < pages.size(); index++) {
+			var page = pages.get(index);
+			boolean hasRows = page.invoice() != null && page.invoice().items() != null && !page.invoice().items().isEmpty();
+			List<AiDocumentResult.AiInvoiceItemExtraction> rows = hasRows ? page.invoice().items() : List.of();
+			boolean repeated = hasRows && seenPages.contains(rows);
+			int offset = collected.size();
+			for (var note : page.notes()) {
+				if (note.row() == null) notes.add(note);
+				else if (!repeated) notes.add(new AiDocumentResult.AiFieldNote(note.field(), note.row() + offset,
+						note.rawValue(), note.normalizedValue(), note.status(), note.reason()));
+			}
+			if (!hasRows) continue;
+			if (repeated) {
+				warnings.add("ITEM_PAGE_REPEATED: Trang " + (index + 1)
+						+ " lặp lại toàn bộ dòng hàng của trang trước; không cộng lần hai, cần xác minh là bản sao");
+				continue;
+			}
+			seenPages.add(rows);
+			collected.addAll(rows);
+		}
+		List<AiDocumentResult.AiInvoiceItemExtraction> items = java.util.Collections.unmodifiableList(collected);
 		if (pages.stream().map(AiDocumentResult::documentType).filter(Objects::nonNull).distinct().count() > 1) {
 			warnings.add("DOCUMENT_TYPE_PAGE_CONFLICT: Các trang PDF đề xuất loại chứng từ khác nhau; cần kiểm tra thủ công");
 		}
@@ -656,7 +696,7 @@ public class DocumentAiProcessingService {
 				first.rawResponse(), pages.stream().mapToLong(AiDocumentResult::durationMs).sum(),
 				first.documentDirection(), first.transactionAssessment(),
 				pages.stream().flatMap(page -> page.extraFields() == null ? java.util.stream.Stream.empty() : page.extraFields().stream()).toList(),
-				first.companyRole());
+				first.companyRole(), notes);
 	}
 
 	AiDocumentResult addMissingInvoiceItemsWarning(AiDocumentResult result, OcrDocumentResult ocr) {
@@ -669,10 +709,7 @@ public class DocumentAiProcessingService {
 		if (warnings.stream().noneMatch(warning -> warning != null && warning.startsWith("INVOICE_ITEMS_MISSING"))) {
 			warnings.add("INVOICE_ITEMS_MISSING: OCR indicates an item table but AI returned no valid invoice items");
 		}
-		return new AiDocumentResult(result.provider(), result.model(), result.documentType(), result.classificationConfidence(),
-				result.accountingCategoryCode(), result.accountingAccount(), result.rawText(), result.invoice(), result.fields(),
-				List.copyOf(warnings), result.rawResponse(), result.durationMs(), result.documentDirection(),
-				result.transactionAssessment(), result.extraFields(), result.companyRole());
+		return result.withWarnings(List.copyOf(warnings));
 	}
 
 	private void logItemTelemetry(Long documentId, AiDocumentResult result) {

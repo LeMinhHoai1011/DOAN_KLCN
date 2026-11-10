@@ -46,12 +46,41 @@ export const scaleBoundingBox = (
   return { left: x * scaleX, top: y * scaleY, width: width * scaleX, height: height * scaleY }
 }
 
-export const bestLocation = (field: ExtractedFieldResponse | null | undefined): FieldLocation | null => {
-  const locations = field?.locations ?? []
+/**
+ * Usable location: positive box inside its page, and (when the page count is known) on an existing page.
+ * Anything else is treated as "no location" so the UI never scrolls to a wrong place.
+ */
+export const isValidLocation = (location: FieldLocation | null | undefined, pageCount?: number): location is FieldLocation => {
+  if (!location) return false
+  const values = [location.page, location.x, location.y, location.width, location.height, location.pageWidth, location.pageHeight]
+  if (values.some(value => typeof value !== 'number' || !Number.isFinite(value))) return false
+  if (location.page < 1 || (pageCount != null && pageCount > 0 && location.page > pageCount)) return false
+  if (location.width <= 0 || location.height <= 0 || location.pageWidth <= 0 || location.pageHeight <= 0) return false
+  return location.x >= 0 && location.y >= 0
+    && location.x + location.width <= location.pageWidth + 1 && location.y + location.height <= location.pageHeight + 1
+}
+
+export const isManualLocation = (location: FieldLocation | null | undefined) => location?.source === 'MANUAL_REGION'
+
+/** A location drawn by the accountant wins over AI matching; then the highest match confidence. Invalid ones are ignored. */
+export const bestLocation = (field: ExtractedFieldResponse | null | undefined, pageCount?: number): FieldLocation | null => {
+  const locations = (field?.locations ?? []).filter(location => isValidLocation(location, pageCount))
   return locations.reduce<FieldLocation | null>((best, location) => {
     if (!best) return location
+    if (isManualLocation(location) !== isManualLocation(best)) return isManualLocation(location) ? location : best
     return (location.matchConfidence ?? -1) > (best.matchConfidence ?? -1) ? location : best
   }, null)
+}
+
+/**
+ * Name shown for an extracted field: backend display name, else the known label, else the readable key.
+ * `unresolved` marks keys whose original Vietnamese name was lost and is not guessed.
+ */
+export const fieldDisplay = (field: Pick<ExtractedFieldResponse, 'fieldName' | 'displayName' | 'displayNameSource'>) => {
+  if (field.displayName?.trim()) return { label: field.displayName.trim(), unresolved: false }
+  if (labels[field.fieldName]) return { label: labels[field.fieldName], unresolved: false }
+  if (field.displayNameSource === 'UNRESOLVED') return { label: field.fieldName, unresolved: true }
+  return { label: fieldLabel(field.fieldName), unresolved: false }
 }
 
 const labels: Record<string, string> = {

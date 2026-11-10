@@ -99,6 +99,8 @@ class OllamaAiProviderTest {
 		assertFalse(payload.get().path("think").asBoolean());
 		assertEquals(8192, payload.get().path("options").path("num_ctx").asInt());
 		assertEquals(3072, payload.get().path("options").path("num_predict").asInt());
+		assertEquals(0.0, payload.get().path("options").path("temperature").asDouble(-1));
+		assertEquals(42, payload.get().path("options").path("seed").asInt());
 
 		properties.getOcr().setReservedOutputTokens(3073);
 		assertThrows(BadRequestException.class,

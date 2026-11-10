@@ -16,7 +16,8 @@ import org.slf4j.LoggerFactory;
 @Component
 public class AiDocumentResultValidator {
 	private static final Logger log = LoggerFactory.getLogger(AiDocumentResultValidator.class);
-	private static final Pattern TAX_CODE = Pattern.compile("\\d{10}(?:-\\d{3})?");
+	/** 10 digits, 10 digits with a branch suffix, or the 12-digit personal ID used by individuals. */
+	private static final Pattern TAX_CODE = Pattern.compile("\\d{10}(?:-\\d{3})?|\\d{12}");
 	private static final Pattern EXTRA_FIELD_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9]*");
 	public static final int MAX_INVOICE_NUMBER_LENGTH = 255;
 	public static final int MAX_INVOICE_SERIES_LENGTH = 255;
@@ -57,8 +58,13 @@ public class AiDocumentResultValidator {
 			warnings.add("INVALID_ACCOUNTING_CATEGORY: AI trả nhóm nghiệp vụ không nằm trong danh sách active; đề xuất này bị bỏ qua");
 			result = withoutAccountingCategory(result);
 		}
+        if (result.invoice() != null) {
+            List<AiDocumentResult.AiFieldNote> notes = new ArrayList<>(result.notes());
+            var repaired = InvoiceItemRepairs.apply(result.invoice(), warnings, notes);
+            result = result.withInvoice(repaired, notes);
+        }
         boolean retail = "RETAIL_INVOICE".equals(result.documentType());
-		validateInvoice(result.invoice(), warnings, retail);
+		validateInvoice(result.invoice(), warnings, retail, result.notes());
         if (retail && result.invoice()!=null) {
             var invoice=result.invoice();
             var rows=invoice.items()==null ? List.<RetailInvoiceRules.Row>of() : invoice.items().stream()
@@ -77,10 +83,16 @@ public class AiDocumentResultValidator {
 	}
 
 	private AiDocumentResult withoutAccountingCategory(AiDocumentResult result) {
-		return new AiDocumentResult(result.provider(), result.model(), result.documentType(),
-				result.classificationConfidence(), null, result.accountingAccount(), result.rawText(), result.invoice(),
-				result.fields(), result.warnings(), result.rawResponse(), result.durationMs(), result.documentDirection(),
-				result.transactionAssessment(), result.extraFields(), result.companyRole());
+		return result.withoutAccountingCategory();
+	}
+
+	/** Rows whose printed rate is KCT or KKKNT: no VAT applies to them, which is not the same as a missing rate. */
+	static java.util.Set<Integer> noTaxRows(List<AiDocumentResult.AiFieldNote> notes) {
+		java.util.Set<Integer> rows = new java.util.HashSet<>();
+		for (var note : notes) if ("taxRate".equals(note.field()) && note.row() != null
+				&& ("EXEMPT_KCT".equals(note.normalizedValue()) || "NOT_DECLARED_KKKNT".equals(note.normalizedValue())))
+			rows.add(note.row());
+		return rows;
 	}
 
 	private boolean isInvoiceType(String typeCode) {
@@ -104,7 +116,9 @@ public class AiDocumentResultValidator {
 			return null;
 		}
 		if (value.compareTo(BigDecimal.ZERO) < 0 || value.compareTo(BigDecimal.ONE) > 0) {
-			throw new AiProviderException("AI_INVALID_RESPONSE: độ tin cậy phải nằm trong khoảng từ 0,0 đến 1,0");
+			// Model metadata out of range must not fail the whole document; it is dropped and reported.
+			warnings.add("INVALID_CONFIDENCE: AI trả độ tin cậy " + value.toPlainString() + " ngoài khoảng 0,0–1,0; giá trị bị bỏ qua");
+			return null;
 		}
 		return value;
 	}
@@ -115,8 +129,11 @@ public class AiDocumentResultValidator {
 		}
 	}
 
-	private void validateInvoice(AiDocumentResult.AiInvoiceExtraction invoice, List<String> warnings, boolean retail) {
+	private void validateInvoice(AiDocumentResult.AiInvoiceExtraction invoice, List<String> warnings, boolean retail,
+			List<AiDocumentResult.AiFieldNote> notes) {
 		if (invoice == null) return;
+		java.util.Set<Integer> noTaxRows = noTaxRows(notes);
+		boolean allRowsNoTax = invoice.items() != null && !invoice.items().isEmpty() && noTaxRows.size() == invoice.items().size();
 		if (!retail && (invoice.invoiceNumber() == null || invoice.invoiceNumber().isBlank()))
 			warnings.add("MISSING_INVOICE_NUMBER: thiếu số hóa đơn");
 		if (invoice.invoiceDate() == null || invoice.invoiceDate().isBlank())
@@ -142,12 +159,16 @@ public class AiDocumentResultValidator {
 		if (invoice.items() == null || invoice.items().isEmpty())
             warnings.add("INVOICE_ITEMS_MISSING: Hóa đơn phải có ít nhất một dòng hàng hóa");
         if (!retail && invoice.subtotal() == null) warnings.add("MISSING_SUBTOTAL: Thiếu tổng trước thuế");
-        if (!retail && invoice.vatAmount() == null) warnings.add("MISSING_VAT_AMOUNT: Thiếu tiền thuế");
+        // A bill whose every row is KCT/KKKNT has no VAT to print; that is not a missing value.
+        if (!retail && invoice.vatAmount() == null && !allRowsNoTax) warnings.add("MISSING_VAT_AMOUNT: Thiếu tiền thuế");
         if (invoice.items() != null) {
-			boolean rowTaxDerived = InvoiceItemTax.rowTaxUnreliable(invoice);
+			java.util.Map<Integer, BigDecimal> discounts = InvoiceItemRepairs.discounts(notes);
 			for (int index = 0; index < invoice.items().size(); index++)
-				validateInvoiceItem(invoice.items().get(index), index + 1, warnings, retail, rowTaxDerived);
+				validateInvoiceItem(invoice.items().get(index), index + 1, warnings, retail,
+						discounts.getOrDefault(index + 1, BigDecimal.ZERO));
 		}
+		warnTaxCode(invoice.sellerTaxCode(), "sellerTaxCode", warnings);
+		warnTaxCode(invoice.buyerTaxCode(), "buyerTaxCode", warnings);
 		if (invoice.sellerTaxCode() != null && !TAX_CODE.matcher(invoice.sellerTaxCode().trim()).matches()) {
 			warnings.add("INVALID_SELLER_TAX_CODE: mã số thuế người bán không hợp lệ");
 		}
@@ -178,7 +199,7 @@ public class AiDocumentResultValidator {
 	}
 
 	private void validateInvoiceItem(AiDocumentResult.AiInvoiceItemExtraction item, int row,
-			List<String> warnings, boolean retail, boolean rowTaxDerived) {
+			List<String> warnings, boolean retail, BigDecimal discount) {
 		if (item == null) {
 			warnings.add("INVALID_INVOICE_ITEM: row=" + row + ", item is null");
 			return;
@@ -189,6 +210,9 @@ public class AiDocumentResultValidator {
 			warnings.add("MISSING_INVOICE_ITEM_NAME: row=" + row);
 		if (item.quantity() == null || item.unitPrice() == null || item.amount() == null)
             warnings.add("MISSING_INVOICE_ITEM_AMOUNTS: row=" + row + ", thiếu số lượng, đơn giá hoặc thành tiền");
+		warnPrecision(item.quantity(), 2, "quantity", row, warnings);
+		warnPrecision(item.unitPrice(), 2, "unitPrice", row, warnings);
+		warnPrecision(item.taxRate(), 2, "taxRate", row, warnings);
         warnNegative(item.quantity(), "NEGATIVE_ITEM_QUANTITY: row=" + row, warnings);
 		warnNegative(item.unitPrice(), "NEGATIVE_ITEM_UNIT_PRICE: row=" + row, warnings);
 		warnNegative(item.taxAmount(), "NEGATIVE_ITEM_TAX_AMOUNT: row=" + row, warnings);
@@ -197,13 +221,32 @@ public class AiDocumentResultValidator {
 				|| item.taxRate().compareTo(BigDecimal.ONE) > 0))
 			warnings.add("INVALID_ITEM_TAX_RATE: row=" + row + ", expected decimal fraction from 0 to 1");
 		if (!retail && item.quantity() != null && item.unitPrice() != null && item.amount() != null
-				&& InvoiceReconciliationRules.toDong(item.quantity().multiply(item.unitPrice())).subtract(item.amount()).abs()
+				&& InvoiceReconciliationRules.toDong(item.quantity().multiply(item.unitPrice()).subtract(discount)).subtract(item.amount()).abs()
 						.compareTo(InvoiceReconciliationRules.ROUNDING_LIMIT) >= 0)
 			warnings.add("ITEM_AMOUNT_MISMATCH: row=" + row + ", quantity * unitPrice does not match amount");
-		if (!retail && !rowTaxDerived && item.amount() != null && item.taxRate() != null && item.taxAmount() != null
+		if (!retail && item.amount() != null && item.taxRate() != null && item.taxAmount() != null
 				&& InvoiceReconciliationRules.toDong(item.amount().multiply(item.taxRate())).subtract(item.taxAmount()).abs()
 						.compareTo(InvoiceReconciliationRules.ROUNDING_LIMIT) >= 0)
 			warnings.add("ITEM_TAX_MISMATCH: row=" + row + ", amount * taxRate does not match taxAmount");
+	}
+
+	/**
+	 * The invoice_items columns keep two decimals; a value with more is rounded when stored. The raw value stays in
+	 * the field notes, and the accountant is told.
+	 */
+	private void warnPrecision(BigDecimal value, int scale, String field, int row, List<String> warnings) {
+		if (value == null || value.stripTrailingZeros().scale() <= scale) return;
+		warnings.add("PRECISION_LOSS: field=" + field + "; row=" + row + "; giá trị " + value.toPlainString()
+				+ " có nhiều hơn " + scale + " chữ số thập phân, cột lưu sẽ làm tròn; giá trị gốc được giữ trong báo cáo trường");
+	}
+
+	/** Valid format but a wrong check digit usually means one misread digit; it is shown, not blocking. */
+	private void warnTaxCode(String value, String field, List<String> warnings) {
+		if (value == null || value.isBlank()) return;
+		var parsed = com.example.invoice.ai.normalize.TaxCodes.parse(value);
+		if (parsed.valid() && !parsed.checksumOk())
+			warnings.add("TAX_CODE_CHECKSUM_MISMATCH: field=" + field + "; mã số thuế " + value
+					+ " sai chữ số kiểm tra, có thể đọc nhầm một chữ số");
 	}
 
 	private void warnNegative(BigDecimal value, String code, List<String> warnings) {

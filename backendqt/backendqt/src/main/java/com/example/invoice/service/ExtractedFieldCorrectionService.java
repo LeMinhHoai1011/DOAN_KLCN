@@ -23,6 +23,10 @@ public class ExtractedFieldCorrectionService {
     @org.springframework.beans.factory.annotation.Autowired private DocumentAuditService documentAudit;
     private String before(Document d){return documentAudit==null?null:documentAudit.capture(d);}
     private void remember(Document d,String action,String previous){if(documentAudit!=null)documentAudit.append(d,action,previous);}
+    @org.springframework.beans.factory.annotation.Autowired(required = false) private RegionSelectionService regionSelections;
+    void setRegionSelections(RegionSelectionService regionSelections){this.regionSelections=regionSelections;}
+    public static final String REASON_MANUAL = "Manual correction";
+    public static final String REASON_MANUAL_REGION = RegionSelectionService.SOURCE_MANUAL_REGION;
 
 	private static final Set<String> INVOICE_CORE_FIELDS = Set.of(
 			"invoiceNumber", "invoiceSeries", "invoiceDate", "sellerName", "sellerTaxCode", "sellerAddress",
@@ -69,8 +73,11 @@ public class ExtractedFieldCorrectionService {
 		correction.setCorrectedBy(actor);
 		correction.setOldValue(previous == null ? field.getFieldValue() : previous.getNewValue());
 		correction.setNewValue(request.fieldValue().trim());
-		correction.setReason("Manual correction");
-		fieldCorrectionRepository.save(correction);remember(document,"FIELD_CORRECTION",snapshot);
+		boolean fromRegion = request.region() != null && regionSelections != null;
+		correction.setReason(fromRegion ? REASON_MANUAL_REGION : REASON_MANUAL);
+		FieldCorrection saved = fieldCorrectionRepository.save(correction);
+		if (fromRegion) regionSelections.recordForCorrection(document, field, saved == null ? correction : saved, request.region(), actor);
+		remember(document,"FIELD_CORRECTION",snapshot);
 	}
 
 	private boolean hasRole(User user, String roleCode) {

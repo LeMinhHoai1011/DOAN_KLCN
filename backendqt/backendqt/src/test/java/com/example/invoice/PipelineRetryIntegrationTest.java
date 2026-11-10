@@ -134,7 +134,11 @@ class PipelineRetryIntegrationTest {
         assertEquals(invoice.getId(), invoices.findByDocumentId(id).orElseThrow().getId());
         assertEquals("MANUAL-1", invoices.findByDocumentId(id).orElseThrow().getInvoiceNumber());
         assertEquals(0, new BigDecimal("123").compareTo(invoices.findByDocumentId(id).orElseThrow().getTotalAmount()));
-        assertEquals(1, fields.findByDocumentId(id).size());
+        // One extracted value plus the one per-field report row the AI run writes (never duplicated by a retry).
+        assertEquals(1, fields.findByDocumentId(id).stream()
+                .filter(f -> !com.example.invoice.ai.FieldValidationReport.FIELD.equals(f.getFieldName())).count());
+        assertEquals(1, fields.findByDocumentId(id).stream()
+                .filter(f -> com.example.invoice.ai.FieldValidationReport.FIELD.equals(f.getFieldName())).count());
         assertEquals("MANUAL-PROJECT", corrections.findFirstByFieldIdOrderByCreatedAtDescIdDesc(field.getId()).orElseThrow().getNewValue());
         assertEquals(1, classifications.findAll().stream().filter(c -> c.getDocument().getId().equals(id)).count());
         assertEquals(1, execution.history(id).succeeded()); assertEquals(1, execution.history(id).failed());

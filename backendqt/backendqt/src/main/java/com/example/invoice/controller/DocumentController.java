@@ -180,6 +180,15 @@ public class DocumentController {
 		return invoiceService.findExtractedFieldsByDocumentId(id);
 	}
 
+	/** New, read-only: raw value, normalized value, status and reasons per field of the latest AI run (204 if none). */
+	@GetMapping("/{id}/field-validation")
+	@PreAuthorize("hasAuthority('PERMISSION_DOCUMENT_VIEW') or hasRole('ADMIN')")
+	public org.springframework.http.ResponseEntity<com.fasterxml.jackson.databind.JsonNode> getFieldValidation(@PathVariable Long id) {
+		var report = invoiceService.findFieldValidation(id);
+		return report == null ? org.springframework.http.ResponseEntity.noContent().build()
+				: org.springframework.http.ResponseEntity.ok(report);
+	}
+
 	@PatchMapping("/{id}/extracted-fields/{fieldId}/correction")
 	@PreAuthorize("hasRole('ADMIN') or hasRole('ACCOUNTANT')")
 	public ExtractedFieldResponse correctExtractedField(@PathVariable Long id, @PathVariable Long fieldId,

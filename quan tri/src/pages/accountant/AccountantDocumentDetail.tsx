@@ -1,7 +1,7 @@
 import ProcessingHistoryCard from '../../components/ProcessingHistoryCard';
 import type { PipelineHistory } from '../../services/documentService';
 import { assessmentMessage, reviewMessages } from '../../utils/assessmentPresentation';
-import { fieldLabel } from '../../components/ocr-preview/ocrPreviewUtils';
+import { fieldDisplay, fieldLabel } from '../../components/ocr-preview/ocrPreviewUtils';
 import DocumentArchivePanel from '../../components/DocumentArchivePanel';
 import DocumentPaymentPanel from '../../components/DocumentPaymentPanel';
 import { accountingAccountError, categoryTypeLabel } from '../../utils/accountingCategoryPresentation';
@@ -9,7 +9,7 @@ import BusinessStateCard from "../../components/BusinessStateCard";
 
 
 import type { DocumentAssessment } from "../../services/documentService";
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createActiveReviewTimer, isReviewDecision } from '../../utils/activeReviewTimer';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Download, Pencil, Save, X } from 'lucide-react';
@@ -27,9 +27,13 @@ import { getEffectiveRole, getErrorMessage } from '../../services/authService';
 import EmptyState from '../../components/ui/EmptyState';
 import ErrorState from '../../components/ui/ErrorState';
 import LoadingState from '../../components/ui/LoadingState';
-import ExtractedFieldPanel from '../../components/ocr-preview/ExtractedFieldPanel';
+import ExtractedFieldPanel, { type FieldRegionPick } from '../../components/ocr-preview/ExtractedFieldPanel';
 import OcrDocumentPreview from '../../components/OcrDocumentPreview';
+import RegionReviewPanel, { type RegionDraftView } from '../../components/ocr-preview/RegionReviewPanel';
+import { regionValueForField, type PageRect } from '../../components/ocr-preview/regionSelect';
 import InvoiceItemsPanel from '../../components/InvoiceItemsPanel';
+import RetailDetailsPanel from '../../components/RetailDetailsPanel';
+import { isRetailDocument } from '../../utils/retailPresentation';
 import VatInvoicePanel, { documentTypeLabel, emptyInvoiceForm, toInvoiceForm, toInvoiceUpdateRequest, type InvoiceFormData } from '../../components/VatInvoicePanel';
 import { textSourceLabel } from '../../utils/confidence';
 import AiChangesCard from '../../components/AiChangesCard';
@@ -39,6 +43,10 @@ import ReconciliationResultCard from '../../components/ReconciliationResultCard'
 import ReconciliationDecision from '../../components/ReconciliationDecision';
 
 type DetailTab = 'overview' | 'items' | 'reconciliation' | 'storage';
+type RegionTarget =
+  | { kind: 'invoice'; key: string; field: keyof InvoiceFormData; label: string }
+  | { kind: 'extracted'; key: string; field: ExtractedFieldResponse; label: string };
+
 type RemoteState = 'idle' | 'loading' | 'empty' | 'success' | 'error';
 
 const money = (value: number | null | undefined) => value == null ? '—' : `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(value)} đ`;
@@ -101,6 +109,14 @@ const AccountantDocumentDetail = () => {
   const [workflowError, setWorkflowError] = useState('');
   const [workflowMessage, setWorkflowMessage] = useState('');
   const [focusedField, setFocusedField] = useState<ExtractedFieldResponse | null>(null);
+  // Region picking: the accountant drags a box on the preview to fill one field (source MANUAL_REGION).
+  const [regionTarget, setRegionTarget] = useState<RegionTarget | null>(null);
+  const [regionDraft, setRegionDraft] = useState<(RegionDraftView & { rect: PageRect }) | null>(null);
+  const [pendingRegions, setPendingRegions] = useState<Record<string, { region: PageRect; extractedText: string; finalValue: string }>>({});
+  const regionRequest = useRef(0);
+  // Rectangle drawn for the AI field being edited in its card (kept until saved or the card is closed).
+  const [fieldRegionPick, setFieldRegionPick] = useState<FieldRegionPick | null>(null);
+  const [previewPageCount, setPreviewPageCount] = useState<number | undefined>(undefined);
   const [archiveTab, setArchiveTab] = useState<'storage' | 'versions' | 'history'>('storage');
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const role = getEffectiveRole();
@@ -256,12 +272,21 @@ const AccountantDocumentDetail = () => {
     setIsSaving(true);
     setSaveMessage('');
     setSaveError('');
+    let regionWarning = '';
+    cancelRegion();
 
     try {
       if (invoice) {
         const updatedInvoice = await invoiceService.updateInvoice(invoice.id, toInvoiceUpdateRequest(document.id, invoiceForm, invoice));
         setInvoice(updatedInvoice);
         setInvoiceForm(toInvoiceForm(updatedInvoice));
+        // Only values kept exactly as picked count as MANUAL_REGION; edited-after-pick values are plain manual edits.
+        const selections = Object.entries(pendingRegions)
+          .filter(([field, pending]) => invoiceForm[field as keyof InvoiceFormData]?.trim() === pending.finalValue)
+          .map(([fieldName, pending]) => ({ fieldName, ...pending }));
+        setPendingRegions({});
+        if (selections.length > 0) await documentService.recordRegionSelections(document.id, selections)
+          .catch(() => { regionWarning = 'Đã lưu hóa đơn nhưng chưa ghi được nguồn vùng chọn.'; });
       }
 
       const accountChanged = accountingAccount.trim() !== (classification?.accountingAccount || '');
@@ -282,7 +307,7 @@ const AccountantDocumentDetail = () => {
 	  }
 
       setBusinessState(null); setBusinessState(await documentService.getBusinessState(document.id).catch(() => null));
-      setSaveMessage('Đã lưu thay đổi');
+      setSaveMessage(regionWarning ? `Đã lưu thay đổi. ${regionWarning}` : 'Đã lưu thay đổi');
       setIsEditing(false);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Không thể lưu thay đổi. Vui lòng thử lại.');
@@ -297,8 +322,8 @@ const AccountantDocumentDetail = () => {
     void documentService.getBusinessState(documentId).then(setBusinessState).catch(() => setBusinessState(null));
   };
 
-  const handleCorrectExtractedField = async (fieldId: number, fieldValue: string) => {
-    await documentService.correctExtractedField(documentId, fieldId, fieldValue);
+  const handleCorrectExtractedField = async (fieldId: number, fieldValue: string, region?: { region: PageRect; extractedText: string }) => {
+    await documentService.correctExtractedField(documentId, fieldId, fieldValue, region);
     try {
       setExtractedFields(await documentService.getDocumentExtractedFields(documentId));
     } catch {
@@ -341,6 +366,75 @@ const AccountantDocumentDetail = () => {
     setReconciliations(current => current.map(item => item.id === id ? updated : item));
     void documentService.getBusinessState(documentId).then(setBusinessState).catch(() => setBusinessState(null));
   };
+
+  const regionFieldName = regionTarget ? (regionTarget.kind === 'invoice' ? regionTarget.field : regionTarget.field.fieldName) : '';
+  const cancelRegion = useCallback(() => { regionRequest.current += 1; setRegionTarget(null); setRegionDraft(null); }, []);
+  const startRegion = (target: RegionTarget) => {
+    regionRequest.current += 1; setRegionDraft(null);
+    setRegionTarget(current => current && current.key === target.key ? null : target);
+  };
+  const handleRegionSelected = useCallback((rect: PageRect, localText: string) => {
+    if (!regionTarget) return;
+    if (regionTarget.kind === 'extracted') {
+      // AI field: the rectangle and its text go back to the field card; the value being edited is kept.
+      const fieldId = regionTarget.field.id;
+      const requestId = ++regionRequest.current;
+      setRegionTarget(null);
+      setFieldRegionPick({ fieldId, rect, text: localText, loading: true, error: '' });
+      void documentService.getRegionText(documentId, rect).then(result => {
+        if (requestId !== regionRequest.current) return;
+        setFieldRegionPick(pick => pick && pick.fieldId === fieldId ? { ...pick, text: result.text, loading: false } : pick);
+      }).catch(error => {
+        if (requestId !== regionRequest.current) return;
+        setFieldRegionPick(pick => pick && pick.fieldId === fieldId ? { ...pick, loading: false, error: getErrorMessage(error, 'Không đọc được chữ trong vùng từ máy chủ.') } : pick);
+      });
+      return;
+    }
+    const fieldName = regionTarget.field;
+    const requestId = ++regionRequest.current;
+    const localValue = regionValueForField(fieldName, localText);
+    setRegionDraft({ rect, extractedText: localText, value: localValue, loading: true, saving: false, error: '' });
+    // The server reads the stored layout_json with the same overlap rule; its answer is authoritative.
+    void documentService.getRegionText(documentId, rect).then(result => {
+      if (requestId !== regionRequest.current) return;
+      setRegionDraft(draft => draft && { ...draft, loading: false, extractedText: result.text,
+        value: draft.value === localValue ? regionValueForField(fieldName, result.text) : draft.value });
+    }).catch(error => {
+      if (requestId !== regionRequest.current) return;
+      setRegionDraft(draft => draft && { ...draft, loading: false, error: getErrorMessage(error, 'Không đọc được chữ trong vùng từ máy chủ.') });
+    });
+  }, [documentId, regionTarget]);
+  const applyRegion = async () => {
+    if (!regionTarget || !regionDraft || !regionDraft.value.trim()) return;
+    const value = regionDraft.value.trim();
+    if (regionTarget.kind === 'invoice') {
+      updateInvoiceForm(regionTarget.field, value);
+      setPendingRegions(current => ({ ...current, [regionTarget.field]: { region: regionDraft.rect, extractedText: regionDraft.extractedText, finalValue: value } }));
+      cancelRegion();
+      return;
+    }
+  };
+  /** Closing a field card: no selection, no highlight, no pending rectangle. */
+  const closeField = () => {
+    setFocusedField(null); setFieldRegionPick(null);
+    if (regionTarget?.kind === 'extracted') cancelRegion();
+  };
+  const selectField = (field: ExtractedFieldResponse) => {
+    setFocusedField(field);
+    setFieldRegionPick(pick => pick?.fieldId === field.id ? pick : null);
+    if (regionTarget?.kind === 'extracted' && regionTarget.field.id !== field.id) cancelRegion();
+  };
+  const handleSaveFieldLocation = async (fieldId: number, rect: PageRect, extractedText: string, value: string) => {
+    await documentService.recordRegionSelections(documentId, [{ fieldId, region: rect, extractedText, finalValue: value }]);
+    try {
+      setExtractedFields(await documentService.getDocumentExtractedFields(documentId));
+    } catch {
+      throw new Error('Đã lưu vị trí nhưng không thể tải lại dữ liệu. Vui lòng làm mới trang.');
+    }
+  };
+  useEffect(() => { if (!isEditing && regionTarget?.kind === 'invoice') cancelRegion(); }, [cancelRegion, isEditing, regionTarget]);
+  const regionAvailable = Boolean(ocr?.layoutJson);
+  const regionFields = useMemo(() => new Set(Object.keys(pendingRegions)), [pendingRegions]);
 
   const hasUnsavedChanges = useMemo(() => {
     if (itemsDirty) return true;
@@ -406,7 +500,7 @@ const AccountantDocumentDetail = () => {
             <Pencil size={22} />
             <span>Chỉnh sửa thủ công</span>
           </button>}
-          {isEditing && <button onClick={() => { setInvoiceForm(invoice ? toInvoiceForm(invoice) : emptyInvoiceForm); setClassificationValue(classification?.category || ''); setAccountingAccount(classification?.accountingAccount || ''); setDocumentTypeId(document.typeId == null ? '' : String(document.typeId)); setIsEditing(false); setSaveError(''); }} disabled={isSaving} className="si-btn-secondary">
+          {isEditing && <button onClick={() => { setInvoiceForm(invoice ? toInvoiceForm(invoice) : emptyInvoiceForm); setClassificationValue(classification?.category || ''); setAccountingAccount(classification?.accountingAccount || ''); setDocumentTypeId(document.typeId == null ? '' : String(document.typeId)); setPendingRegions({}); cancelRegion(); setIsEditing(false); setSaveError(''); }} disabled={isSaving} className="si-btn-secondary">
             <X size={22} /><span>Hủy</span>
           </button>}
           {isEditing && <button onClick={handleSave} disabled={isSaving} className="si-btn-primary">
@@ -430,7 +524,13 @@ const AccountantDocumentDetail = () => {
         <div className="h-[calc(68vh/var(--ui-zoom))] min-h-[520px] xl:h-full xl:min-h-0">
           <OcrDocumentPreview documentId={document.id} fileType={document.fileType} ocr={ocr}
             showFieldPanel={false} focusedField={focusedField} fields={extractedFields} documentType={document.documentType} canCorrectFields={canCorrect}
-            onCorrectField={handleCorrectExtractedField} />
+            onCorrectField={handleCorrectExtractedField}
+            regionTarget={regionTarget} regionSelection={regionDraft?.rect} onRegionSelected={handleRegionSelected} onRegionCancel={cancelRegion}
+            focusedRegion={fieldRegionPick && focusedField?.id === fieldRegionPick.fieldId ? fieldRegionPick.rect : null}
+            onPageCount={setPreviewPageCount}
+            regionPanel={regionTarget?.kind !== 'invoice' ? null : <RegionReviewPanel draft={regionDraft} dateField={regionFieldName === 'signDate' || regionFieldName === 'invoiceDate'}
+              applyLabel="Điền vào form"
+              onChange={value => setRegionDraft(draft => draft && { ...draft, value })} onApply={() => void applyRegion()} />} />
         </div>
 
         <div className="si-card flex min-h-[560px] flex-col overflow-hidden xl:min-h-0">
@@ -464,8 +564,15 @@ const AccountantDocumentDetail = () => {
               </section>
               <section className="grid grid-cols-3 gap-2"><div className="rounded-card bg-canvas p-3"><p className="text-xs text-ink-muted">Trước thuế</p><p className="mt-1 font-semibold">{money(invoice?.subtotal)}</p></div><div className="rounded-card bg-canvas p-3"><p className="text-xs text-ink-muted">Thuế GTGT</p><p className="mt-1 font-semibold">{money(invoice?.vatAmount)}</p></div><div className="rounded-card bg-brand-50 p-3"><p className="text-xs text-brand-600">Tổng tiền</p><p className="mt-1 font-bold text-brand-800">{money(invoice?.totalAmount)}</p></div></section>
               <section className="si-card p-4"><div className="grid grid-cols-2 gap-3 text-sm"><div><p className="text-xs text-ink-muted">Số hóa đơn</p><p className="font-medium">{valueOrDash(invoice?.invoiceNumber)}</p></div><div><p className="text-xs text-ink-muted">Ngày hóa đơn</p><p className="font-medium">{valueOrDash(invoice?.invoiceDate)}</p></div><div><p className="text-xs text-ink-muted">Người bán</p><p className="font-medium">{valueOrDash(invoice?.sellerName)}</p></div><div><p className="text-xs text-ink-muted">Người mua</p><p className="font-medium">{valueOrDash(invoice?.buyerName)}</p></div></div></section>
-              <details open={isEditing || undefined} className="si-card p-4"><summary className="cursor-pointer font-medium">Thông tin hóa đơn và chỉnh sửa</summary><div className="mt-3">{invoice ? <VatInvoicePanel invoice={invoice} form={invoiceForm} editable={isEditing} onChange={updateInvoiceForm} rawText={ocr?.rawText} /> : <p>Chưa có dữ liệu hóa đơn.</p>}</div></details>
-              {extractedFields.length > 0 && <details className="si-card overflow-hidden"><summary className="cursor-pointer p-4 font-medium">Trường trích xuất ({extractedFields.length})</summary><ExtractedFieldPanel fields={extractedFields} documentType={document.documentType} selectedId={focusedField?.id} canCorrect={canCorrect} onSelect={field => setFocusedField(current => current?.id === field.id ? null : field)} onHover={() => {}} onCorrect={handleCorrectExtractedField} /></details>}
+              <details open={isEditing || undefined} className="si-card p-4"><summary className="cursor-pointer font-medium">Thông tin hóa đơn và chỉnh sửa</summary><div className="mt-3">{invoice ? <VatInvoicePanel invoice={invoice} form={invoiceForm} editable={isEditing} onChange={updateInvoiceForm} rawText={ocr?.rawText}
+                onPickRegion={regionAvailable ? (field, label) => startRegion({ kind: 'invoice', key: `invoice-${field}`, field, label }) : undefined}
+                regionField={regionTarget?.kind === 'invoice' ? regionTarget.field : null} regionFields={regionFields} retail={isRetailDocument(document)} /> : <p>Chưa có dữ liệu hóa đơn.</p>}</div></details>
+              {invoice && isRetailDocument(document) && <RetailDetailsPanel invoiceId={invoice.id} rowCount={invoice.items.length} canEdit={canCorrect}
+                refreshKey={changeKey} onSaved={() => { void documentService.getBusinessState(document.id).then(setBusinessState).catch(() => setBusinessState(null)); }} />}
+              {extractedFields.length > 0 && <details className="si-card overflow-hidden"><summary className="cursor-pointer p-4 font-medium">Trường trích xuất ({extractedFields.length})</summary><ExtractedFieldPanel fields={extractedFields} documentType={document.documentType} selectedId={focusedField?.id} canCorrect={canCorrect} onSelect={selectField} onHover={() => {}} onCorrect={handleCorrectExtractedField}
+                onPickRegion={regionAvailable ? field => startRegion({ kind: 'extracted', key: `field-${field.id}`, field, label: fieldDisplay(field).label }) : undefined}
+                regionFieldId={regionTarget?.kind === 'extracted' ? regionTarget.field.id : null}
+                pageCount={previewPageCount} onClose={closeField} regionPick={fieldRegionPick} onSaveLocation={handleSaveFieldLocation} /></details>}
               <BusinessStateCard state={businessState} />
 
             </div>}

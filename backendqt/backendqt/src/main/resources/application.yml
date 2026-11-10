@@ -85,6 +85,9 @@ ai:
     think: ${OLLAMA_THINK:false}
     num-predict: ${OLLAMA_NUM_PREDICT:3072}
     num-context: ${OLLAMA_NUM_CONTEXT:8192}
+    # Repeatable extraction: the same document gives the same JSON. Leave empty to use the model's defaults.
+    temperature: ${OLLAMA_TEMPERATURE:0}
+    seed: ${OLLAMA_SEED:42}
   cloud:
     base-url: ${AI_CLOUD_BASE_URL:}
     api-key: ${AI_CLOUD_API_KEY:}

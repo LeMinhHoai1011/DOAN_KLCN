@@ -332,10 +332,9 @@ class DocumentAiResultPersistenceServiceTest {
 				extractedFieldRepository, processingLogService, new AiProperties());
 		service.persist(13L, validated);
 
-		ArgumentCaptor<ExtractedField> field = ArgumentCaptor.forClass(ExtractedField.class);
-		verify(extractedFieldRepository).save(field.capture());
-		assertEquals(document, field.getValue().getDocument());
-		assertNull(field.getValue().getInvoice());
+		ExtractedField saved = savedValueFields().getFirst();
+		assertEquals(document, saved.getDocument());
+		assertNull(saved.getInvoice());
 		verify(invoiceRepository, never()).save(any());
 	}
 
@@ -396,7 +395,7 @@ class DocumentAiResultPersistenceServiceTest {
 		assertTrue(service.persist(14L, validated));
 		assertEquals(DocumentStatus.NEED_REVIEW, document.getStatus());
 		verify(invoiceRepository, never()).save(any());
-		verify(extractedFieldRepository).save(any(ExtractedField.class));
+		assertEquals(1, savedValueFields().size());
 	}
 
 	@Test
@@ -423,11 +422,44 @@ class DocumentAiResultPersistenceServiceTest {
 
 		service.persist(15L, new AiDocumentResultValidator().validate(result, Set.of("INVOICE")));
 
-		ArgumentCaptor<ExtractedField> fields = ArgumentCaptor.forClass(ExtractedField.class);
-		verify(extractedFieldRepository, org.mockito.Mockito.times(2)).save(fields.capture());
-		assertEquals(Set.of("deliveryCode", "warehouseCode"), fields.getAllValues().stream()
-				.map(ExtractedField::getFieldName).collect(java.util.stream.Collectors.toSet()));
-		assertTrue(fields.getAllValues().stream().allMatch(f -> f.getInvoice() != null));
+		List<ExtractedField> fields = savedValueFields();
+		assertEquals(3, fields.size());
+		// Same key with another value is kept under a suffix instead of being dropped.
+		assertEquals(java.util.Map.of("deliveryCode", "D-1", "deliveryCode2", "D-2", "warehouseCode", "WH-1"), fields.stream()
+				.collect(java.util.stream.Collectors.toMap(ExtractedField::getFieldName, ExtractedField::getFieldValue)));
+		assertTrue(fields.stream().allMatch(f -> f.getInvoice() != null));
+	}
+
+	@Test
+	void vietnameseAiFieldNamesGetFoldedKeysAndInvoiceLabelsMapToInvoiceColumns() {
+		Document document = new Document(); document.setId(16L);
+		DocumentType type = new DocumentType(); type.setCode("INVOICE");
+		AiDocumentResult result = new AiDocumentResult("ollama", "text", "INVOICE", BigDecimal.ONE, null, null, "invoice",
+				new AiDocumentResult.AiInvoiceExtraction("INV-16", null, null, null, null, null, null, null, null,
+						null, null, null, List.of()),
+				List.of(new AiDocumentResult.AiExtractedField("Số tiền viết bằng chữ (Amount in words)", "Mười nghìn đồng", BigDecimal.ONE),
+						new AiDocumentResult.AiExtractedField("Mã số thuế", "0318334251", BigDecimal.ONE),
+						new AiDocumentResult.AiExtractedField("Mã số thuế", "3700650344", BigDecimal.ONE),
+						new AiDocumentResult.AiExtractedField("MÃ SỐ THUẾ", "0318334251", BigDecimal.ONE),
+						new AiDocumentResult.AiExtractedField("Số hóa đơn", "INV-16", BigDecimal.ONE),
+						new AiDocumentResult.AiExtractedField("Ngân hàng: ACB / Chi nhánh #1", "ACB", BigDecimal.ONE)),
+				List.of(), "raw", 10L, AiDocumentResult.DocumentDirection.UNKNOWN,
+				new AiDocumentResult.AiTransactionAssessment(AiDocumentResult.TransactionAssessmentType.UNKNOWN, null, null),
+				List.of(new AiDocumentResult.AiExtraField("Mã tra cứu", "Mã tra cứu", "QSYE7HURN", BigDecimal.ONE)),
+				new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.UNKNOWN, null, null));
+		when(documentService.load(16L)).thenReturn(document);
+		when(documentTypeRepository.findByCode("INVOICE")).thenReturn(Optional.of(type));
+		when(classificationRepository.findFirstByDocumentIdOrderByCreatedAtDesc(16L)).thenReturn(Optional.empty());
+		when(invoiceRepository.findByDocumentId(16L)).thenReturn(Optional.empty());
+		when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		service().persist(16L, new AiDocumentResultValidator().validate(result, Set.of("INVOICE")));
+
+		var saved = savedValueFields().stream()
+				.collect(java.util.stream.Collectors.toMap(ExtractedField::getFieldName, ExtractedField::getFieldValue));
+		// "Số hóa đơn" is the invoice number already stored on the invoice: no duplicate dynamic field.
+		assertEquals(java.util.Map.of("amountInWords", "Mười nghìn đồng", "taxCode", "0318334251", "taxCode2", "3700650344",
+				"nganHangAcbChiNhanh1", "ACB", "lookupCode", "QSYE7HURN"), saved);
 	}
 
 	@Test
@@ -447,10 +479,10 @@ class DocumentAiResultPersistenceServiceTest {
 
 		service.persist(16L, new AiDocumentResultValidator().validate(result, Set.of("INVOICE")));
 
-		ArgumentCaptor<ExtractedField> field = ArgumentCaptor.forClass(ExtractedField.class);
-		verify(extractedFieldRepository).save(field.capture());
-		assertEquals("invoiceNumber", field.getValue().getFieldName());
-		assertEquals("OCR-ONLY", field.getValue().getFieldValue());
+		ExtractedField saved = savedValueFields().getFirst();
+		assertEquals(1, savedValueFields().size());
+		assertEquals("invoiceNumber", saved.getFieldName());
+		assertEquals("OCR-ONLY", saved.getFieldValue());
 	}
 
 	@Test
@@ -520,7 +552,7 @@ class DocumentAiResultPersistenceServiceTest {
 		assertEquals("tháng", invoice.getValue().getItems().getFirst().getUnit());
 		assertEquals(new BigDecimal("0.08"), invoice.getValue().getItems().getFirst().getTaxRate());
 		assertEquals(new BigDecimal("800000"), invoice.getValue().getItems().getFirst().getTaxAmount());
-		verify(extractedFieldRepository, never()).save(any(ExtractedField.class));
+		assertTrue(savedValueFields().isEmpty());
 	}
 
 	@Test
@@ -565,5 +597,13 @@ class DocumentAiResultPersistenceServiceTest {
 				AiDocumentResult.DocumentDirection.UNKNOWN,
 				new AiDocumentResult.AiTransactionAssessment(AiDocumentResult.TransactionAssessmentType.UNKNOWN, null, null),
 				List.of(), new AiDocumentResult.AiCompanyRole(AiDocumentResult.CompanyRole.UNKNOWN, null, null));
+	}
+
+	/** Saved extracted values, without the per-field report row every AI run now writes. */
+	private List<ExtractedField> savedValueFields() {
+		ArgumentCaptor<ExtractedField> captor = ArgumentCaptor.forClass(ExtractedField.class);
+		verify(extractedFieldRepository, org.mockito.Mockito.atLeast(0)).save(captor.capture());
+		return captor.getAllValues().stream()
+				.filter(field -> !com.example.invoice.ai.FieldValidationReport.FIELD.equals(field.getFieldName())).toList();
 	}
 }

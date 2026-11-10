@@ -111,10 +111,15 @@ export interface ExtractedFieldResponse {
   manuallyCorrected: boolean
   correctedById: number | null
   correctedAt: string | null
+  /** AI: found by matching the AI value in the OCR layout; MANUAL_REGION: drawn by an accountant. */
   locations?: Array<{
     page: number; x: number; y: number; width: number; height: number
-    pageWidth: number; pageHeight: number; matchConfidence: number
+    pageWidth: number; pageHeight: number; matchConfidence: number; source?: 'AI' | 'MANUAL_REGION' | string | null
   }>
+  /** Vietnamese name to show; fieldName stays the technical key. */
+  displayName?: string | null
+  /** CATALOG | AI_ORIGINAL | LEGACY_LABEL | UNRESOLVED (original name could not be recovered). */
+  displayNameSource?: string | null
 }
 
 export interface AiDocumentProcessingResponse {
@@ -221,11 +226,33 @@ const getDocumentExtractedFields = async (id: number) => {
   return data
 }
 
-const correctExtractedField = async (documentId: number, fieldId: number, fieldValue: string) => {
+/** Rectangle in pixels of the original OCR page (same space as layoutJson). */
+export type RegionRect = { page: number; x: number; y: number; width: number; height: number }
+export type RegionProvenance = { region: RegionRect; extractedText?: string | null }
+export type RegionTextResponse = {
+  page: number; pageWidth: number; pageHeight: number; text: string; lines: string[]
+  words: { id?: string | null; text: string; confidence?: number | null; x: number; y: number; width: number; height: number }[]
+}
+/** fieldName: invoice column taken from a region; fieldId: AI field whose location is set without changing its value. */
+export type RegionSelectionRequest = { fieldName?: string; fieldId?: number; region: RegionRect; extractedText?: string | null; finalValue: string }
+
+const correctExtractedField = async (documentId: number, fieldId: number, fieldValue: string, region?: RegionProvenance | null) => {
   const { data } = await api.patch<ExtractedFieldResponse>(
     `/api/v1/documents/${documentId}/extracted-fields/${fieldId}/correction`,
-    { fieldValue },
+    region ? { fieldValue, region } : { fieldValue },
   )
+  return data
+}
+
+/** OCR text inside a rectangle drawn on the preview. Read-only on the server. */
+const getRegionText = async (documentId: number, region: RegionRect) => {
+  const { data } = await api.post<RegionTextResponse>(`/api/v1/documents/${documentId}/region-text`, region)
+  return data
+}
+
+/** Provenance (source MANUAL_REGION) of invoice-form values taken from a region, sent after the invoice save. */
+const recordRegionSelections = async (documentId: number, selections: RegionSelectionRequest[]) => {
+  const { data } = await api.post(`/api/v1/documents/${documentId}/region-selections`, { selections })
   return data
 }
 
@@ -330,6 +357,8 @@ const documentService = {
 	getDocumentOCR,
 	getDocumentExtractedFields,
 	correctExtractedField,
+  getRegionText,
+  recordRegionSelections,
   uploadDocument,
   processUploadedDocument,
   getProcessingProgress,

@@ -1,4 +1,5 @@
 import { parseInvoiceNumber, invoiceNumberInput, invoiceQuantity } from '../utils/invoiceNumber'
+import { hasItemDiscount, ITEM_DISCOUNT_NOTE } from '../utils/itemDiscount'
 import DateInput from './ui/DateInput'
 import { formatDate } from '../utils/dateTime'
 import type { InvoiceResponse, InvoiceUpdateRequest } from '../services/invoiceService'
@@ -41,7 +42,8 @@ export const toInvoiceUpdateRequest = (documentId: number, form: InvoiceFormData
   taxAuthorityCode: nullable(form.taxAuthorityCode), items: invoice.items,
 })
 
-export const documentTypeLabel = (value: string | null) => value === 'VAT_INVOICE' ? 'Hóa đơn giá trị gia tăng' : value || 'Chưa xác định'
+export const documentTypeLabel = (value: string | null) => value === 'VAT_INVOICE' ? 'Hóa đơn giá trị gia tăng'
+  : value === 'RETAIL_INVOICE' ? 'Hóa đơn bán lẻ' : value || 'Chưa xác định'
 
 const money = (value: number | null) => value == null ? '—' : `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(value)} đ`
 const date = formatDate
@@ -51,25 +53,48 @@ const Section = ({ title, children }: { title: string; children: ReactNode }) =>
   <h4 className="si-label mb-4 text-brand-700">{title}</h4>{children}
 </section>
 
-export default function VatInvoicePanel({ invoice, form, editable, onChange, rawText }: {
+export default function VatInvoicePanel({ invoice, form, editable, onChange, rawText, onPickRegion, regionField, regionFields, retail = false }: {
   invoice: InvoiceResponse; form: InvoiceFormData; editable: boolean
   onChange: (field: keyof InvoiceFormData, value: string) => void; rawText?: string | null
+  /** When set (and editable), each field offers "Chọn vùng" to take its value from the preview. */
+  onPickRegion?: (field: keyof InvoiceFormData, label: string) => void
+  /** Field currently being picked on the preview. */
+  regionField?: keyof InvoiceFormData | null
+  /** Fields whose draft value came from a region (shown until the invoice is saved). */
+  regionFields?: ReadonlySet<string>
+  /** Retail/POS bill: buyer, tax codes, VAT and e-invoice fields are optional and only shown when printed or editing. */
+  retail?: boolean
 }) {
   const Input = ({ field, label, type = 'text', multiline = false, emphasis = false }: { field: keyof InvoiceFormData; label: string; type?: string; multiline?: boolean; emphasis?: boolean }) => <div className="block min-w-0">
-    <label htmlFor={`invoice-field-${field}`} className="si-field-label mb-1 block">{label}</label>
+    <div className="mb-1 flex items-center justify-between gap-2">
+      <label htmlFor={`invoice-field-${field}`} className="si-field-label block">{label}</label>
+      {editable && onPickRegion && <button type="button" onClick={() => onPickRegion(field, label)}
+        aria-pressed={regionField === field} aria-label={`Chọn vùng trên chứng từ cho ${label}`}
+        className={`shrink-0 rounded-control px-1.5 py-0.5 text-xs font-semibold ${regionField === field ? 'bg-brand-600 text-white' : 'text-brand-700 hover:bg-brand-50'}`}>
+        {regionField === field ? 'Đang chọn vùng…' : 'Chọn vùng'}
+      </button>}
+    </div>
     {multiline ? <textarea id={`invoice-field-${field}`} value={form[field]} onChange={event => onChange(field, event.target.value)} disabled={!editable} rows={3} className="si-input disabled:bg-subtle" />
       : type === 'date' ? <DateInput id={`invoice-field-${field}`} value={form[field]} onChange={event => onChange(field,event.target.value)} disabled={!editable} className="si-input disabled:bg-subtle" /> : <input id={`invoice-field-${field}`} type={type === 'number' ? 'text' : type} inputMode={type === 'number' ? 'decimal' : undefined} value={form[field]} onChange={event => onChange(field, event.target.value)} disabled={!editable} className={`si-input disabled:bg-subtle ${emphasis ? 'border-brand-500 font-semibold text-brand-700' : ''}`} />}
     {type === 'date' && form[field] && <span className="mt-1 block text-xs text-ink-muted">{date(form[field])}</span>}
     {type === 'number' && <span className="mt-1 block text-xs text-ink-muted">Dấu chấm ngăn nghìn, dấu phẩy phần lẻ.</span>}
+    {regionFields?.has(field) && <span className="mt-1 block text-xs font-semibold text-review">Lấy từ vùng chọn · chưa lưu</span>}
   </div>
 
   return <div className="space-y-4">
+    {retail ? <>
+      <Section title="Thông tin hóa đơn bán lẻ"><div className="grid gap-4 sm:grid-cols-2"><Input label="Số hóa đơn / phiếu" field="invoiceNumber" /><Input label="Ngày bán" field="invoiceDate" type="date" />{(editable || form.invoiceSeries) && <Input label="Ký hiệu (nếu có)" field="invoiceSeries" />}</div></Section>
+      <Section title="Cửa hàng / người bán"><div className="grid gap-4 sm:grid-cols-2"><Input label="Tên cửa hàng / người bán" field="sellerName" /><Input label="Mã số thuế (nếu có)" field="sellerTaxCode" /><Input label="Địa chỉ" field="sellerAddress" /><Input label="Số điện thoại" field="sellerPhone" /></div></Section>
+      {(editable || form.buyerName || form.buyerTaxCode || form.buyerAddress) && <Section title="Người mua (không bắt buộc)"><div className="grid gap-4 sm:grid-cols-2"><Input label="Tên người mua" field="buyerName" /><Input label="Mã số thuế" field="buyerTaxCode" /><div className="sm:col-span-2"><Input label="Địa chỉ" field="buyerAddress" /></div></div></Section>}
+      <Section title="Thanh toán"><div className="grid gap-4 sm:grid-cols-2"><Input label="Tổng tiền thanh toán" field="totalAmount" type="number" emphasis /><Input label="Hình thức thanh toán" field="paymentMethod" />{(editable || form.subtotal) && <Input label="Tiền hàng trước thuế (nếu có in)" field="subtotal" type="number" />}{(editable || form.vatAmount) && <Input label="Tiền thuế (nếu có in)" field="vatAmount" type="number" />}{(editable || form.amountInWords) && <div className="sm:col-span-2"><Input label="Số tiền bằng chữ" field="amountInWords" multiline /></div>}</div></Section>
+    </> : <>
     <Section title="Thông tin hóa đơn"><div className="grid gap-4 sm:grid-cols-2"><Input label="Ký hiệu hóa đơn" field="invoiceSeries" /><Input label="Số hóa đơn" field="invoiceNumber" /><Input label="Ngày lập hóa đơn" field="invoiceDate" type="date" /><Input label="Ngày ký" field="signDate" type="date" /></div></Section>
     <Section title="Thông tin người bán"><div className="grid gap-4 sm:grid-cols-2"><Input label="Tên người bán" field="sellerName" /><Input label="Mã số thuế" field="sellerTaxCode" /><Input label="Địa chỉ" field="sellerAddress" /><Input label="Số điện thoại" field="sellerPhone" /></div></Section>
     <Section title="Thông tin người mua"><div className="grid gap-4 sm:grid-cols-2"><Input label="Tên người mua" field="buyerName" /><Input label="Mã số thuế" field="buyerTaxCode" /><div className="sm:col-span-2"><Input label="Địa chỉ" field="buyerAddress" /></div></div></Section>
     <Section title="Thông tin thanh toán"><div className="grid gap-4 sm:grid-cols-2"><Input label="Tổng tiền trước thuế" field="subtotal" type="number" /><Input label="Tiền thuế GTGT" field="vatAmount" type="number" /><Input label="Tổng tiền thanh toán" field="totalAmount" type="number" emphasis /><Input label="Hình thức thanh toán" field="paymentMethod" /><div className="sm:col-span-2"><Input label="Số tiền bằng chữ" field="amountInWords" multiline /></div></div></Section>
-    {form.taxAuthorityCode && <Section title="Thông tin hóa đơn điện tử"><Input label="Mã cơ quan thuế" field="taxAuthorityCode" /></Section>}
-    {invoice.items.length > 0 && <Section title="Hàng hóa / dịch vụ"><div className="overflow-x-auto"><table className="si-table min-w-[850px]"><thead><tr><th>Tên hàng hóa / dịch vụ</th><th>ĐVT</th><th className="text-right">Số lượng</th><th className="text-right">Đơn giá</th><th className="text-right">Thuế suất</th><th className="text-right">Tiền thuế</th><th className="text-right">Thành tiền</th></tr></thead><tbody>{invoice.items.map((item, index) => <tr key={item.id ?? index}><td className="text-ink-soft">{item.productName || '—'}</td><td className="text-ink-muted">{item.unit || '—'}</td><td className="si-num text-right">{invoiceQuantity(item.quantity)}</td><td className="si-num text-right">{money(item.unitPrice)}</td><td className="si-num text-right">{rate(item.taxRate)}</td><td className="si-num text-right">{money(item.taxAmount)}</td><td className="si-num text-right font-semibold">{money(item.amount)}</td></tr>)}</tbody></table></div></Section>}
+    {(form.taxAuthorityCode || editable) && <Section title="Thông tin hóa đơn điện tử"><Input label="Mã cơ quan thuế" field="taxAuthorityCode" /></Section>}
+    </>}
+    {invoice.items.length > 0 && <Section title="Hàng hóa / dịch vụ"><div className="overflow-x-auto"><table className="si-table min-w-[850px]"><thead><tr><th>Tên hàng hóa / dịch vụ</th><th>ĐVT</th><th className="text-right">Số lượng</th><th className="text-right">Đơn giá</th><th className="text-right">Thuế suất</th><th className="text-right">Tiền thuế</th>{hasItemDiscount(invoice.items) && <th className="text-right">Chiết khấu</th>}<th className="text-right">Thành tiền</th></tr></thead><tbody>{invoice.items.map((item, index) => <tr key={item.id ?? index}><td className="text-ink-soft">{item.productName || '—'}</td><td className="text-ink-muted">{item.unit || '—'}</td><td className="si-num text-right">{invoiceQuantity(item.quantity)}</td><td className="si-num text-right">{money(item.unitPrice)}</td><td className="si-num text-right">{rate(item.taxRate)}</td><td className="si-num text-right">{money(item.taxAmount)}</td>{hasItemDiscount(invoice.items) && <td className="si-num text-right">{money(item.discountAmount ?? null)}</td>}<td className="si-num text-right font-semibold">{money(item.amount)}</td></tr>)}</tbody></table></div>{hasItemDiscount(invoice.items) && <p className="mt-2 text-xs text-ink-muted">{ITEM_DISCOUNT_NOTE}</p>}</Section>}
     {rawText != null && <details className="rounded-card border-hairline border p-4"><summary className="cursor-pointer font-medium text-ink-soft">Văn bản OCR gốc</summary><pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-ink-soft">{rawText || 'Chưa có nội dung'}</pre></details>}
   </div>
 }

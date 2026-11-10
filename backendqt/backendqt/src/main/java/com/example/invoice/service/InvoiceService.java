@@ -109,6 +109,55 @@ public class InvoiceService {
 				.orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn của chứng từ"));
 	}
 
+	/**
+	 * Per-field report of the latest AI run (raw value, normalized value, status, reasons), or null when the document
+	 * was processed before reports existed.
+	 */
+	@Transactional(readOnly = true)
+	public com.fasterxml.jackson.databind.JsonNode findFieldValidation(Long documentId) {
+		Document document = documentService.load(documentId);
+		return extractedFieldRepository.findByDocumentId(document.getId()).stream()
+				.filter(field -> com.example.invoice.ai.FieldValidationReport.FIELD.equals(field.getFieldName()))
+				.map(ExtractedField::getFieldValue).filter(java.util.Objects::nonNull).findFirst()
+				.map(value -> {
+					try { return FIELD_REPORT_READER.readTree(value); }
+					catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+						throw new IllegalStateException("Báo cáo kiểm tra trường bị hỏng", exception);
+					}
+				}).orElse(null);
+	}
+
+	private static final com.fasterxml.jackson.databind.ObjectMapper FIELD_REPORT_READER = new com.fasterxml.jackson.databind.ObjectMapper();
+
+	/** Row discounts recorded by the latest AI run; empty when there is no report or it cannot be read. */
+	private List<com.example.invoice.ai.FieldValidationReport.ItemDiscount> itemDiscounts(Invoice invoice) {
+		if (invoice.getDocument() == null || invoice.getDocument().getId() == null || invoice.getItems().isEmpty()) return List.of();
+		return extractedFieldRepository.findByDocumentId(invoice.getDocument().getId()).stream()
+				.filter(field -> com.example.invoice.ai.FieldValidationReport.FIELD.equals(field.getFieldName()))
+				.map(ExtractedField::getFieldValue).filter(java.util.Objects::nonNull).findFirst()
+				.map(value -> {
+					try {
+						var node = FIELD_REPORT_READER.readTree(value).path("itemDiscounts");
+						if (!node.isArray()) return List.<com.example.invoice.ai.FieldValidationReport.ItemDiscount>of();
+						return List.of(FIELD_REPORT_READER.treeToValue(node, com.example.invoice.ai.FieldValidationReport.ItemDiscount[].class));
+					} catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException exception) {
+						return List.<com.example.invoice.ai.FieldValidationReport.ItemDiscount>of();
+					}
+				}).orElse(List.of());
+	}
+
+	/** The discount read for a row with exactly these values; each recorded discount is used once. */
+	private static java.math.BigDecimal takeDiscount(List<com.example.invoice.ai.FieldValidationReport.ItemDiscount> discounts,
+			com.example.invoice.entity.InvoiceItem item) {
+		for (var iterator = discounts.iterator(); iterator.hasNext();) {
+			var discount = iterator.next();
+			if (!discount.matches(item.getProductName(), item.getQuantity(), item.getUnitPrice(), item.getAmount())) continue;
+			iterator.remove();
+			return discount.discountAmount();
+		}
+		return null;
+	}
+
 	@Transactional(readOnly = true)
 	public List<ExtractedFieldResponse> findExtractedFieldsByDocumentId(Long documentId) {
 		return findExtractedFieldsByDocumentId(documentId, false);
@@ -117,10 +166,29 @@ public class InvoiceService {
 	@Transactional(readOnly = true)
 	public List<ExtractedFieldResponse> findExtractedFieldsByDocumentId(Long documentId, boolean includeRetailDetails) {
 		Document document = documentService.load(documentId);
-		return extractedFieldRepository.findByDocumentId(document.getId()).stream()
+		List<ExtractedField> fields = extractedFieldRepository.findByDocumentId(document.getId()).stream()
                 .filter(field -> includeRetailDetails || !RetailInvoiceDetailsService.FIELD.equals(field.getFieldName()))
-				.map(this::toExtractedFieldResponse).toList();
+                // The per-field report has its own endpoint; it is not an extracted value.
+                .filter(field -> !com.example.invoice.ai.FieldValidationReport.FIELD.equals(field.getFieldName())).toList();
+		java.util.Map<String, ExtractedFieldNameResolver.Resolved> names = fieldNameResolver == null ? java.util.Map.of()
+				: fieldNameResolver.resolve(document.getId(), fields.stream().map(ExtractedField::getFieldName).toList());
+		java.util.Map<Long, ExtractedFieldResponse.FieldLocation> manual = regionSelections == null ? java.util.Map.of()
+				: regionSelections.manualLocations(document.getId());
+		return fields.stream().map(field -> {
+			ExtractedFieldResponse response = toExtractedFieldResponse(field);
+			ExtractedFieldNameResolver.Resolved name = names.get(field.getFieldName());
+			ExtractedFieldResponse.FieldLocation drawn = manual.get(field.getId());
+			List<ExtractedFieldResponse.FieldLocation> locations = drawn == null ? response.locations()
+					: java.util.stream.Stream.concat(java.util.stream.Stream.of(drawn), response.locations().stream()).toList();
+			return new ExtractedFieldResponse(response.id(), response.fieldName(), response.fieldValue(), response.source(),
+					response.confidence(), response.originalAiValue(), response.correctedValue(), response.manuallyCorrected(),
+					response.correctedById(), response.correctedAt(), locations,
+					name == null ? null : name.displayName(), name == null ? null : name.source());
+		}).toList();
 	}
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false) private ExtractedFieldNameResolver fieldNameResolver;
+	@org.springframework.beans.factory.annotation.Autowired(required = false) private RegionSelectionService regionSelections;
 
 	@Transactional
 	public InvoiceResponse update(Long id, InvoiceRequest request) {
@@ -235,9 +303,10 @@ public class InvoiceService {
 	}
 
 	private InvoiceResponse toResponse(Invoice invoice) {
+		List<com.example.invoice.ai.FieldValidationReport.ItemDiscount> discounts = new java.util.ArrayList<>(itemDiscounts(invoice));
 		List<InvoiceItemResponse> items = invoice.getItems().stream()
 				.map(item -> new InvoiceItemResponse(item.getId(), item.getProductName(), item.getQuantity(), item.getUnit(),
-						item.getUnitPrice(), item.getTaxRate(), item.getTaxAmount(), item.getAmount()))
+						item.getUnitPrice(), item.getTaxRate(), item.getTaxAmount(), item.getAmount(), takeDiscount(discounts, item)))
 				.toList();
 		return new InvoiceResponse(invoice.getId(), invoice.getDocument().getId(), invoice.getInvoiceNumber(),
 				invoice.getInvoiceSeries(), invoice.getInvoiceDate(), invoice.getSellerName(), invoice.getSellerTaxCode(), invoice.getSellerAddress(),

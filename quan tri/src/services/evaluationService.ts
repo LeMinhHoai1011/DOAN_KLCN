@@ -44,7 +44,14 @@ export interface AiAccuracyReport {
   from: string | null; to: string | null; approvedDocuments: number; comparedDocuments: number; skippedDocuments: number; unchangedDocuments: number
   compared: number; correct: number; wrong: number; missing: number; extra: number; accuracy: number | null
   byField: AiFieldScore[]; recentChanges: DocumentAiChanges[]
+  /** ALL, then HEADER, ITEMS, CLASSIFICATION. Absent from servers older than this field. */
+  groups?: AiGroupScore[]
+  /** Every approved document in the range, newest approval first. */
+  documents?: AiDocumentRow[]
 }
+export interface AiGroupScore { group: string; compared: number; correct: number; wrong: number; missing: number; extra: number; precision: number | null; recall: number | null; f1: number | null }
+export type AiDocumentStatus = 'EXACT' | 'CHANGED' | 'SKIPPED'
+export interface AiDocumentRow { documentId: number; fileName: string | null; approvedAt: string | null; status: AiDocumentStatus; skipReason: string | null; compared: number; correct: number; changes: number; accuracy: number | null }
 export const evaluationService = {
   aiAccuracy: async (params: { from?: string; to?: string }) => (await api.get<AiAccuracyReport>('/api/v1/evaluation/ai-accuracy', { params })).data,
   documentAiChanges: async (documentId: number) => (await api.get<DocumentAiChanges>(`/api/v1/documents/${documentId}/ai-changes`)).data,

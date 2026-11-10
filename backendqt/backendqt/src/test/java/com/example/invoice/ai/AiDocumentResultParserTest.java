@@ -36,9 +36,14 @@ class AiDocumentResultParserTest {
             {"invoice":{"totalAmount":80000.000,"items":[]}}
             """, "raw", 1);
         assertEquals(0, result.invoice().totalAmount().compareTo(new BigDecimal("80000")));
-        assertThrows(AiProviderException.class, () -> AiDocumentResultParser.parse("test", "test", """
+        // An unreadable value no longer fails the whole document: it is left empty, kept as raw text and reported.
+        var malformed = AiDocumentResultParser.parse("test", "test", """
             {"invoice":{"totalAmount":"8.00.000","items":[]}}
-            """, "raw", 1));
+            """, "raw", 1);
+        assertEquals(null, malformed.invoice().totalAmount());
+        assertTrue(malformed.warnings().stream().anyMatch(w -> w.startsWith("EXTRACTION_FAILED_TOTAL_AMOUNT")));
+        assertTrue(malformed.notes().stream().anyMatch(n -> "totalAmount".equals(n.field()) && "8.00.000".equals(n.rawValue())
+                && "INVALID".equals(n.status())));
         assertEquals(0, InvoiceNumberFormat.parse("80,000.000").compareTo(new BigDecimal("80000")));
         assertEquals(0, InvoiceNumberFormat.parse("1234.56").compareTo(new BigDecimal("1234.56")));
     }

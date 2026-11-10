@@ -40,4 +40,34 @@ class OcrTextNormalizerTest {
 		assertThat(result).contains("HÓA ĐƠN GIÁ TRỊ GIA TĂNG", "TỔNG TIỀN 1.100.000");
 		assertThat(result.length()).isLessThanOrEqualTo(1536 * 3);
 	}
+
+	@Test
+	void keepsRepeatedGoodsRowsBecauseBothAreCharged() {
+		String result = new OcrTextNormalizer(new AiProperties())
+				.normalizeAndCompact("Nước suối Chai 2 5.000 10.000\nNước suối Chai 2 5.000 10.000\nTổng cộng 20.000");
+		assertThat(result.split("\\R")).containsExactly("Nước suối Chai 2 5.000 10.000",
+				"Nước suối Chai 2 5.000 10.000", "Tổng cộng 20.000");
+	}
+
+	@Test
+	void reportsTruncationAndKeepsTableRowsBeforePlainText() {
+		AiProperties properties = new AiProperties();
+		properties.getOcr().setMaxPromptWords(60);
+		StringBuilder source = new StringBuilder("HÓA ĐƠN GIÁ TRỊ GIA TĂNG\n");
+		for (int index = 0; index < 6; index++) source.append("Lời cảm ơn quý khách lần thứ ").append((char) ('A' + index)).append(" đã mua hàng\n");
+		for (int index = 1; index <= 5; index++) source.append(index).append(" Ống nhựa Mét 10 5.000 50.000\n");
+		source.append("Tổng cộng tiền thanh toán 250.000");
+		OcrTextNormalizer.Result result = new OcrTextNormalizer(properties).normalize(source.toString());
+		assertThat(result.truncated()).isTrue();
+		assertThat(result.droppedLines()).isPositive();
+		for (int index = 1; index <= 5; index++) assertThat(result.text()).contains(index + " Ống nhựa Mét 10 5.000 50.000");
+		assertThat(result.text()).contains("HÓA ĐƠN GIÁ TRỊ GIA TĂNG", "Tổng cộng tiền thanh toán 250.000");
+	}
+
+	@Test
+	void shortTextIsNotTruncated() {
+		OcrTextNormalizer.Result result = new OcrTextNormalizer(new AiProperties()).normalize("HÓA ĐƠN\nTổng 1.000");
+		assertThat(result.truncated()).isFalse();
+		assertThat(result.droppedLines()).isZero();
+	}
 }

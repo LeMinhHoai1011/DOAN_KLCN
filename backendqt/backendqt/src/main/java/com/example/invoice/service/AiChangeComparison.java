@@ -19,19 +19,31 @@ public final class AiChangeComparison {
     private static final List<String> CLASSIFICATION = List.of("predictedLabel", "category", "accountingAccount");
     private static final List<String> ITEM = List.of("productName", "quantity", "unit", "unitPrice", "taxRate", "taxAmount", "amount");
 
+    /** Field groups reported separately: invoice header, goods rows, classification. */
+    public static final String GROUP_HEADER = "HEADER", GROUP_ITEMS = "ITEMS", GROUP_CLASSIFICATION = "CLASSIFICATION";
+
     public record Change(String field, Integer row, String kind, String aiValue, String finalValue) {}
-    public record Result(int compared, List<Change> changes) {
+    /** {@code comparedByGroup}: values compared per {@link #group(String)}. */
+    public record Result(int compared, List<Change> changes, java.util.Map<String, Integer> comparedByGroup) {
+        public Result(int compared, List<Change> changes) { this(compared, changes, java.util.Map.of()); }
         public int correct() { return compared - changes.size(); }
+    }
+
+    public static String group(String field) {
+        if (field != null && field.startsWith("items.")) return GROUP_ITEMS;
+        return CLASSIFICATION.contains(field) ? GROUP_CLASSIFICATION : GROUP_HEADER;
     }
 
     private static final class Tally {
         int compared;
         final List<Change> changes = new ArrayList<>();
+        final java.util.Map<String, Integer> byGroup = new java.util.LinkedHashMap<>();
 
         void compare(String field, Integer row, JsonNode ai, JsonNode kept) {
             String left = text(ai), right = text(kept);
             if (left == null && right == null) return;
             compared++;
+            byGroup.merge(group(field), 1, Integer::sum);
             if (same(left, right)) return;
             changes.add(new Change(field, row, left == null ? MISSING : right == null ? EXTRA : WRONG, left, right));
         }
@@ -42,7 +54,7 @@ public final class AiChangeComparison {
         for (String field : CLASSIFICATION) tally.compare(field, null, ai.path("classification").path(field), kept.path("classification").path(field));
         for (String field : HEADER) tally.compare(field, null, ai.path("invoice").path(field), kept.path("invoice").path(field));
         compareItems(tally, ai.path("invoice").path("items"), kept.path("invoice").path("items"));
-        return new Result(tally.compared, List.copyOf(tally.changes));
+        return new Result(tally.compared, List.copyOf(tally.changes), java.util.Map.copyOf(tally.byGroup));
     }
 
     /** Rows pair by name first, so one inserted row is not reported as every later row being wrong. */
