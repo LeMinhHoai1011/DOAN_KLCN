@@ -19,6 +19,8 @@ public final class AssessmentWarnings {
             if (code.equals("DOCUMENT_TYPE_REASON")) severity = "INFO";
             // Automatic goods-row repairs are shown to the accountant but do not block the document by themselves.
             else if (InvoiceItemRepairs.CODES.contains(code)) severity = "WARNING";
+            // Scaled with the printed amount as evidence; the value before is kept in the field notes.
+            else if (code.equals(MoneyScaleRepairs.REPAIRED) || code.equals(InvoiceNumberRepairs.REPAIRED)) severity = "WARNING";
             // Informational: the stored value is still usable and the raw value is kept in the field report.
             else if (code.equals("PRECISION_LOSS") || code.equals("TAX_CODE_CHECKSUM_MISMATCH")) severity = "WARNING";
             else if (code.equals("NON_CRITICAL") || (code.equals("AI_VALIDATION_WARNING") && (lower.contains("thiếu dấu") || lower.contains("mất dấu")

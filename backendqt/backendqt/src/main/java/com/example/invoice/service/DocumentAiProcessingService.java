@@ -1,5 +1,7 @@
 package com.example.invoice.service;
 
+import com.example.invoice.ai.SourceEvidenceRepairs;
+
 import com.example.invoice.ai.AiDocumentPromptFactory;
 import com.example.invoice.ai.AiDocumentPromptFactory.AccountingCategoryOption;
 import com.example.invoice.ai.AiDocumentResultValidator;
@@ -344,18 +346,26 @@ public class DocumentAiProcessingService {
 				log.info("AI structured extraction file={} requestMode=TEXT retryAttempt=0", fileName);
 				progressDetail("Gửi văn bản OCR cho " + modelLabel());
 				AiDocumentResult textResult = aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText, textPrompt));
-				return withTruncationWarning(textResult, normalized);
+				return SourceEvidenceRepairs.apply(withTruncationWarning(textResult, normalized), sourceText(ocr, normalizedText));
 			} catch (AiProviderException firstFailure) {
 				if (!isStructuredOutputFailure(firstFailure)) throw firstFailure;
                 log.warn("AI text format invalid; one vision fallback file={}", fileName);
                 progressDetail("Kết quả chưa đúng định dạng, thử lại bằng ảnh với " + modelLabel());
-                return aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt));
+                return SourceEvidenceRepairs.apply(aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt)),
+                        sourceText(ocr, normalizedText));
 			}
 		}
 		log.info("AI vision fallback file={} reason={} imageBytes={}", fileName,
 				ocr == null ? "OCR_UNAVAILABLE" : "OCR_LOW_CONFIDENCE", bytes.length);
 		progressDetail("OCR chưa đủ tin cậy, gửi ảnh cho " + modelLabel());
-		return aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt));
+		return SourceEvidenceRepairs.apply(aiProcessingService.analyzeDocument(new AiDocumentRequest(fileName, contentType, bytes, documentTypes, prompt)),
+				sourceText(ocr, normalizedText));
+	}
+
+	/** Raw OCR text plus the text sent to the model: evidence for money the model read 1000 times too small. */
+	private static String sourceText(OcrPageResult ocr, String normalizedText) {
+		String raw = ocr == null || ocr.text() == null ? "" : ocr.text();
+		return raw + "\n" + (normalizedText == null ? "" : normalizedText);
 	}
 
 	private String modelLabel() {
@@ -550,13 +560,15 @@ public class DocumentAiProcessingService {
 		OcrTextNormalizer.Result normalized = normalizeOcr(text);
 		String normalizedText = normalized.text();
 		String textPrompt = AiDocumentPromptFactory.forTextExtraction(prompt);
-		AiDocumentResult first = withTruncationWarning(analyzeWithStrictRetry(fileName, normalizedText, textPrompt), normalized);
+		AiDocumentResult first = SourceEvidenceRepairs.apply(
+				withTruncationWarning(analyzeWithStrictRetry(fileName, normalizedText, textPrompt), normalized), text);
 		if (!rowsMissSubtotal(first)) return first;
 		log.warn("AI rows do not add up to the subtotal; one row retry file={}", fileName);
 		progressDetail("Dòng hàng chưa khớp tổng tiền, đọc lại với " + modelLabel());
 		try {
 			AiDocumentResult retried = aiProcessingService.analyzeTextDocument(new AiTextRequest(fileName, normalizedText,
 					AiDocumentPromptFactory.rowRetry(textPrompt)));
+			retried = SourceEvidenceRepairs.apply(retried, text);
 			return rowsMissSubtotal(retried) ? first : withTruncationWarning(retried, normalized);
 		} catch (AiProviderException retryFailure) {
 			return first;

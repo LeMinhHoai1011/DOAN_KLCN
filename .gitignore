@@ -63,6 +63,7 @@ lerna-debug.log*
 /backendqt/backendqt/src/test/java/com/example/invoice/service/BenchmarkHttpTest.java
 /backendqt/backendqt/src/test/java/com/example/invoice/service/BenchmarkLogPrivacyTest.java
 /backendqt/backendqt/src/test/java/com/example/invoice/service/BenchmarkReplayTest.java
+/backendqt/backendqt/src/test/java/com/example/invoice/evaluation/RuleBaselineReplayTest.java
 _probe_*
 
 # ---------- Editor / OS ----------
