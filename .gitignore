@@ -54,6 +54,8 @@ lerna-debug.log*
 *.pid
 
 # Local benchmark tools and mixed audit diagrams, excluded from system release.
+/.benchmark-export/
+/.chapter4-build/
 /benchmark_runner/
 /luồng xử lí/
 /backendqt/backendqt/src/main/java/com/example/invoice/controller/BenchmarkController.java
