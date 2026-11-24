@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kết quả benchmark hóa đơn</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #182c40; background: #eef3f8; }
+    main { max-width: 1040px; margin: auto; padding: 36px 18px; }
+    h1 { margin: 0; font-size: clamp(26px, 5vw, 38px); }
+    h2 { margin: 0 0 14px; font-size: 20px; }
+    p { margin: 8px 0 18px; }
+    section { margin-top: 18px; padding: 22px; background: white; border: 1px solid #dbe4ee; border-radius: 14px; }
+    #core, #chart, .legend { display: grid; gap: 12px; }
+    #core, .legend { grid-template-columns: repeat(3, 1fr); }
+    #core div { padding: 10px; background: #eef3f8; border-radius: 8px; }
+    #core strong { display: block; font-size: 24px; }
+    #chart { grid-template-columns: repeat(auto-fit, minmax(142px, 1fr)); margin-top: 18px; }
+    .group { text-align: center; }
+    .bars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 8px; }
+    .column { display: flex; flex-direction: column; justify-content: end; height: 170px; border-bottom: 1px solid #dbe4ee; }
+    .column span { font-size: 12px; white-space: nowrap; }
+    .fill { border-radius: 4px 4px 0 0; }
+    .precision { background: #2869d7; }
+    .recall { background: #e8a13a; }
+    .f1 { background: #8455ce; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; }
+    small { display: block; color: #53677e; }
+    .table { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+    th, td { padding: 8px 12px; text-align: right; border-bottom: 1px solid #dbe4ee; }
+    th:first-child { text-align: left; }
+  </style>
+  <script defer src="summary.js"></script>
+  <script defer src="dashboard.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Kết quả benchmark hóa đơn</h1>
+    <p id="coverage"></p>
+    <section>
+      <h2>Điểm các trường chính</h2>
+      <div id="core"></div>
+    </section>
+    <section>
+      <h2>Điểm theo nhóm trường</h2>
+      <div class="legend">
+        <span><i class="precision"></i>Precision</span>
+        <span><i class="recall"></i>Recall</span>
+        <span><i class="f1"></i>F1</span>
+      </div>
+      <div id="chart" aria-hidden="true"></div>
+      <div class="table">
+        <table>
+          <thead>
+            <tr><th scope="col">Nhóm</th><th scope="col">Mẫu đủ GT</th><th scope="col">TP</th><th scope="col">FP</th><th scope="col">FN</th><th scope="col">Precision</th><th scope="col">Recall</th><th scope="col">F1</th></tr>
+          </thead>
+          <tbody id="scores"></tbody>
+        </table>
+      </div>
+      <p><small>GT là dữ liệu chuẩn đã xác nhận. Dấu — biểu thị chưa có điểm. Nhóm Thanh toán chấm hình thức thanh toán, còn tổng thanh toán thuộc nhóm Tiền.</small></p>
+    </section>
+    <noscript>Bật JavaScript để xem kết quả benchmark.</noscript>
+  </main>
+</body>
+</html>
